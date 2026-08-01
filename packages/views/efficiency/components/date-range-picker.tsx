@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { CalendarDays } from "lucide-react";
 import type { DateRange } from "react-day-picker";
-import { zhCN } from "react-day-picker/locale";
+import { enUS, zhCN } from "react-day-picker/locale";
 import { getDefaultDateRangeWide } from "@multica/core/efficiency";
 import { Calendar } from "@multica/ui/components/ui/calendar";
 import {
@@ -13,6 +13,7 @@ import {
 } from "@multica/ui/components/ui/popover";
 import { buttonVariants } from "@multica/ui/components/ui/button";
 import { cn } from "@multica/ui/lib/utils";
+import { useT } from "../../i18n";
 
 // Date range picker — preset shortcuts plus a custom range calendar. Replaces
 // the 7d/30d/90d-only PeriodSelect with the full selection model of the source
@@ -24,14 +25,14 @@ import { cn } from "@multica/ui/lib/utils";
 // range (shortcut, or both calendar endpoints) is chosen — a half-picked range
 // stays a local draft so closing the popover discards it.
 
-const SHORTCUTS: { label: string; days: number }[] = [
-  { label: "今天", days: 1 },
-  { label: "1 天前", days: 2 },
-  { label: "3 天前", days: 4 },
-  { label: "1 周前", days: 7 },
-  { label: "1 月前", days: 30 },
-  { label: "3 月前", days: 90 },
-];
+const SHORTCUTS = [
+  { key: "today", days: 1 },
+  { key: "one_day_ago", days: 2 },
+  { key: "three_days_ago", days: 4 },
+  { key: "one_week_ago", days: 7 },
+  { key: "one_month_ago", days: 30 },
+  { key: "three_months_ago", days: 90 },
+] as const;
 
 function fmt(d: Date): string {
   const y = d.getFullYear();
@@ -60,6 +61,7 @@ export function DateRangePicker({
    *  without a trigger click. */
   defaultOpen?: boolean;
 }) {
+  const { t, i18n } = useT("efficiency");
   const [open, setOpen] = useState(defaultOpen);
   const [start, end] = value;
   // Draft selection while the popover is open. Deriving `selected` straight
@@ -73,6 +75,19 @@ export function DateRangePicker({
   // next click instead of restarting, so without this the very first click
   // would silently commit [oldStart, clickedDay].
   const [picking, setPicking] = useState(false);
+  const calendarLocale = (
+    i18n.resolvedLanguage ?? i18n.language
+  ).startsWith("zh")
+    ? zhCN
+    : enUS;
+  const shortcutLabels = {
+    today: t(($) => $.common.date_range.today),
+    one_day_ago: t(($) => $.common.date_range.one_day_ago),
+    three_days_ago: t(($) => $.common.date_range.three_days_ago),
+    one_week_ago: t(($) => $.common.date_range.one_week_ago),
+    one_month_ago: t(($) => $.common.date_range.one_month_ago),
+    three_months_ago: t(($) => $.common.date_range.three_months_ago),
+  };
 
   function handleOpenChange(next: boolean) {
     setOpen(next);
@@ -113,7 +128,7 @@ export function DateRangePicker({
         <div className="flex flex-col gap-0.5 border-r p-2">
           {SHORTCUTS.map((sc) => (
             <button
-              key={sc.label}
+              key={sc.key}
               type="button"
               onClick={() => {
                 onChange(getDefaultDateRangeWide(sc.days));
@@ -121,13 +136,13 @@ export function DateRangePicker({
               }}
               className="whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
-              {sc.label}
+              {shortcutLabels[sc.key]}
             </button>
           ))}
         </div>
         <Calendar
           mode="range"
-          locale={zhCN}
+          locale={calendarLocale}
           selected={draft}
           onSelect={handleSelect}
           defaultMonth={parseDay(start)}

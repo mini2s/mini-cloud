@@ -8,10 +8,10 @@ import {
   chatGlobalDailyOptions,
   globalConfigOptions,
   formatNumber,
-  glossaryTip,
   personDaysValue,
 } from "@multica/core/efficiency";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
+import { useEfficiencyGlossary } from "../i18n";
 import { useCountUp } from "./use-count-up";
 
 // Hero: person-day savings + gross cost savings + efficiency ratio (the
@@ -39,6 +39,7 @@ const FALLBACK_COST_PER_PERSON_DAY = 2000;
 
 export function HeroSaving({ startDate, endDate }: HeroSavingProps) {
   const wsId = useWorkspaceId();
+  const { glossaryTip } = useEfficiencyGlossary();
   const summaryQ = useQuery(dashboardSummaryOptions(wsId, startDate, endDate));
   const configQ = useQuery(globalConfigOptions(wsId));
   const chatEnabled = configQ.data?.chat_stats_enabled === true;

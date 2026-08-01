@@ -1,0 +1,174 @@
+{
+  "common": {
+    "entities": {
+      "need_other": "{{count}} 个需求"
+    },
+    "units": {
+      "minute_other": "{{count}} 分钟",
+      "hour_other": "{{count}} 小时",
+      "hours_minutes": "{{hours}} 小时 {{minutes}} 分钟",
+      "person_day_other": "{{value}} 人天"
+    },
+    "granularity": {
+      "day": "按天",
+      "week": "按周",
+      "month": "按月",
+      "aria_label": "趋势粒度"
+    },
+    "metric_tips": {
+      "verify_unavailable": "当前采集口径未记录命令执行（bash、测试或编译），验证时长不可用。",
+      "stage_estimate": "思考和执行采用粗略口径：基于对话轮与代码 diff 推断，并包含时长估算。",
+      "actual_effort": "实际人力：在 AI 辅助下，这个需求实际投入的有效工作时间。算法：会话活跃工作时间 + 未覆盖工作估算。",
+      "baseline_effort": "基线预估：不使用 AI 时，这个需求预计需要投入的人工时间。算法：综合代码量估算、相似历史任务与模型估算，并按置信度加权。",
+      "actual_delivery_time": "实际交付时间：这个需求从开始开发到合并实际经过的时间。算法：结束时间 − 开始时间。",
+      "baseline_delivery_time": "基线预估：不使用 AI 时，按团队常规工作节奏预计的交付时间。算法：基线人力预估 ÷ 团队工作密度。",
+      "effort_efficiency": "人力提效比：基线人力预估比实际人力多出的比例，表示 AI 节省的人工投入。算法：（基线人力预估 − 实际人力）÷ 实际人力。",
+      "calendar_efficiency": "日历提效比：基线交付时间比实际交付时间多出的比例，表示 AI 缩短的交付时间。算法：（基线交付时间 − 实际交付时间）÷ 实际交付时间。"
+    },
+    "distribution": {
+      "granularity": {
+        "coarse": "粗",
+        "medium": "中",
+        "fine": "细"
+      },
+      "negative_efficiency": "负提效",
+      "exclusion": {
+        "impossible_loc_rate": "物理不可能（>1 万行/日）",
+        "efficiency_ratio": "极端提效（>1000%）",
+        "actual_to_baseline": "工作量异常"
+      },
+      "loc_band": {
+        "human_reachable": "≤7 人力可达",
+        "accelerated": "7–21",
+        "high": "21–50",
+        "bulk": ">50 bulk"
+      }
+    },
+    "date_range": {
+      "today": "今天",
+      "one_day_ago": "过去 1 天",
+      "three_days_ago": "过去 3 天",
+      "one_week_ago": "过去 1 周",
+      "one_month_ago": "过去 1 个月",
+      "three_months_ago": "过去 3 个月"
+    },
+    "selector": {
+      "entity": {
+        "org": "部门",
+        "user": "用户",
+        "project": "项目",
+        "repo": "仓库"
+      },
+      "select": "选择{{entity}}",
+      "all": "全部{{entity}}",
+      "loading": "加载中…"
+    },
+    "project_create": {
+      "button": "创建项目",
+      "title": "创建项目",
+      "description": "创建后将直接进入该项目的聚焦详情，可继续添加仓库来源。",
+      "name": "项目名称",
+      "description_label": "描述",
+      "cancel": "取消",
+      "submit": "创建",
+      "submitting": "创建中…",
+      "name_required": "请输入项目名称。",
+      "missing_id": "创建项目后未返回项目 ID。",
+      "failed": "创建项目失败。",
+      "failed_detail": "创建项目失败：{{detail}}"
+    },
+    "scorecard": {
+      "period_compare": "环比：本期与上期",
+      "period_compare_flat": "环比：本期与上期（持平）",
+      "weekly_trend": "周趋势"
+    }
+  },
+  "overview": {
+    "page_title": "AI 提效总览"
+  },
+  "glossary": {
+    "labels": {
+      "formula": "算法",
+      "scope": "口径",
+      "separator": "："
+    },
+    "efficiency_ratio": {
+      "term": "日历提效比",
+      "description": "AI 让交付变快的倍数，越高越好。",
+      "formula": "（基线交付时间 − 实际交付时间）÷ 实际交付时间",
+      "scope": "小数口径展示为百分比；仅统计可计入且非异常的已合并需求。"
+    },
+    "work_caliber": {
+      "term": "人力提效比",
+      "description": "按活跃工作分钟而非交付时间计算的提效比。",
+      "formula": "（基线预估 − 实际人力投入）÷ 实际人力投入",
+      "scope": "与日历口径并存，并分别剔除各自的异常样本。"
+    },
+    "saved_person_days": {
+      "term": "节省人天",
+      "description": "AI 相比基线为团队节省的等效人天。",
+      "formula": "max（0，基线交付分钟 − 实际交付分钟）÷ 480",
+      "scope": "1 人天 = 480 分钟；仅统计可计入且非异常的已合并需求。"
+    },
+    "roi": {
+      "term": "ROI（投入产出比）",
+      "description": "每单位 AI 成本换回的等效人力节省。",
+      "formula": "折合节省成本 ÷ AI 成本；折合节省成本 = 节省人天 × 人天单价",
+      "scope": "人天单价取自系统配置；AI 成本采用看板任务口径。"
+    },
+    "ai_code_ratio": {
+      "term": "AI 代码占比",
+      "description": "交付代码中由 AI 生成并被采纳的比例。",
+      "formula": "AI 覆盖净增行 ÷ 总净增行",
+      "scope": "小数口径展示为百分比，并按可计入需求加权。"
+    },
+    "cost": {
+      "term": "AI 成本",
+      "description": "调用大模型产生的累计费用。",
+      "formula": "按各模型价格表对输入和输出 token 计费求和",
+      "scope": "采用看板任务口径并按 session 归集；仓库层 commit 不携带 token 成本。"
+    },
+    "active_users": {
+      "term": "活跃用户",
+      "description": "当期实际使用 AI 完成交付的去重用户数。",
+      "formula": "当期有可计入需求的去重用户数",
+      "scope": "按需求参与者统计；只有 commit、从未采集到 session 的用户不计入。"
+    },
+    "commit_diff_lines": {
+      "term": "代码贡献（净增行）",
+      "description": "当期提交的净改动代码行数。",
+      "formula": "汇总 commit 级净改动行",
+      "scope": "直接按 commit diff 行数汇总。"
+    },
+    "coverage_eligible": {
+      "term": "可计入需求",
+      "description": "数据完整、可纳入提效统计的需求。",
+      "formula": "同时具备时间与交付两侧数据",
+      "scope": "缺少任一侧数据或被判定为异常的需求会被隔离，不参与提效计算。"
+    },
+    "wow": {
+      "term": "环比",
+      "description": "本期相对紧邻的等长前一区间的变化。",
+      "formula": "（本期 − 上期）÷ |上期|",
+      "scope": "上期为 0 时不显示方向箭头。"
+    },
+    "merged_need": {
+      "term": "需求",
+      "description": "由特性分支聚合的一条交付需求，是提效统计的基本单元。",
+      "formula": "按特性分支聚合交付活动",
+      "scope": "main、master、develop、release 等默认分支上的提交不形成需求。"
+    },
+    "silica": {
+      "term": "含硅量（Silica）",
+      "description": "通过指纹匹配追溯为 AI 生成的代码占比。",
+      "formula": "将交付代码与已采集的 AI 生成代码指纹进行匹配",
+      "scope": "这是实验指标，当前覆盖率很低，暂不作为质量维度。"
+    },
+    "dept_efficiency": {
+      "term": "部门提效",
+      "description": "按部门聚合的提效比，用于部门间对比。",
+      "formula": "汇总可计入需求的日历提效比",
+      "scope": "包括所选部门及其全部子部门的成员。"
+    }
+  }
+}

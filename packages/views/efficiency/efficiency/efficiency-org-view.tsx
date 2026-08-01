@@ -16,7 +16,6 @@ import { useWorkspacePaths } from "@multica/core/paths";
 import {
   deptMembersOptions,
   deptOverviewOptions,
-  formatDuration,
   formatNumber,
   type DeptMember,
   type DeptTreeNodeWithSummary,
@@ -24,6 +23,7 @@ import {
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { cn } from "@multica/ui/lib/utils";
 import { useNavigation } from "../../navigation";
+import { useEfficiencyFormatters } from "../i18n";
 import {
   DRILLDOWN_ROW_CLASS,
   DRILLDOWN_TREE_ITEM_CLASS,
@@ -275,6 +275,7 @@ export function DeptMembersPanel({
   aiLabel?: string;
 }) {
   const wsId = useWorkspaceId();
+  const { formatDuration } = useEfficiencyFormatters();
   const paths = useWorkspacePaths();
   const { push } = useNavigation();
   const q = useQuery(
@@ -418,6 +419,7 @@ function MemberRow({
   member: DeptMember;
   onOpen?: () => void;
 }) {
+  const { formatDuration } = useEfficiencyFormatters();
   const value = (content: ReactNode) =>
     member.has_kanban_data ? content : "—";
   return (

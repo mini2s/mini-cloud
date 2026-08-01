@@ -49,12 +49,10 @@ export function defaultGranularity(spanDays: number): Granularity {
   return 'day'
 }
 
-export const GRANULARITY_CN: Record<Granularity, string> = { day: '按天', week: '按周', month: '按月' }
-
 export interface TimeBucket {
   /** Unique key. day: 'YYYY-MM-DD'; week: that week's Sunday 'YYYY-MM-DD'; month: 'YYYY-MM'. */
   key: string
-  /** x-axis label. day/week: 'MM/DD' (week uses Sunday); month: 'M月'. */
+  /** x-axis label supplied by the caller, or a locale-neutral fallback. */
   label: string
   /** Tooltip header date range (first/last buckets clipped by clamp). day: 'YYYY-MM-DD'; week/month: 'YYYY-MM-DD ~ YYYY-MM-DD'. */
   rangeText: string
@@ -88,6 +86,7 @@ export function buildBuckets(
   dates: string[],
   gran: Granularity,
   clamp?: { start?: string; end?: string },
+  formatLabel?: (key: string, granularity: Granularity) => string,
 ): TimeBucket[] {
   const uniq = Array.from(new Set(dates.filter((d) => parseLocalDate(d)))).sort()
   if (!uniq.length) return []
@@ -111,24 +110,20 @@ export function buildBuckets(
   // 2. Compute label / rangeText / spanDays per bucket (first/last clipped to natural bounds by clamp).
   return order.map((key) => {
     const memberDates = groups.get(key)!
-    let label: string
     let boundStart: string
     let boundEnd: string
     if (gran === 'day') {
-      label = mmdd(key)
       boundStart = key
       boundEnd = key
     } else if (gran === 'week') {
       const sun = parseLocalDate(key)!
       const sat = new Date(sun)
       sat.setDate(sat.getDate() + 6)
-      label = mmdd(key)
       boundStart = key
       boundEnd = toDateStr(sat)
     } else {
       const y = Number(key.slice(0, 4))
       const mo = Number(key.slice(5, 7))
-      label = `${mo}月`
       boundStart = `${key}-01`
       boundEnd = toDateStr(new Date(y, mo, 0)) // last day of that month
     }
@@ -137,6 +132,8 @@ export function buildBuckets(
     const clampedEnd = strMin(boundEnd, clamp?.end)
     const spanDays = Math.max(1, rangeDays(clampedStart, clampedEnd))
     const rangeText = gran === 'day' ? key : `${clampedStart} ~ ${clampedEnd}`
+    const label =
+      formatLabel?.(key, gran) ?? (gran === 'month' ? key : mmdd(key))
     return { key, label, rangeText, dates: memberDates, spanDays }
   })
 }

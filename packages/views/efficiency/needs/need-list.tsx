@@ -6,20 +6,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import {
-  ACTUAL_CALENDAR_TIP,
-  ACTUAL_WORK_TIP,
-  BASELINE_CALENDAR_TIP,
-  CALENDAR_RATIO_TIP,
   formatDateTimeNoYear,
-  formatDuration,
-  FUSED_BASELINE_WORK_TIP,
   getDefaultDateRangeWide,
   needsListOptions,
   parseOrder,
   toOrder,
   useUserNameMap,
   useViewState,
-  WORK_RATIO_TIP,
   type NeedsListQuery,
 } from "@multica/core/efficiency";
 import { Button } from "@multica/ui/components/ui/button";
@@ -41,6 +34,10 @@ import {
 } from "../components/drilldown-styles";
 import { RatioPill } from "../components/ratio-pill";
 import { ErrorBanner } from "../detail/shared";
+import {
+  useEfficiencyFormatters,
+  useEfficiencyMetricTips,
+} from "../i18n";
 import { InfoTip, SortHeader, Td, TdNum, Th, ThNum } from "../usage/shared";
 
 export interface NeedListFilters {
@@ -98,6 +95,8 @@ export function NeedList({
   const { push } = useNavigation();
   const { resolveName } = useUserNameMap();
   const { setTimeRange } = useViewState();
+  const { formatDuration } = useEfficiencyFormatters();
+  const metricTips = useEfficiencyMetricTips();
   const [draftFilters, setDraftFilters] = useState<NeedListFilters>(
     state.filters,
   );
@@ -324,7 +323,7 @@ export function NeedList({
                           desc={isSortDesc(SORT_FIELDS.calendar)}
                           onClick={() => onSort(SORT_FIELDS.calendar)}
                         />
-                        <InfoTip tip={CALENDAR_RATIO_TIP} />
+                        <InfoTip tip={metricTips.calendarEfficiency} />
                       </span>
                     </Th>
                     <Th>
@@ -335,7 +334,7 @@ export function NeedList({
                           desc={isSortDesc(SORT_FIELDS.work)}
                           onClick={() => onSort(SORT_FIELDS.work)}
                         />
-                        <InfoTip tip={WORK_RATIO_TIP} />
+                        <InfoTip tip={metricTips.effortEfficiency} />
                       </span>
                     </Th>
                     <Th>
@@ -357,7 +356,7 @@ export function NeedList({
                           desc={isSortDesc(SORT_FIELDS.actualCalendar)}
                           onClick={() => onSort(SORT_FIELDS.actualCalendar)}
                         />
-                        <InfoTip tip={ACTUAL_CALENDAR_TIP} />
+                        <InfoTip tip={metricTips.actualDeliveryTime} />
                       </span>
                     </ThNum>
                     <ThNum>
@@ -368,19 +367,19 @@ export function NeedList({
                           desc={isSortDesc(SORT_FIELDS.baselineCalendar)}
                           onClick={() => onSort(SORT_FIELDS.baselineCalendar)}
                         />
-                        <InfoTip tip={BASELINE_CALENDAR_TIP} />
+                        <InfoTip tip={metricTips.baselineDeliveryTime} />
                       </span>
                     </ThNum>
                     <ThNum>
                       <span className="inline-flex items-center justify-end gap-1">
                         实际人力
-                        <InfoTip tip={ACTUAL_WORK_TIP} />
+                        <InfoTip tip={metricTips.actualEffort} />
                       </span>
                     </ThNum>
                     <ThNum>
                       <span className="inline-flex items-center justify-end gap-1">
                         传统人力预估
-                        <InfoTip tip={FUSED_BASELINE_WORK_TIP} />
+                        <InfoTip tip={metricTips.baselineEffort} />
                       </span>
                     </ThNum>
                     <Th>

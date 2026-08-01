@@ -7,7 +7,6 @@ import { useWorkspacePaths } from "@multica/core/paths";
 import {
   commitDetailOptions,
   fmtCost,
-  formatDuration,
   formatLocalTime,
   formatV2Ratio,
   useUpdateCommitManual,
@@ -30,6 +29,7 @@ import {
 import { DetailShell } from "./detail-shell";
 import { useNavigation } from "../../navigation";
 import { DRILLDOWN_LINK_CLASS } from "../components/drilldown-styles";
+import { useEfficiencyFormatters } from "../i18n";
 import { EmptyRow, ErrorBanner, Kv, KvGrid, Panel, ToneBadge } from "./shared";
 
 // Commit detail page. Ports the source CommitDetail to the shared-views
@@ -54,6 +54,7 @@ export function CommitDetail({ commitId, onBack }: CommitDetailProps) {
   const paths = useWorkspacePaths();
   const { push } = useNavigation();
   const { resolveName } = useUserNameMap();
+  const { formatDuration } = useEfficiencyFormatters();
   const q = useQuery(commitDetailOptions(wsId, commitId));
 
   // Top-level efficiency_ratio overrides the commit's own (source §1.2).
@@ -87,7 +88,7 @@ export function CommitDetail({ commitId, onBack }: CommitDetailProps) {
       return `计算方式：Σ(Task 实际耗时 × AI 代码占比)\n${parts.join(" + ")}`;
     }
     return "无关联 Task";
-  }, [commit.commit_real_minutes_reason, relatedTasks]);
+  }, [commit.commit_real_minutes_reason, formatDuration, relatedTasks]);
 
   return (
     <DetailShell
@@ -426,6 +427,8 @@ function ManualValue({
   original?: number | null;
   originalReason?: string;
 }) {
+  const { formatDuration } = useEfficiencyFormatters();
+
   if (manual != null) {
     return (
       <span className="inline-flex flex-wrap items-center gap-1.5">

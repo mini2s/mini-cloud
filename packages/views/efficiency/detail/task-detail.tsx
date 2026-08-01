@@ -6,7 +6,6 @@ import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import {
   fmtCost,
-  formatDuration,
   formatLocalTime,
   getTaskFileUrl,
   taskDetailOptions,
@@ -30,6 +29,7 @@ import {
 import { DetailShell } from "./detail-shell";
 import { useNavigation } from "../../navigation";
 import { DRILLDOWN_LINK_CLASS } from "../components/drilldown-styles";
+import { useEfficiencyFormatters } from "../i18n";
 import { ErrorBanner, Kv, KvGrid, Panel } from "./shared";
 
 // Task detail page. Ports the source TaskDetail to the shared-views layer:
@@ -502,6 +502,8 @@ function ManualValue({
   original?: number | null;
   originalReason?: string;
 }) {
+  const { formatDuration } = useEfficiencyFormatters();
+
   if (manual != null) {
     return (
       <span className="inline-flex flex-wrap items-center gap-1.5">

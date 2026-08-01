@@ -3207,7 +3207,7 @@ export async function testChatDatasource(
     schema: chatDatasourceTestResultSchema,
     fallback: {
       success: false,
-      message: "连接测试未返回有效结果",
+      message: "",
       ping_ms: 0,
     },
   });
@@ -3424,7 +3424,7 @@ export async function getChatLogPreview(
       max_size_mb: 0,
       previewable: false,
       exceeded: false,
-      message: "日志预览未返回内容",
+      message: "",
     },
   });
 }

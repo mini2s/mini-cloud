@@ -30,6 +30,7 @@ import {
 } from "@multica/ui/components/ui/chart";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { VerticalBarChart, type BarDatum } from "../charts";
+import { useT } from "../../i18n";
 
 type Entity = "org" | "user" | "project" | "repo";
 type RatioEntity = Exclude<Entity, "org">;
@@ -83,6 +84,7 @@ function OrganizationDistribution({
   endDate: string;
 }) {
   const wsId = useWorkspaceId();
+  const { t } = useT("efficiency");
   const [caliber, setCaliber] =
     useState<DistributionCaliber>("calendar");
   const [binCount, setBinCount] = useState(12);
@@ -119,6 +121,44 @@ function OrganizationDistribution({
     () => computeDistributionLocBands(rows),
     [rows],
   );
+  const distributionLabels = {
+    coarse: t(($) => $.common.distribution.granularity.coarse),
+    medium: t(($) => $.common.distribution.granularity.medium),
+    fine: t(($) => $.common.distribution.granularity.fine),
+    negative: t(($) => $.common.distribution.negative_efficiency),
+    impossible_loc_rate: t(
+      ($) => $.common.distribution.exclusion.impossible_loc_rate,
+    ),
+    efficiency_ratio: t(
+      ($) => $.common.distribution.exclusion.efficiency_ratio,
+    ),
+    actual_to_baseline: t(
+      ($) => $.common.distribution.exclusion.actual_to_baseline,
+    ),
+    human_reachable: t(
+      ($) => $.common.distribution.loc_band.human_reachable,
+    ),
+    accelerated: t(($) => $.common.distribution.loc_band.accelerated),
+    high: t(($) => $.common.distribution.loc_band.high),
+    bulk: t(($) => $.common.distribution.loc_band.bulk),
+  };
+  const histogram = distribution.histogram.map((bucket) => ({
+    ...bucket,
+    label:
+      bucket.kind === "negative"
+        ? distributionLabels.negative
+        : bucket.kind === "overflow"
+          ? `>${formatV2Ratio(bucket.lo, 0)}`
+          : `${formatV2Ratio(bucket.lo, 0)}–${formatV2Ratio(bucket.hi, 0)}`,
+  }));
+  const localizedExclusionReasons = exclusionReasons.map((item) => ({
+    ...item,
+    label: distributionLabels[item.key],
+  }));
+  const localizedLocBands = locBands.map((item) => ({
+    ...item,
+    label: distributionLabels[item.key],
+  }));
   const latestDate = useMemo(() => {
     const dates = rows
       .map((row) => row.dev_end_ts)
@@ -171,7 +211,7 @@ function OrganizationDistribution({
                 variant={binCount === preset.bins ? "secondary" : "ghost"}
                 onClick={() => setBinCount(preset.bins)}
               >
-                {preset.label}
+                {distributionLabels[preset.key]}
               </Button>
             ))}
           </div>
@@ -215,7 +255,7 @@ function OrganizationDistribution({
               <DistributionMetric label="最新完成日期" value={latestDate} />
             </div>
 
-            <StackedDistributionChart data={distribution.histogram} />
+            <StackedDistributionChart data={histogram} />
 
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <DistributionMetric
@@ -240,12 +280,12 @@ function OrganizationDistribution({
           <DiagnosticList
             title="异常隔离原因"
             description="原因可能重叠计数"
-            items={exclusionReasons}
+            items={localizedExclusionReasons}
           />
           <DiagnosticList
             title="LOC 速率分档"
             description="净代码行 / 日历分钟"
-            items={locBands}
+            items={localizedLocBands}
           />
         </div>
       ) : null}

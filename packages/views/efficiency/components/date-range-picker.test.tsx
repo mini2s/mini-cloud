@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { screen, fireEvent, cleanup } from "@testing-library/react";
 import { DateRangePicker } from "./date-range-picker";
+import { renderWithI18n } from "../../test/i18n";
+
+function renderPicker(ui: React.ReactElement) {
+  return renderWithI18n(ui, { locale: "zh-Hans" });
+}
 
 // DateRangePicker commits a [start, end] YYYY-MM-DD tuple only when a full
 // range is chosen (shortcut, or both calendar endpoints); a half-picked range
@@ -29,7 +34,7 @@ describe("DateRangePicker", () => {
   });
 
   it("trigger shows the committed range", () => {
-    render(
+    renderPicker(
       <DateRangePicker
         value={["2026-07-01", "2026-07-29"]}
         onChange={() => {}}
@@ -39,14 +44,21 @@ describe("DateRangePicker", () => {
   });
 
   it("renders all six shortcuts when open", () => {
-    render(
+    renderPicker(
       <DateRangePicker
         value={["2026-07-01", "2026-07-29"]}
         onChange={() => {}}
         defaultOpen
       />,
     );
-    for (const label of ["今天", "1 天前", "3 天前", "1 周前", "1 月前", "3 月前"]) {
+    for (const label of [
+      "今天",
+      "过去 1 天",
+      "过去 3 天",
+      "过去 1 周",
+      "过去 1 个月",
+      "过去 3 个月",
+    ]) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
   });
@@ -55,14 +67,14 @@ describe("DateRangePicker", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(2026, 6, 29, 12, 0, 0));
     let captured: [string, string] | null = null;
-    render(
+    renderPicker(
       <DateRangePicker
         value={["2026-07-01", "2026-07-29"]}
         onChange={(r) => (captured = r)}
         defaultOpen
       />,
     );
-    fireEvent.click(screen.getByText("1 周前"));
+    fireEvent.click(screen.getByText("过去 1 周"));
     // 7-day window ending today: start = today - 6.
     expect(captured).toEqual(["2026-07-23", "2026-07-29"]);
     expect(screen.queryByText("今天")).not.toBeInTheDocument();
@@ -72,7 +84,7 @@ describe("DateRangePicker", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(2026, 6, 29, 12, 0, 0));
     let captured: [string, string] | null = null;
-    render(
+    renderPicker(
       <DateRangePicker
         value={["2026-07-01", "2026-07-29"]}
         onChange={(r) => (captured = r)}
@@ -85,7 +97,7 @@ describe("DateRangePicker", () => {
 
   it("calendar: first click stays a draft, second click commits and closes", () => {
     const calls: [string, string][] = [];
-    render(
+    renderPicker(
       <DateRangePicker
         value={["2026-07-01", "2026-07-29"]}
         onChange={(r) => calls.push(r)}

@@ -7,8 +7,8 @@ import {
   dashboardTrendsOptions,
   formatNumber,
   formatV2Ratio,
-  glossaryTip,
 } from "@multica/core/efficiency";
+import { useEfficiencyGlossary } from "../i18n";
 import { MetricScorecard } from "./metric-scorecard";
 
 // Three equal-height scorecards: active users / contributed lines / AI code
@@ -24,6 +24,7 @@ interface ScorecardStripProps {
 
 export function ScorecardStrip({ startDate, endDate }: ScorecardStripProps) {
   const wsId = useWorkspaceId();
+  const { glossaryTip } = useEfficiencyGlossary();
   const summaryQ = useQuery(dashboardSummaryOptions(wsId, startDate, endDate));
   const trendsQ = useQuery(dashboardTrendsOptions(wsId, startDate, endDate));
 

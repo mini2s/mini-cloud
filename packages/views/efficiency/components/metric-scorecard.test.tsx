@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { renderWithI18n } from "../../test/i18n";
 
 // Mock the shadcn Tooltip so the test doesn't depend on base-ui's Portal /
 // positioner layout in jsdom (which warns and can swallow the content). The
@@ -19,7 +20,7 @@ import { MetricScorecard } from "./metric-scorecard";
 
 describe("MetricScorecard", () => {
   it("renders label, value, hint and sparkline for typical props", () => {
-    render(
+    renderWithI18n(
       <MetricScorecard
         label="使用人数"
         value="1,234"
@@ -39,7 +40,7 @@ describe("MetricScorecard", () => {
   });
 
   it("renders a delta arrow for a positive wow", () => {
-    const { container } = render(
+    const { container } = renderWithI18n(
       <MetricScorecard
         label="贡献行数"
         value="9,876"
@@ -59,7 +60,7 @@ describe("MetricScorecard", () => {
   });
 
   it("renders no arrow when delta is null", () => {
-    const { container } = render(
+    const { container } = renderWithI18n(
       <MetricScorecard
         label="AI 代码占比"
         value="63%"
@@ -78,7 +79,7 @@ describe("MetricScorecard", () => {
   });
 
   it("shows a skeleton while loading and does not render the value", () => {
-    render(
+    renderWithI18n(
       <MetricScorecard
         label="使用人数"
         value="1,234"

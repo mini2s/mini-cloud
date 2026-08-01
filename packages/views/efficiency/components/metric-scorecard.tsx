@@ -11,6 +11,7 @@ import {
   formatV2Ratio,
   type DashboardTrendDelta,
 } from "@multica/core/efficiency";
+import { useT } from "../../i18n";
 
 // Overview scorecard: dimension label + glossary tooltip + big value + hint +
 // wow delta arrow + weekly sparkline. Display-only (no drill-down). The info
@@ -149,13 +150,14 @@ function DeltaArrow({
   delta?: DashboardTrendDelta | null;
   higherIsBetter: boolean;
 }) {
+  const { t } = useT("efficiency");
   if (!delta || delta.delta_pct == null) return null;
   const ratio = delta.delta_pct;
   if (ratio === 0) {
     return (
       <span
         className="text-xs font-medium tabular-nums text-muted-foreground"
-        title="环比：本期 vs 上期（持平）"
+        title={t(($) => $.common.scorecard.period_compare_flat)}
       >
         – 0%
       </span>
@@ -167,7 +169,7 @@ function DeltaArrow({
   return (
     <span
       className={`text-xs font-medium tabular-nums ${color}`}
-      title="环比：本期 vs 上期"
+      title={t(($) => $.common.scorecard.period_compare)}
     >
       {up ? "▲" : "▼"} {formatV2Ratio(Math.abs(ratio), 0)}
     </span>
@@ -178,6 +180,7 @@ function DeltaArrow({
 // safely degrades for single-point / empty data. Logic is identical to the
 // source; only the color is now a CSS-var string passed by the caller.
 function Sparkline({ data, color }: { data: number[]; color: string }) {
+  const { t } = useT("efficiency");
   const w = 100;
   const h = 28;
   const pts = data.filter((d) => Number.isFinite(d));
@@ -207,7 +210,7 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
       className="h-7 w-full"
       preserveAspectRatio="none"
       role="img"
-      aria-label="周趋势"
+      aria-label={t(($) => $.common.scorecard.weekly_trend)}
     >
       <path d={area} fill={color} fillOpacity={0.1} stroke="none" />
       <path

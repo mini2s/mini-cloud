@@ -6,7 +6,6 @@ import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import {
   fmtCost,
-  formatDuration,
   formatLocalTime,
   formatNumber,
   formatPercent,
@@ -52,6 +51,7 @@ import {
 } from "../components/drilldown-styles";
 import { MultiTrendChart, type MultiTrendPoint, type MultiTrendSeries } from "../charts";
 import { DateRangePicker } from "../components";
+import { useEfficiencyFormatters } from "../i18n";
 import { SortHeader, Th, ThNum, Td, TdNum } from "../usage/shared";
 import { DetailShell } from "./detail-shell";
 import { EmptyRow, ErrorBanner, Kv, KvGrid, Panel, shortId, ToneBadge } from "./shared";
@@ -169,6 +169,7 @@ export function RepoDetail({
   onBranchChange,
 }: RepoDetailProps) {
   const wsId = useWorkspaceId();
+  const { formatDuration } = useEfficiencyFormatters();
   const paths = useWorkspacePaths();
   const { push } = useNavigation();
   const { timeRange, setTimeRange } = useViewState();

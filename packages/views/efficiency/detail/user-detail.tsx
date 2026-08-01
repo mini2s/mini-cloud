@@ -5,7 +5,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import {
-  formatDuration,
   formatLocalTime,
   formatNumber,
   userDetailOptions,
@@ -20,6 +19,7 @@ import { ComboTrendChart } from "../charts";
 import { DRILLDOWN_LINK_CLASS } from "../components/drilldown-styles";
 import { RatioPill } from "../components/ratio-pill";
 import { useNavigation } from "../../navigation";
+import { useEfficiencyFormatters } from "../i18n";
 import {
   EmptyRow,
   Panel,
@@ -64,6 +64,7 @@ export function UserDetail({
   const paths = useWorkspacePaths();
   const { push } = useNavigation();
   const { resolveName } = useUserNameMap();
+  const { formatDuration } = useEfficiencyFormatters();
   const q = useQuery(userDetailOptions(wsId, userId, startDate, endDate));
 
   const summary = q.data?.summary;

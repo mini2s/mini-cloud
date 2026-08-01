@@ -5,20 +5,10 @@ import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import {
-  ACTUAL_CALENDAR_TIP,
-  ACTUAL_WORK_TIP,
-  BASELINE_CALENDAR_TIP,
-  CALENDAR_RATIO_TIP,
-  formatDuration,
   formatLocalTime,
   formatNumber,
   formatV2Ratio,
-  formatVerifyMin,
-  FUSED_BASELINE_WORK_TIP,
   needDetailOptions,
-  STAGE_ESTIMATE_TIP,
-  VERIFY_UNAVAILABLE_TIP,
-  WORK_RATIO_TIP,
   useUserNameMap,
   type NeedBaselineComponents,
   type NeedCommit,
@@ -28,6 +18,10 @@ import {
 import { useNavigation } from "../../navigation";
 import { DRILLDOWN_LINK_CLASS } from "../components/drilldown-styles";
 import { RatioPill } from "../components/ratio-pill";
+import {
+  useEfficiencyFormatters,
+  useEfficiencyMetricTips,
+} from "../i18n";
 import { InfoTip } from "../usage/shared";
 import { DetailShell } from "./detail-shell";
 import {
@@ -52,7 +46,7 @@ import {
 //   - efficiency_ratio / work_efficiency_ratio are DECIMAL ratios → formatV2Ratio (×100).
 //   - Baseline table uses minutes integers (formatNumber), NOT formatDuration.
 //   - fmtInt treats only null as "-"; fmtPct treats 0 ALSO as "-".
-//   - Verify duration uses formatVerifyMin (0 → "—").
+//   - Verify duration uses the locale-aware formatter (0 → "—").
 //
 // Simplifications vs source (documented per task brief):
 //   - No router: ids render as text; cross-entity links are the route layer's job.
@@ -73,6 +67,9 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
   const paths = useWorkspacePaths();
   const { push } = useNavigation();
   const { resolveName } = useUserNameMap();
+  const { formatDuration, formatVerifyDuration } =
+    useEfficiencyFormatters();
+  const metricTips = useEfficiencyMetricTips();
   const q = useQuery(needDetailOptions(wsId, needId));
 
   const need: NeedDetailModel = useMemo(
@@ -176,37 +173,37 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
           label="日历提效"
           value={<RatioPill value={need.efficiency_ratio} />}
           hint={bandHint || undefined}
-          tip={CALENDAR_RATIO_TIP}
+          tip={metricTips.calendarEfficiency}
           accent="success"
         />
         <KpiTile
           label="人力提效"
           value={<RatioPill value={need.work_efficiency_ratio} />}
-          tip={WORK_RATIO_TIP}
+          tip={metricTips.effortEfficiency}
           accent="info"
         />
         <KpiTile
           label="实际周期"
           value={formatDuration(need.total_calendar_min)}
-          tip={ACTUAL_CALENDAR_TIP}
+          tip={metricTips.actualDeliveryTime}
           accent="primary"
         />
         <KpiTile
           label="传统周期预估"
           value={formatDuration(need.baseline_calendar_min)}
-          tip={BASELINE_CALENDAR_TIP}
+          tip={metricTips.baselineDeliveryTime}
           accent="primary"
         />
         <KpiTile
           label="实际人力"
           value={formatDuration(need.total_active_work_corrected_min)}
-          tip={ACTUAL_WORK_TIP}
+          tip={metricTips.actualEffort}
           accent="warning"
         />
         <KpiTile
           label="传统人力预估"
           value={formatDuration(need.baseline_fused_work_min)}
-          tip={FUSED_BASELINE_WORK_TIP}
+          tip={metricTips.baselineEffort}
           accent="warning"
         />
       </section>
@@ -288,15 +285,15 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
       {/* Stage workload. */}
       <Panel title="阶段工作量">
         <KvGrid>
-          <Kv label="思考" title={STAGE_ESTIMATE_TIP}>{formatDuration(need.total_think_min)}</Kv>
-          <Kv label="执行" title={STAGE_ESTIMATE_TIP}>{formatDuration(need.total_exec_min)}</Kv>
-          <Kv label="验证" title={VERIFY_UNAVAILABLE_TIP}>{formatVerifyMin(need.total_verify_min)}</Kv>
+          <Kv label="思考" title={metricTips.stageEstimate}>{formatDuration(need.total_think_min)}</Kv>
+          <Kv label="执行" title={metricTips.stageEstimate}>{formatDuration(need.total_exec_min)}</Kv>
+          <Kv label="验证" title={metricTips.verifyUnavailable}>{formatVerifyDuration(need.total_verify_min)}</Kv>
           <Kv label="其他">{formatDuration(need.total_other_min)}</Kv>
           <Kv label="会话活跃人工">{formatDuration(need.total_session_active_person_min)}</Kv>
           <Kv label="未覆盖人工估算">{formatDuration(need.estimate_uncovered_human_min)}</Kv>
         </KvGrid>
         <p className="mt-3 text-xs text-muted-foreground">
-          验证：采集未覆盖（{VERIFY_UNAVAILABLE_TIP}）。思考 / 执行为粗略估算口径。
+          验证：采集未覆盖（{metricTips.verifyUnavailable}）。思考 / 执行为粗略估算口径。
         </p>
       </Panel>
 
@@ -360,12 +357,12 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
               <ThLeft>开始</ThLeft>
               <ThLeft>结束</ThLeft>
               <ThRight title="活跃工作量">活跃工作量</ThRight>
-              <ThRight title={STAGE_ESTIMATE_TIP}>思考</ThRight>
-              <ThRight title={STAGE_ESTIMATE_TIP}>执行</ThRight>
+              <ThRight title={metricTips.stageEstimate}>思考</ThRight>
+              <ThRight title={metricTips.stageEstimate}>执行</ThRight>
               <ThRight>
                 <span className="inline-flex items-center justify-end gap-1">
                   验证
-                  <InfoTip tip={VERIFY_UNAVAILABLE_TIP} />
+                  <InfoTip tip={metricTips.verifyUnavailable} />
                 </span>
               </ThRight>
               <ThLeft>阶段置信</ThLeft>
@@ -395,7 +392,7 @@ export function NeedDetail({ needId, onBack }: NeedDetailProps) {
                   <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{formatDuration(s.total_active_min)}</td>
                   <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{formatDuration(s.think_active_min)}</td>
                   <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{formatDuration(s.exec_active_min)}</td>
-                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums" title={VERIFY_UNAVAILABLE_TIP}>{formatVerifyMin(s.verify_active_min)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums" title={metricTips.verifyUnavailable}>{formatVerifyDuration(s.verify_active_min)}</td>
                   <td className="px-3 py-2">
                     <ToneBadge tone={confidenceTone(s.stage_confidence)}>{s.stage_confidence || "-"}</ToneBadge>
                   </td>
