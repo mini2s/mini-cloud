@@ -1439,7 +1439,7 @@ export const EMPTY_MERGE_REQUESTS_RESPONSE = { merge_requests: [] };
 
 const GitlabSettingsSchema = z.object({
   configured: z.boolean().default(false),
-  enabled: z.boolean().default(false),
+  enabled: z.boolean().default(true),
   canManage: z.boolean().default(false),
   settings: z.object({
     mrSidebarEnabled: z.boolean().default(false),
@@ -1451,7 +1451,7 @@ export const GitlabSettingsResponseSchema = GitlabSettingsSchema;
 
 export const EMPTY_GITLAB_SETTINGS_RESPONSE = {
   configured: false,
-  enabled: false,
+  enabled: true,
   canManage: false,
   settings: {
     mrSidebarEnabled: false,
