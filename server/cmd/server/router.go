@@ -18,12 +18,10 @@ import (
 
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
-	"github.com/multica-ai/multica/server/internal/coderepo"
 	"github.com/multica-ai/multica/server/internal/csuser"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
-	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/handler"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/middleware"
@@ -158,9 +156,6 @@ type RouterOptions struct {
 	// CsUser, when non-nil, is the cs-user client used by SearchDeptUsers.
 	// nil → the handler returns 503 (cs-user not configured).
 	CsUser *csuser.Client
-	// Gitea is the platform Gitea admin client for document-deliverable storage.
-	// nil → the router constructs one from env (dormant when env unset).
-	Gitea *gitea.Client
 	// TeamNamespace is the costrict-web-backend internal API client for
 	// TEAM_NAMESPACE_API_REFERENCE.md operations. nil builds from env.
 	TeamNamespace *teamnamespace.Client
@@ -248,22 +243,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	if opts.CsUser != nil {
 		h.CsUser = opts.CsUser
 	}
-	giteaClient := opts.Gitea
-	if giteaClient == nil {
-		giteaClient = gitea.NewClient(gitea.Config{
-			BaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("GITEA_BASE_URL")), "/"),
-			Token:   os.Getenv("GITEA_ADMIN_TOKEN"),
-			Timeout: envDuration("GITEA_TIMEOUT", 10*time.Second),
-		})
-	}
-	h.WorkflowService.Gitea = giteaClient
-	repositoryProvider, err := coderepo.NewFactory(coderepo.FactoryConfig{
-		Gitea: giteaClient,
-	}).Provider(coderepo.ProviderGitea)
-	if err != nil {
-		slog.Warn("repository provider setup failed", "error", err)
-	}
-	h.WorkflowService.RepositoryProvider = repositoryProvider
 	teamNamespaceClient := opts.TeamNamespace
 	if teamNamespaceClient == nil {
 		teamNamespaceClient = teamnamespace.NewClient(teamnamespace.Config{
@@ -1051,8 +1030,5 @@ func splitAndTrim(s string) []string {
 }
 
 func cloudRuntimeFleetURLFromEnv() string {
-	if url := strings.TrimSpace(os.Getenv("MULTICA_CLOUD_FLEET_URL")); url != "" {
-		return url
-	}
-	return strings.TrimSpace(os.Getenv("MULTICA_FLEET_URL"))
+	return strings.TrimSpace(os.Getenv("MULTICA_CLOUD_FLEET_URL"))
 }

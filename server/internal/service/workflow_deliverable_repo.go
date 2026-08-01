@@ -28,7 +28,38 @@ func (s *WorkflowService) deliverableRepository() coderepo.RepositoryProvider {
 	if s.RepositoryProvider != nil {
 		return s.RepositoryProvider
 	}
-	return coderepo.GiteaAdapter{Client: s.Gitea}
+	return nil
+}
+
+func (s *WorkflowService) deliverableRepositoryForWorkspace(ctx context.Context, workspaceID pgtype.UUID) (coderepo.RepositoryProvider, error) {
+	if repoProvider := s.deliverableRepository(); repoProvider != nil {
+		if !repoProvider.Configured() {
+			return nil, errors.New("deliverable repository provider not configured")
+		}
+		return repoProvider, nil
+	}
+	ws, err := s.Queries.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("get workspace: %w", err)
+	}
+	var bundle giteaProvisioningBundle
+	if len(ws.Settings) > 0 {
+		if err := json.Unmarshal(ws.Settings, &bundle); err != nil {
+			return nil, fmt.Errorf("parse workspace settings: %w", err)
+		}
+	}
+	token := strings.TrimSpace(bundle.GiteaPAT)
+	if token == "" {
+		return nil, errors.New("workspace Gitea bot token not configured")
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("GITEA_BASE_URL")), "/")
+	if baseURL == "" {
+		return nil, errors.New("GITEA_BASE_URL not configured")
+	}
+	return coderepo.GiteaAdapter{Client: gitea.NewClient(gitea.Config{
+		BaseURL: baseURL,
+		Token:   token,
+	})}, nil
 }
 
 func (s *WorkflowService) hasRunAnyDeliverable(ctx context.Context, runID pgtype.UUID) (bool, error) {
@@ -70,7 +101,7 @@ func DeliverableRepoNameForWorkflow(workflow db.MulticaWorkflow) string {
 func DeliverableRepoName(workflowID pgtype.UUID, isDefault bool) string {
 	if isDefault {
 		// The archive repo is provisioned (by the team-namespace service and the
-		// local mock) as gitea.RepoName of the archive slug — i.e. with the same
+		// local mock) as gitea.RepoName of the archive slug - i.e. with the same
 		// "wf-" prefix every workflow repo gets under WORKFLOW_REPO_PATH_ALGORITHM
 		// v2. Returning the bare slug here caused the upload/clone paths to target
 		// a non-existent "deliverable-archive" repo while the real repo lived at
@@ -104,7 +135,7 @@ func (s *WorkflowService) workspaceMemberRefs(ctx context.Context, workspaceID p
 // workspaceMemberRefsForQueries is the free-function form of
 // WorkflowService.workspaceMemberRefs, extracted so TaskService.ensureDeliveryRepo
 // can call the team-namespace provisioning sequence without importing
-// WorkflowService (which already depends on TaskService — reverse import would
+// WorkflowService (which already depends on TaskService - reverse import would
 // be a cycle). The method wrapper above delegates here.
 func workspaceMemberRefsForQueries(ctx context.Context, q *db.Queries, workspaceID pgtype.UUID) ([]teamnamespace.UserRef, teamnamespace.UserRef, error) {
 	members, err := q.ListMembersWithUser(ctx, workspaceID)
@@ -126,8 +157,8 @@ func workspaceMemberRefsForQueries(ctx context.Context, q *db.Queries, workspace
 	if creator.UserID == "" && len(refs) > 0 {
 		creator = refs[0]
 	}
-	// team-ns contract §1.5: the creator is passed separately and must NOT also
-	// appear in initial_members — costrict-web's CreateTeam rejects the request
+	// team-ns contract section 1.5: the creator is passed separately and must NOT also
+	// appear in initial_members - costrict-web's CreateTeam rejects the request
 	// with INVALID_REQUEST when they overlap (validateCreateTeamRequest). Exclude
 	// the chosen creator from the member list so the request is well-formed.
 	initialMembers := make([]teamnamespace.UserRef, 0, len(refs))
@@ -184,7 +215,7 @@ func (s *WorkflowService) ensureTeamNamespace(ctx context.Context, workspaceID p
 
 // ensureTeamNamespace is the free-function form of the identically named
 // WorkflowService method: CreateTeam (interface-8 team-ns) + persist bot
-// credentials into workspace.settings. Idempotent — re-runs find the team
+// credentials into workspace.settings. Idempotent - re-runs find the team
 // existing and just re-record credentials.
 func ensureTeamNamespace(ctx context.Context, q *db.Queries, tn *teamnamespace.Client, workspaceID pgtype.UUID) error {
 	ws, err := q.GetWorkspace(ctx, workspaceID)
@@ -267,7 +298,7 @@ func initWorkflowNamespace(ctx context.Context, q *db.Queries, tn *teamnamespace
 // repo (wf-deliverable-archive) at workspace creation, by running the
 // team-namespace InitWorkflow with the workspace's own ID as the stable
 // instance. Best-effort: errors are logged and never block workspace setup.
-// Idempotent — re-provisioning or a later default-workflow run finds the repo
+// Idempotent - re-provisioning or a later default-workflow run finds the repo
 // existing. (The archive repo is a multica orchestration concern; the mock
 // stays a faithful /api/internal contract implementor.)
 func (s *WorkflowService) initDefaultArchiveRepo(ctx context.Context, workspaceID pgtype.UUID) {
@@ -276,7 +307,7 @@ func (s *WorkflowService) initDefaultArchiveRepo(ctx context.Context, workspaceI
 		WorkflowDefSlug:    gitea.DefaultArchiveRepoName(),
 		InstanceID:         wsIDStr, // stable per-workspace instance
 		TeamID:             wsIDStr,
-		SkipInstanceBranch: true, // no run yet — inst branch created at issue/run time
+		SkipInstanceBranch: true, // no run yet - inst branch created at issue/run time
 	})
 	if err != nil {
 		slog.Warn("provision default archive repo", "workspace_id", wsIDStr, "error", err)
@@ -332,21 +363,20 @@ func (s *WorkflowService) DissolveTeamNamespace(ctx context.Context, workspaceID
 // and (once per workspace) provisions the Gitea bot. Idempotent + retry-safe.
 // Called after StartRun commits, ONLY when the workflow has a document
 // deliverable AND Gitea is configured. Persistent failure transitions the run
-// to failed (design §4.1: Gitea is a hard dependency for document workflows).
+// to failed (design section 4.1: Gitea is a hard dependency for document workflows).
 //
 // ORDERING: scaffold FIRST (creates the org), then provision (the bot is added
 // to the now-existing org). Reversing this leaves the bot with a PAT but no org
-// membership — the daemon's first clone/push of a private repo would 403.
+// membership - the daemon's first clone/push of a private repo would 403.
 //
-// Dormancy: when s.Gitea is nil (test that bypassed the router) or
-// !s.Gitea.Configured() (GITEA_BASE_URL/GITEA_ADMIN_TOKEN unset at startup),
-// this returns immediately without touching the DB or network.
+// Dormancy: when team-namespace is not configured, this returns immediately
+// without touching the DB or network.
 func (s *WorkflowService) ScaffoldRunDeliverables(ctx context.Context, run db.MulticaWorkflowRun) {
 	// Best-effort + fire-and-forget (called from a goroutine in StartWorkflowRun):
 	// recover from any panic so a bug here cannot crash the server process. The
 	// function crosses two external boundaries (DB + Gitea HTTP) and the gitea
 	// package has panic-on-non-UUID paths (shortHex), so this guard is
-	// load-bearing — a panic here would otherwise take down the whole server.
+	// load-bearing - a panic here would otherwise take down the whole server.
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("panic in ScaffoldRunDeliverables",
@@ -355,15 +385,15 @@ func (s *WorkflowService) ScaffoldRunDeliverables(ctx context.Context, run db.Mu
 	}()
 
 	if !s.teamNamespaceConfigured() {
-		return // feature dormant — deliverables require team-namespace (costrict-web)
+		return // feature dormant - deliverables require team-namespace (costrict-web)
 	}
 	runIDStr := util.UUIDToString(run.ID)
 
 	// NOTE: if the run snapshot or the document-deliverable check fails (e.g.
 	// a transient DB error), we return WITHOUT scaffolding and WITHOUT failing
 	// the run. The run continues "running" with no Gitea repo, so the daemon's
-	// first clone/push will 404 later. Intentional — we can't decide whether to
-	// fail the run if we can't read the workflow — but it means a DB blip here
+	// first clone/push will 404 later. Intentional - we can't decide whether to
+	// fail the run if we can't read the workflow - but it means a DB blip here
 	// surfaces as a later clone failure, not a run failure.
 	workflow, err := s.workflowFromRunSnapshot(ctx, run)
 	if err != nil {
@@ -376,7 +406,7 @@ func (s *WorkflowService) ScaffoldRunDeliverables(ctx context.Context, run db.Mu
 		return
 	}
 	if !has {
-		return // deliverable-free workflow — no Gitea repo needed
+		return // deliverable-free workflow - no Gitea repo needed
 	}
 
 	if err := s.initWorkflowNamespace(ctx, run, workflow); err != nil {
@@ -387,7 +417,7 @@ func (s *WorkflowService) ScaffoldRunDeliverables(ctx context.Context, run db.Mu
 	s.syncWorkspaceMembers(ctx, run.WorkspaceID)
 	// M5: register this child run's deliverable address into its parent issue's
 	// Gitea repo (if this run's source issue is a split-out child). Best-effort,
-	// async — never blocks scaffolding.
+	// async - never blocks scaffolding.
 	go s.ArchiveSubIssueAddress(context.Background(), run)
 }
 
@@ -396,7 +426,6 @@ func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.Mu
 	if !s.teamNamespaceConfigured() {
 		return nil // deliverable provisioning requires team-namespace (costrict-web)
 	}
-	repoProvider := s.deliverableRepository()
 
 	deliverables, err := s.Queries.ListNodeRunDeliverableRequirements(ctx, nodeRun.ID)
 	if err != nil {
@@ -418,8 +447,9 @@ func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.Mu
 	if err := s.initWorkflowNamespace(ctx, run, workflow); err != nil {
 		return err
 	}
-	if !repoProvider.Configured() {
-		return nil
+	repoProvider, err := s.deliverableRepositoryForWorkspace(ctx, run.WorkspaceID)
+	if err != nil {
+		return err
 	}
 
 	topo, err := RunNodeTopoOrder(ctx, s.Queries, run.ID)
@@ -437,7 +467,7 @@ func (s *WorkflowService) ensureNodeRunBranch(ctx context.Context, nodeRun db.Mu
 }
 
 // syncWorkspaceMembers ensures every workspace member is a member of the
-// workspace's Gitea org (TEAM_NAMESPACE_API §1.1: org members = team members),
+// workspace's Gitea org (TEAM_NAMESPACE_API section 1.1: org members = team members),
 // so members can read the org's repos / PRs (e.g. click a deliverable PR link +
 // review it). Idempotent + count-gated: it records the synced member count in
 // workspace.settings and only re-provisions when the count changes, so a steady
@@ -456,10 +486,10 @@ func (s *WorkflowService) syncWorkspaceMembers(ctx context.Context, workspaceID 
 		return
 	}
 	// workspaceMemberRefs returns the workspace owner separately as `creator`
-	// (excluded from refs) to satisfy the team-namespace §1.5 create-team
+	// (excluded from refs) to satisfy the team-namespace section 1.5 create-team
 	// contract, where the creator is passed in its own field and must not
 	// overlap with initial_members. The owner still belongs in the Gitea org,
-	// though, so re-add them here — otherwise the creator is the one member
+	// though, so re-add them here - otherwise the creator is the one member
 	// never synced into their own workspace's team namespace.
 	members := refs
 	if creator.UserID != "" {
@@ -517,7 +547,7 @@ func (s *WorkflowService) ProvisionWorkspaceGitea(ctx context.Context, workspace
 
 // ProvisionWorkflowRepo creates the workflow's type repo (wf-<wf[:8]>) with main
 // branch protection when the workflow is activated. Called from the UpdateWorkflow
-// handler (status→active), not lazily on the first run. Best-effort + async.
+// handler (status -> active), not lazily on the first run. Best-effort + async.
 func (s *WorkflowService) ProvisionWorkflowRepo(ctx context.Context, workflowID pgtype.UUID) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -525,7 +555,7 @@ func (s *WorkflowService) ProvisionWorkflowRepo(ctx context.Context, workflowID 
 		}
 	}()
 
-	// team-namespace not configured → feature dormant.
+	// team-namespace not configured -> feature dormant.
 	if !s.teamNamespaceConfigured() {
 		return
 	}
@@ -544,14 +574,14 @@ func (s *WorkflowService) ProvisionWorkflowRepo(ctx context.Context, workflowID 
 	// Provision the repo for every activated workflow. The workflow repo is the
 	// archive home for anything a run produces (documents, code MRs, reviews),
 	// and downstream paths (run scaffolding, member uploads, sub-issue indexing)
-	// key on its existence — so create it eagerly at activation regardless of
+	// key on its existence - so create it eagerly at activation regardless of
 	// whether the workflow currently has any deliverable nodes.
 	s.provisionTeamNamespaceWorkflowRepo(ctx, wf)
 }
 
 // provisionTeamNamespaceWorkflowRepo eagerly provisions the workflow's repo
 // (wf-<workflow UUID prefix>) via the costrict-web internal API at activation
-// time — the team-namespace counterpart of the Gitea-direct ScaffoldWorkflowRepo
+// time - the team-namespace counterpart of the Gitea-direct ScaffoldWorkflowRepo
 // above. Mirrors initDefaultArchiveRepo: no run exists yet, so InstanceID uses
 // the stable workflow UUID; idempotent (a later run's initWorkflowNamespace with
 // InstanceID=runID finds the repo existing and only adds its per-run branch);
@@ -569,7 +599,7 @@ func (s *WorkflowService) provisionTeamNamespaceWorkflowRepo(ctx context.Context
 		WorkflowDefSlug:    shortHexSafe(wfIDStr), // must equal initWorkflowNamespace's defSlug
 		InstanceID:         wfIDStr,               // stable per-workflow instance (no run yet)
 		TeamID:             util.UUIDToString(wf.WorkspaceID),
-		SkipInstanceBranch: true, // no run yet — inst branch created at issue/run time
+		SkipInstanceBranch: true, // no run yet - inst branch created at issue/run time
 	})
 	if err != nil {
 		slog.Warn("provision workflow repo: team-namespace init",
@@ -582,9 +612,9 @@ func (s *WorkflowService) provisionTeamNamespaceWorkflowRepo(ctx context.Context
 
 // ArchiveReviewComment archives the critic's review opinion into the run's Gitea
 // repo (inst branch), co-located with the node's deliverables under
-// nodes/<NN>-<nodeTitle>-<nodeRunShort>/reviews/<RR>-<reviewer>-<通过|驳回>.md. The
+// nodes/<NN>-<nodeTitle>-<nodeRunShort>/reviews/<RR>-<reviewer>-<approved|rejected>.md. The
 // review is authored in the multica UI; this is a best-effort, read-only audit
-// copy — the approve/reject decision itself stays in multica (§3.3). Errors are
+// copy - the approve/reject decision itself stays in multica (section 3.3). Errors are
 // logged, never block the review.
 //
 // Round derivation: RetryCount counts prior rejects. The current review number is
@@ -592,8 +622,7 @@ func (s *WorkflowService) provisionTeamNamespaceWorkflowRepo(ctx context.Context
 // reject (the tx has already incremented it). Reviewer resolves from the assigned
 // critic member's display name, falling back to "critic".
 func (s *WorkflowService) ArchiveReviewComment(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, decision, comment string) {
-	repoProvider := s.deliverableRepository()
-	if !repoProvider.Configured() || comment == "" {
+	if comment == "" {
 		return
 	}
 	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
@@ -604,6 +633,11 @@ func (s *WorkflowService) ArchiveReviewComment(ctx context.Context, nodeRun db.M
 	workflow, err := s.workflowFromRunSnapshot(ctx, run)
 	if err != nil {
 		slog.Warn("archive review comment: get run snapshot", "error", err)
+		return
+	}
+	repoProvider, err := s.deliverableRepositoryForWorkspace(ctx, run.WorkspaceID)
+	if err != nil {
+		slog.Warn("archive review comment: repository provider", "error", err)
 		return
 	}
 
@@ -655,10 +689,9 @@ func (s *WorkflowService) ArchiveReviewComment(ctx context.Context, nodeRun db.M
 // M5 simplification: the handler only has the MR URL (the worker's submission
 // payload); codeRepoURL/branch/agentName come from the task payload and aren't
 // threaded through yet, so those frontmatter fields stay empty for now. The MR
-// URL is the key pointer — the rest is a follow-up.
+// URL is the key pointer - the rest is a follow-up.
 func (s *WorkflowService) ArchiveCodeDeliverable(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, deliverable db.MulticaWorkflowNodeDeliverable, mrURL, codeRepoURL, codeBranch, agentName string) {
-	repoProvider := s.deliverableRepository()
-	if !repoProvider.Configured() || mrURL == "" {
+	if mrURL == "" {
 		return
 	}
 	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
@@ -669,6 +702,11 @@ func (s *WorkflowService) ArchiveCodeDeliverable(ctx context.Context, nodeRun db
 	workflow, err := s.Queries.GetWorkflow(ctx, run.WorkflowID)
 	if err != nil {
 		slog.Warn("archive code deliverable: get workflow", "error", err)
+		return
+	}
+	repoProvider, err := s.deliverableRepositoryForWorkspace(ctx, run.WorkspaceID)
+	if err != nil {
+		slog.Warn("archive code deliverable: repository provider", "error", err)
 		return
 	}
 	node, err := s.Queries.GetWorkflowNode(ctx, nodeRun.WorkflowNodeID)
@@ -705,45 +743,47 @@ func (s *WorkflowService) ArchiveCodeDeliverable(ctx context.Context, nodeRun db
 // (nodes/<split-NN>-.../splits/<childIssueNumber>-<title>.md). Hooked at the
 // child run's ScaffoldRunDeliverables (after the child's own repo is created),
 // so the parent repo incrementally indexes each child's deliverable repo as
-// children are provisioned — letting later nodes / humans discover children's
+// children are provisioned - letting later nodes / humans discover children's
 // deliverables by browsing the parent repo. Best-effort: skips silently when
 // the child has no parent, the parent has no Gitea repo, or the parent run has
 // no split node. Errors are logged, never block the child run.
 func (s *WorkflowService) ArchiveSubIssueAddress(ctx context.Context, childRun db.MulticaWorkflowRun) {
-	repoProvider := s.deliverableRepository()
-	if !repoProvider.Configured() {
-		return // feature dormant
-	}
 	if !childRun.SourceIssueID.Valid {
-		return // run isn't tied to an issue — can't be a split child
+		return // run isn't tied to an issue - can't be a split child
 	}
 
-	// 1. childRun.SourceIssueID → child issue.
+	// 1. childRun.SourceIssueID -> child issue.
 	childIssue, err := s.Queries.GetIssue(ctx, childRun.SourceIssueID)
 	if err != nil {
 		slog.Warn("archive sub-issue address: get child issue",
 			"run_id", util.UUIDToString(childRun.ID), "error", err)
 		return
 	}
-	// 2. Not a split child → no-op.
+	// 2. Not a split child -> no-op.
 	if !childIssue.ParentIssueID.Valid {
 		return
 	}
-	// 3. childIssue.ParentIssueID → parent issue (needed for Number + Title).
+	// 3. childIssue.ParentIssueID -> parent issue (needed for Number + Title).
 	parentIssue, err := s.Queries.GetIssue(ctx, childIssue.ParentIssueID)
 	if err != nil {
 		slog.Warn("archive sub-issue address: get parent issue",
 			"child_issue_id", util.UUIDToString(childIssue.ID), "error", err)
 		return
 	}
-	// 4. parent issue → parent run (latest run keyed by source_issue_id).
+	// 4. parent issue -> parent run (latest run keyed by source_issue_id).
 	parentRun, err := s.Queries.GetWorkflowRunBySourceIssue(ctx, childIssue.ParentIssueID)
 	if err != nil {
 		slog.Warn("archive sub-issue address: get parent run",
 			"parent_issue_id", util.UUIDToString(parentIssue.ID), "error", err)
 		return
 	}
-	// 5. parent run → node-runs → find the FIRST split node-run.
+	// 5. parent run -> node-runs -> find the FIRST split node-run.
+	repoProvider, err := s.deliverableRepositoryForWorkspace(ctx, parentRun.WorkspaceID)
+	if err != nil {
+		slog.Warn("archive sub-issue address: repository provider",
+			"workspace_id", util.UUIDToString(parentRun.WorkspaceID), "error", err)
+		return
+	}
 	parentNodeRuns, err := s.Queries.ListWorkflowNodeRunsByRun(ctx, parentRun.ID)
 	if err != nil {
 		slog.Warn("archive sub-issue address: list parent node runs",
@@ -766,9 +806,9 @@ func (s *WorkflowService) ArchiveSubIssueAddress(ctx context.Context, childRun d
 		}
 	}
 	if !foundSplit {
-		return // parent run has no split node — nothing to index under
+		return // parent run has no split node - nothing to index under
 	}
-	// 6. parent run → parent workflow (for DeliverableRepoNameForWorkflow).
+	// 6. parent run -> parent workflow (for DeliverableRepoNameForWorkflow).
 	parentWorkflow, err := s.Queries.GetWorkflow(ctx, parentRun.WorkflowID)
 	if err != nil {
 		slog.Warn("archive sub-issue address: get parent workflow",
@@ -790,7 +830,7 @@ func (s *WorkflowService) ArchiveSubIssueAddress(ctx context.Context, childRun d
 	fullPath := dir + "/" + suffix
 
 	// 9. Child's deliverable address: clone URL (from workspace.settings, the
-	// canonical source — M2.5 lesson) + inst branch of the child run.
+	// canonical source - M2.5 lesson) + inst branch of the child run.
 	childInst := gitea.InstBranch(util.UUIDToString(childRun.ID))
 	childCloneURL, err := s.readGiteaCloneURL(ctx, childRun.WorkspaceID)
 	if err != nil {
@@ -809,7 +849,7 @@ func (s *WorkflowService) ArchiveSubIssueAddress(ctx context.Context, childRun d
 	repo := DeliverableRepoNameForWorkflow(parentWorkflow)
 	inst := gitea.InstBranch(util.UUIDToString(parentRun.ID))
 
-	// 11. UpsertFile — best-effort, never blocks.
+	// 11. UpsertFile - best-effort, never blocks.
 	content := fmt.Sprintf("---\nchild_issue: %s\nchild_issue_number: %d\nchild_run: %s\nclone_url: %s\ninst_branch: %s\n---\n\n## 子任务交付仓库\n\n%s %s\n",
 		util.UUIDToString(childIssue.ID), childIssue.Number,
 		util.UUIDToString(childRun.ID), childCloneURL, childInst,
@@ -873,19 +913,15 @@ const codeLinksArchiveFile = "代码合并请求.md"
 // archiveCodeLinksToInst writes the node-run's code-MR-links audit file DIRECTLY
 // to the run's inst branch (not the node branch), collecting every live external
 // code-MR submission. It replaces the old submit-time ArchiveNodeCodeLinks path,
-// which bundled code links into the shared node→inst deliverable PR. Code MR
+// which bundled code links into the shared node->inst deliverable PR. Code MR
 // links no longer ride the document PR: they stay standalone submissions, and
 // only on approval does this audit copy land on inst.
 //
 // Best-effort (caller logs/ignores errors): dormant when the repository provider
 // is not configured; idempotent (the .md is fully rebuilt from current live
-// submissions). No PR is opened and no branch is created — inst is the
+// submissions). No PR is opened and no branch is created - inst is the
 // pre-existing, unprotected audit branch.
 func (s *WorkflowService) archiveCodeLinksToInst(ctx context.Context, nodeRunID pgtype.UUID) {
-	repoProvider := s.deliverableRepository()
-	if !repoProvider.Configured() {
-		return
-	}
 	nodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRunID)
 	if err != nil {
 		slog.Warn("archive code links to inst: get node run", "node_run_id", util.UUIDToString(nodeRunID), "error", err)
@@ -894,6 +930,11 @@ func (s *WorkflowService) archiveCodeLinksToInst(ctx context.Context, nodeRunID 
 	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
 	if err != nil {
 		slog.Warn("archive code links to inst: get run", "error", err)
+		return
+	}
+	repoProvider, err := s.deliverableRepositoryForWorkspace(ctx, run.WorkspaceID)
+	if err != nil {
+		slog.Warn("archive code links to inst: repository provider", "error", err)
 		return
 	}
 	workflow, err := s.workflowFromRunSnapshot(ctx, run)
@@ -944,7 +985,7 @@ func (s *WorkflowService) archiveCodeLinksToInst(ctx context.Context, nodeRunID 
 }
 
 // shortHexSafe returns the first 8 hex chars of a UUID string, or the full
-// string if shorter (defensive — the gitea package's shortHex panics on
+// string if shorter (defensive - the gitea package's shortHex panics on
 // non-UUID, so we validate first).
 func shortHexSafe(id string) string {
 	if len(id) >= 8 {
@@ -954,11 +995,11 @@ func shortHexSafe(id string) string {
 }
 
 // mergeDeliverablePRs merges the PR/MR behind every deliverable submission that
-// carries a pull_request_url (a document uploaded as files becomes a node→inst
-// PR; a code link is wrapped in a node→inst PR; a code MR is merged in place),
+// carries a pull_request_url (a document uploaded as files becomes a node->inst
+// PR; a code link is wrapped in a node->inst PR; a code MR is merged in place),
 // with bounded retry. Returns nil only if all such PRs merged; a non-nil error
 // means at least one failed terminally (conflict) or after retries (transient)
-// — the caller blocks the node run. Only called when s.Gitea is configured.
+// The caller blocks the node run when a managed Gitea PR cannot merge.
 func (s *WorkflowService) mergeDeliverablePRs(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) error {
 	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
 	if err != nil {
@@ -976,7 +1017,7 @@ func (s *WorkflowService) mergeDeliverablePRs(ctx context.Context, nodeRun db.Mu
 		return fmt.Errorf("list deliverables: %w", err)
 	}
 	// Build a set of deliverable IDs belonging to this node run. A submission
-	// is PR-backed when it has a non-empty PullRequestUrl — the kind column is
+	// is PR-backed when it has a non-empty PullRequestUrl - the kind column is
 	// no longer consulted.
 	deliverableIDs := make(map[string]bool, len(deliverables))
 	for _, d := range deliverables {
@@ -1004,24 +1045,25 @@ func (s *WorkflowService) mergeDeliverablePRs(ctx context.Context, nodeRun db.Mu
 }
 
 // mergeReviewURL merges a single deliverable review request ONLY when it is a
-// Gitea PR — a multica-managed document deliverable being signed off. External
+// Gitea PR - a multica-managed document deliverable being signed off. External
 // code MRs (GitLab, GitHub, ...) are NOT merged by multica: the user merges
 // them themselves (the real code-MR URL is kept on the submission and listed in
 // the node's code-links .md). A non-Gitea URL is therefore a no-op (nil).
 func (s *WorkflowService) mergeReviewURL(ctx context.Context, workspaceID pgtype.UUID, owner, repo, rawURL string) error {
 	if index, err := gitea.ParsePullRequestIndex(rawURL); err == nil {
-		if s.Gitea == nil || !s.Gitea.Configured() {
-			return nil // Gitea dormant
+		repoProvider, err := s.deliverableRepositoryForWorkspace(ctx, workspaceID)
+		if err != nil {
+			return err
 		}
-		return retryMergeDocPR(ctx, s.deliverableRepository(), owner, repo, index)
+		return retryMergeDocPR(ctx, repoProvider, owner, repo, index)
 	}
 	// Any non-Gitea URL (GitLab MR, GitHub PR, ...) is a code MR that the user
-	// merges themselves — multica does NOT auto-merge code MRs.
+	// merges themselves - multica does NOT auto-merge code MRs.
 	return nil
 }
 
 // retryMergeDocPR calls MergePR with bounded backoff. A 409 conflict
-// (gitea.ErrMergeConflict) is terminal — returned immediately, no retry. Other
+// (gitea.ErrMergeConflict) is terminal - returned immediately, no retry. Other
 // errors (5xx, network) are retried up to maxAttempts with exponential backoff.
 func retryMergeDocPR(ctx context.Context, provider coderepo.RepositoryProvider, owner, repo string, index int) error {
 	const maxAttempts = 3
@@ -1032,11 +1074,11 @@ func retryMergeDocPR(ctx context.Context, provider coderepo.RepositoryProvider, 
 			return nil
 		}
 		if errors.Is(err, gitea.ErrMergeConflict) {
-			return err // terminal — don't retry a conflict
+			return err // terminal - don't retry a conflict
 		}
 		lastErr = err
 		if attempt == maxAttempts-1 {
-			break // last attempt — don't sleep before returning
+			break // last attempt - don't sleep before returning
 		}
 		select {
 		case <-ctx.Done():
@@ -1049,9 +1091,9 @@ func retryMergeDocPR(ctx context.Context, provider coderepo.RepositoryProvider, 
 
 // markDeliverableSubmissionsApproved flips every live submission with a PR URL
 // to status=approved (called after a successful merge). Rejected rows stay
-// rejected — a link the critic turned down in an earlier round must not be
+// rejected - a link the critic turned down in an earlier round must not be
 // resurrected by a sibling's approval.
-// Best-effort: errors are logged, not returned — the merge already
+// Best-effort: errors are logged, not returned - the merge already
 // succeeded, so the node will complete regardless of a status-write hiccup
 // here. The existing review_comment is preserved (the critic's comment lives on
 // the node run, not the submission).
@@ -1089,9 +1131,9 @@ func (s *WorkflowService) markDeliverableSubmissionsApproved(ctx context.Context
 
 // UploadMemberDeliverable is the server-side mirror of the agent's `cs-workflow
 // gitea submit`: it writes a member-uploaded document to the issue's default-
-// workflow Gitea repo (node branch off the inst branch), opens a node→inst PR,
+// workflow Gitea repo (node branch off the inst branch), opens a node->inst PR,
 // registers the PR URL on the submission, and advances the node-run to
-// awaiting_critic — which dispatches the critic (the issue creator) so the
+// awaiting_critic - which dispatches the critic (the issue creator) so the
 // deliverable enters the same review+merge path as agent-produced docs.
 //
 // SubmittedByID is the uploading member (issue.AssigneeID for a member-assigned
@@ -1183,7 +1225,7 @@ func (s *WorkflowService) runLockedMemberUpload(ctx context.Context, issue db.Mu
 
 // resolveUploadDeliverable picks the deliverable a member upload targets: the
 // explicitly requested deliverableID when given (validated to belong to the
-// node run), otherwise the sole deliverable on the node — the legacy
+// node run), otherwise the sole deliverable on the node - the legacy
 // single-deliverable behavior (errors if there is not exactly one).
 func resolveUploadDeliverable(deliverables []db.MulticaWorkflowNodeRunDeliverable, deliverableID string) (db.MulticaWorkflowNodeRunDeliverable, error) {
 	if deliverableID != "" {
@@ -1273,7 +1315,7 @@ func linkArchiveHash(link string) string {
 // for the issue's pull_request-kind deliverable. The real code-MR links are
 // stored as-is (no per-link Gitea branch/PR). Code links no longer touch Gitea
 // at submit time; they are archived to the inst branch on approval
-// (archiveCodeLinksToInst) — best-effort, dormant-safe.
+// (archiveCodeLinksToInst) - best-effort, dormant-safe.
 func (s *WorkflowService) UploadMemberDeliverablePR(ctx context.Context, issue db.MulticaIssue, pullRequestURLs []string, deliverableID, userID, summary string) error {
 	if len(pullRequestURLs) == 0 {
 		return errors.New("no pull request URLs to submit")
@@ -1318,7 +1360,7 @@ func (s *WorkflowService) UploadMemberDeliverablePR(ctx context.Context, issue d
 }
 
 // MemberDeliverableFile is one uploaded document file. Content is the file
-// bytes base64-encoded (so JSON transport is binary-safe — any format, not
+// bytes base64-encoded (so JSON transport is binary-safe - any format, not
 // just text). Each file is archived to Gitea under the node directory using
 // its original filename.
 type MemberDeliverableFile struct {
@@ -1339,10 +1381,6 @@ func sanitizeArchiveFileName(name string) string {
 }
 
 func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.MulticaIssue, files []MemberDeliverableFile, deliverableID, userID, summary string) error {
-	repoProvider := s.deliverableRepository()
-	if !repoProvider.Configured() {
-		return errors.New("UploadMemberDeliverable: repository provider not configured")
-	}
 	if len(files) == 0 {
 		return errors.New("no files to upload")
 	}
@@ -1353,6 +1391,10 @@ func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.
 		workflow, err := workflowFromRunSnapshotWithQueries(ctx, q, run)
 		if err != nil {
 			return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("get run snapshot: %w", err)
+		}
+		repoProvider, err := s.deliverableRepositoryForWorkspace(ctx, run.WorkspaceID)
+		if err != nil {
+			return db.MulticaWorkflowNodeRun{}, false, err
 		}
 		deliverables, err := q.ListNodeRunDeliverableRequirements(ctx, nodeRun.ID)
 		if err != nil {
@@ -1372,8 +1414,8 @@ func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.
 		repo := DeliverableRepoNameForWorkflow(workflow)
 		inst := gitea.InstBranch(util.UUIDToString(run.ID))
 		// Documents are committed to the node-run's single deliverable branch
-		// (NodeBranch) and reviewed via one node→inst PR. Code-MR links no longer
-		// share this branch — they are standalone submissions archived to the inst
+		// (NodeBranch) and reviewed via one node->inst PR. Code-MR links no longer
+		// share this branch - they are standalone submissions archived to the inst
 		// branch on approval (archiveCodeLinksToInst). Files are still namespaced
 		// per deliverable below, so same-named files don't collide.
 		deliverableSuffix := shortHexSafe(util.UUIDToString(deliverable.ID))

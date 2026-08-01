@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the platform-owned Gitea integration foundation — a topology/naming layer, an admin-token HTTP client, idempotent scaffolding (org/repo/inst-branch) and workspace-bot provisioning, plus the `gitea/credential` endpoint — so that Milestone 2 can wire run-start scaffolding and approve-time PR merging on top.
+**Goal:** Build the platform-owned Gitea integration foundation — a topology/naming layer, a configured-token HTTP client, idempotent scaffolding (org/repo/inst-branch) and workspace-bot provisioning, plus the `gitea/credential` endpoint — so that Milestone 2 can wire run-start scaffolding and approve-time PR merging on top.
 
-**Architecture:** New `server/internal/gitea/` package holds a raw-`net/http` admin-token client (mirroring `server/internal/deptsync/client.go`), pure topology functions deriving Gitea names from multica UUIDs (mirroring costrict-web's `t-<8hex>` / `wf-<8hex>` / `inst-<8hex>` / `node/<8hex>` algorithm, but UUID-derived per the locked design), and idempotent scaffold + provision orchestration. The handler gains a `giteaSettings` partial-view struct over `workspace.settings` JSONB and a `HandleGiteaCredential` endpoint mirroring `HandleGitlabCredential`. The admin token + base URL come from env (mirroring `githubWebhookSecret()`). **No DB migration** — `workspace.settings` is schema-free JSONB and all reused statuses/pointers already exist.
+**Architecture:** New `server/internal/gitea/` package holds a raw-`net/http` configured-token client (mirroring `server/internal/deptsync/client.go`), pure topology functions deriving Gitea names from multica UUIDs (mirroring costrict-web's `t-<8hex>` / `wf-<8hex>` / `inst-<8hex>` / `node/<8hex>` algorithm, but UUID-derived per the locked design), and idempotent scaffold + provision orchestration. The handler gains a `giteaSettings` partial-view struct over `workspace.settings` JSONB and a `HandleGiteaCredential` endpoint mirroring `HandleGitlabCredential`. The base URL comes from env and the token comes from workspace settings. **No DB migration** — `workspace.settings` is schema-free JSONB and all reused statuses/pointers already exist.
 
 **Tech Stack:** Go 1.26, Chi router, `net/http` + `encoding/json`, `pgx/v5`, table-driven tests with `httptest` + `testPool`.
 
@@ -20,7 +20,7 @@
 
 **Locked decisions driving the plans** (from design + grilling):
 - Gitea topology all UUID-8hex derived; repo layer uses `workflow.id` (not costrict's `def_slug`).
-- Workspace-shared PAT (one bot user per workspace, all members+agents share) stored in `workspace.settings`; server admin token in env.
+- Workspace-shared PAT (one bot user per workspace, all members+agents share) stored in `workspace.settings`; no server-wide Gitea write token in env.
 - Responsibility: daemon/agent = push + open PR; server = review + merge + scaffold.
 - Failure model F1: retry → blocked; state advances only on confirmed success.
 - **Merge model = decision B:** inline merge inside the `ReviewNodeRun` approve branch (no `merging` state); transient failure retried with backoff inline, exhausted → `blocked`; add `critic_approved → blocked` transition. Known gap: a crash after persisting `critic_approved` but before merge completion leaves the node at `critic_approved` (needs manual re-approve or a future sweeper — out of scope).
@@ -34,18 +34,18 @@
 **Create:**
 - `server/internal/gitea/topology.go` — pure naming functions (`OrgName`, `RepoName`, `RepoPath`, `InstBranch`, `NodeBranch`, `shortHex`).
 - `server/internal/gitea/topology_test.go` — table-driven tests for the naming functions.
-- `server/internal/gitea/client.go` — admin-token `Client` (`Config`, `NewClient`, `Configured`) + Gitea API v1 methods used by scaffold/provision.
+- `server/internal/gitea/client.go` — configured-token `Client` (`Config`, `NewClient`, `Configured`) + Gitea API v1 methods used by scaffold/provision.
 - `server/internal/gitea/client_test.go` — `httptest.Server`-backed tests for each client method (get-or-create idempotency, auth header, error mapping).
 - `server/internal/gitea/scaffold.go` — `ScaffoldRunDeliverable` orchestration (get-or-create org → repo → inst branch → seed main → branch protection), idempotent.
 - `server/internal/gitea/scaffold_test.go` — orchestration tests with a fake-client interface.
 - `server/internal/gitea/provision.go` — `ProvisionWorkspaceBot` (create bot user → mint PAT → add to org), returns `(username, token)`.
 - `server/internal/gitea/provision_test.go` — fake-client tests.
-- `server/internal/handler/gitea.go` — env helpers (`giteaBaseURL`, `giteaAdminToken`, `giteaConfigured`), `giteaSettings` struct + `parseGiteaSettings`, `HandleGiteaCredential`.
+- `server/internal/handler/gitea.go` — env helper (`giteaBaseURL`), `giteaSettings` struct + `parseGiteaSettings`, `HandleGiteaCredential`.
 - `server/internal/handler/gitea_test.go` — credential endpoint test (seeds `gitea_pat` in workspace settings).
 
 **Modify:**
 - `server/cmd/server/router.go` — mount `GET /api/gitea/credential` behind `middleware.DaemonAuth` (mirror the gitlab credential mount at lines 384-385).
-- `.env.example` — add `GITEA_BASE_URL=` + `GITEA_ADMIN_TOKEN=`.
+- `.env.example` — add `GITEA_BASE_URL=`.
 - `docker-compose.selfhost.yml` — pass through the two env vars (mirror the `GITHUB_WEBHOOK_SECRET` line at ~line 76).
 
 **Not touched in M1** (deferred to M2/M3): handler↔client wiring (`Handler.Gitea` field, `RouterOptions.Gitea`, `main.go` construction), service layer, daemon, frontend.
@@ -126,7 +126,7 @@ Create `server/internal/gitea/topology.go`:
 
 ```go
 // Package gitea provides the platform-owned Gitea integration: a topology
-// (name derivation) layer, an admin-token HTTP client, and idempotent
+// (name derivation) layer, a configured-token HTTP client, and idempotent
 // scaffolding + workspace-bot provisioning. multica stores only pointers to
 // Gitea; the document deliverable bodies live in Gitea repos, symmetric with
 // code-type PRs in customer repos.
@@ -197,13 +197,13 @@ git commit -m "feat(gitea): add UUID-derived topology naming layer"
 
 ---
 
-## Task 2: Gitea admin-token client — core + get-or-create primitives
+## Task 2: Gitea configured-token client — core + get-or-create primitives
 
 **Files:**
 - Create: `server/internal/gitea/client.go`
 - Test: `server/internal/gitea/client_test.go`
 
-The client wraps Gitea API v1 with the admin token. This task adds the core (`Config`/`NewClient`/`Configured`/`do`) + the get-or-create primitives (`GetOrg`/`CreateOrg`, `GetRepo`/`CreateRepo`, `GetBranch`/`CreateBranch`). PR-create/merge methods come in Milestone 2.
+The client wraps Gitea API v1 with the configured token. This task adds the core (`Config`/`NewClient`/`Configured`/`do`) + the get-or-create primitives (`GetOrg`/`CreateOrg`, `GetRepo`/`CreateRepo`, `GetBranch`/`CreateBranch`). PR-create/merge methods come in Milestone 2.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -357,16 +357,16 @@ import (
 // ErrNotConfigured is returned when the admin client has no base URL or token.
 var ErrNotConfigured = errors.New("gitea is not configured")
 
-// Config configures the admin-token Gitea client used for scaffolding,
-// provisioning, and (in M2) merging. The token is a server-level admin PAT
-// kept in env (GITEA_ADMIN_TOKEN) — it is NEVER stored in workspace.settings.
+// Config configures the Gitea client used for scaffolding,
+// provisioning, and (in M2) merging. The token is the workspace bot PAT
+// stored in workspace.settings.
 type Config struct {
 	BaseURL string
 	Token   string
 	Timeout time.Duration
 }
 
-// Client talks to a platform-owned Gitea instance using the admin token.
+// Client talks to a platform-owned Gitea instance using the configured token.
 // Mirrors server/internal/deptsync/client.go's shape.
 type Client struct {
 	baseURL    string
@@ -544,7 +544,7 @@ Expected: PASS.
 
 ```bash
 git add server/internal/gitea/client.go server/internal/gitea/client_test.go
-git commit -m "feat(gitea): add admin-token client with get-or-create primitives"
+git commit -m "feat(gitea): add configured-token client with get-or-create primitives"
 ```
 
 ---
@@ -691,7 +691,7 @@ func (c *Client) AdminCreateUser(ctx context.Context, username, email string) er
 	return decodeError(resp)
 }
 
-// CreateUserToken mints a PAT for the user. Requires admin token (admin can
+// CreateUserToken mints a PAT for the user. Requires a provisioning-capable token (the caller can
 // create tokens for any user). Returns the raw token (sha1).
 func (c *Client) CreateUserToken(ctx context.Context, username, tokenName string) (string, error) {
 	resp, err := c.do(ctx, http.MethodPost, "/users/"+username+"/tokens", map[string]any{
@@ -1297,12 +1297,12 @@ import (
 
 func giteaBaseURL() string { return strings.TrimSpace(os.Getenv("GITEA_BASE_URL")) }
 
-func giteaAdminToken() string { return strings.TrimSpace(os.Getenv("GITEA_ADMIN_TOKEN")) }
+func giteaBaseURL() string { return strings.TrimSpace(os.Getenv("GITEA_BASE_URL")) }
 
 // isGiteaConfigured reports whether the server can act as an admin against the
 // platform Gitea (scaffolding + merge). The per-workspace bot PAT lives in
 // workspace.settings and is independent of this flag.
-func isGiteaConfigured() bool { return giteaBaseURL() != "" && giteaAdminToken() != "" }
+func isGiteaConfigured() bool { return giteaBaseURL() != "" }
 
 // ── workspace.settings partial view (mirror gitlabSettings) ──────────────────
 
@@ -1411,10 +1411,9 @@ Locate the `GITHUB_WEBHOOK_SECRET=` line (~line 169) and add the Gitea vars adja
 
 ```
 # Gitea — platform-owned git server for document deliverable storage.
-# The admin token is a server-level PAT (scaffold + merge); it is NEVER stored
+# Gitea write operations use the workspace bot PAT stored in workspace settings.
 # in workspace.settings. Leave blank to disable the feature.
 GITEA_BASE_URL=
-GITEA_ADMIN_TOKEN=
 ```
 
 - [ ] **Step 2: Pass through in `docker-compose.selfhost.yml`**
@@ -1423,7 +1422,6 @@ Locate the `GITHUB_WEBHOOK_SECRET` passthrough (~line 76, in the backend service
 
 ```yaml
       GITEA_BASE_URL: ${GITEA_BASE_URL:-}
-      GITEA_ADMIN_TOKEN: ${GITEA_ADMIN_TOKEN:-}
 ```
 
 - [ ] **Step 3: Verify the server still builds and the full gitea package + handler credential tests pass**
@@ -1435,7 +1433,7 @@ Expected: build OK, all listed tests PASS.
 
 ```bash
 git add .env.example docker-compose.selfhost.yml
-git commit -m "chore(gitea): pass GITEA_BASE_URL + GITEA_ADMIN_TOKEN through env"
+git commit -m "chore(gitea): pass GITEA_BASE_URL through env"
 ```
 
 ---
@@ -1446,7 +1444,7 @@ git commit -m "chore(gitea): pass GITEA_BASE_URL + GITEA_ADMIN_TOKEN through env
    - Gitea client (zero → exists): Tasks 2-3. ✓
    - Scaffolding (org/repo/inst get-or-create, idempotent): Task 4. ✓
    - `gitea/credential` endpoint: Task 6. ✓
-   - Server admin token from env: Tasks 6-7. ✓
+   - Workspace bot token from settings: Tasks 6-7. ✓
    - Per-workspace bot PAT storage shape: Tasks 5-6 (function + settings struct; wiring in M2). ✓
    - Bot user provisioning (net-new): Task 5. ✓
    - Topology alignment (costrict `t-`/`wf-`/`inst-`/`node/`): Task 1. ✓

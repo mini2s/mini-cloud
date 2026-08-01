@@ -31,7 +31,6 @@ func TestBuildGiteaDeliverableContext_Configured(t *testing.T) {
 		t.Skip("database not available")
 	}
 	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
-	t.Setenv("GITEA_ADMIN_TOKEN", "admin-tok")
 
 	ctx := context.Background()
 	nodeRunID, docID := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
@@ -96,7 +95,6 @@ func TestBuildGiteaDeliverableContext_DefaultWorkflowUsesArchiveRepo(t *testing.
 		t.Skip("database not available")
 	}
 	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
-	t.Setenv("GITEA_ADMIN_TOKEN", "admin-tok")
 
 	ctx := context.Background()
 	nodeRunID, _ := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
@@ -130,15 +128,13 @@ func TestBuildGiteaDeliverableContext_Dormant(t *testing.T) {
 	}
 	t.Run("Gitea unconfigured", func(t *testing.T) {
 		t.Setenv("GITEA_BASE_URL", "")
-		t.Setenv("GITEA_ADMIN_TOKEN", "")
 		task := dbTaskWithNodeRun(t, uuid.NewString())
 		if got := testHandler.buildGiteaDeliverableContext(context.Background(), task); got != nil {
 			t.Fatalf("expected nil when dormant, got %+v", got)
 		}
 	})
-	t.Run("Gitea configured, no node-run", func(t *testing.T) {
+	t.Run("Gitea base configured, no node-run", func(t *testing.T) {
 		t.Setenv("GITEA_BASE_URL", "https://gitea.test")
-		t.Setenv("GITEA_ADMIN_TOKEN", "admin-tok")
 		// Zero-value task: WorkflowNodeRunID.Valid == false, so the builder
 		// short-circuits at the dormant guard before any DB call.
 		task := db.MulticaAgentTaskQueue{}

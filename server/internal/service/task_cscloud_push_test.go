@@ -1267,7 +1267,6 @@ func TestDeliverableSpecsForTask_UnifiedEndpoint(t *testing.T) {
 
 func TestRepositoryDeliverableEnv_InjectedForAnyDeliverable(t *testing.T) {
 	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
-	t.Setenv("GITEA_ADMIN_TOKEN", "set")
 	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://gitea.test")
 
 	mdb := newEnsureRepoTestDB()
@@ -1312,6 +1311,50 @@ func TestRepositoryDeliverableEnv_InjectedForAnyDeliverable(t *testing.T) {
 		if env[key] == "" {
 			t.Errorf("expected %s to be set, got empty", key)
 		}
+	}
+}
+
+func TestRepositoryDeliverableEnv_UsesWorkspaceBotToken(t *testing.T) {
+	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://gitea.test")
+
+	mdb := newEnsureRepoTestDB()
+	mdb.workspace.Settings = []byte(`{` +
+		`"gitea_clone_url":"https://gitea.test/t-ws/wf-docworkflow.git",` +
+		`"last_instance_branch":"inst-run",` +
+		`"gitea_pat":"pat-workspace-bot",` +
+		`"gitea_bot_username":"multica-bot-ws"}`)
+
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{WorkflowNodeRunID: mdb.nodeRun.ID}
+
+	env := svc.repositoryDeliverableEnv(context.Background(), task)
+	if env == nil {
+		t.Fatal("expected env when workspace bot token is configured")
+	}
+	if got := env["CS_CLOUD_REPO_TOKEN"]; got != "pat-workspace-bot" {
+		t.Errorf("CS_CLOUD_REPO_TOKEN = %q, want workspace bot token", got)
+	}
+	if got := env["CS_CLOUD_GITEA_TOKEN"]; got != "pat-workspace-bot" {
+		t.Errorf("CS_CLOUD_GITEA_TOKEN = %q, want workspace bot token", got)
+	}
+}
+
+func TestRepositoryDeliverableEnv_RequiresWorkspaceBotToken(t *testing.T) {
+	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://gitea.test")
+
+	mdb := newEnsureRepoTestDB()
+	mdb.workspace.Settings = []byte(`{` +
+		`"gitea_clone_url":"https://gitea.test/t-ws/wf-docworkflow.git",` +
+		`"last_instance_branch":"inst-run",` +
+		`"gitea_bot_username":"multica-bot-ws"}`)
+
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{WorkflowNodeRunID: mdb.nodeRun.ID}
+
+	if env := svc.repositoryDeliverableEnv(context.Background(), task); env != nil {
+		t.Fatalf("expected nil env without workspace bot token; got CS_CLOUD_REPO_TOKEN=%q", env["CS_CLOUD_REPO_TOKEN"])
 	}
 }
 
@@ -2402,7 +2445,6 @@ func TestRepositoryDeliverableEnv_PrefersSettingsCloneURL(t *testing.T) {
 	// GITEA_PUBLIC_BASE_URL is deliberately a DIFFERENT host than the settings
 	// value — if the function self-builds from it, the test fails.
 	t.Setenv("GITEA_BASE_URL", "http://gitea:3000")
-	t.Setenv("GITEA_ADMIN_TOKEN", "set")
 	t.Setenv("GITEA_PUBLIC_BASE_URL", "http://localhost:23000")
 
 	mdb := newEnsureRepoTestDB()
@@ -2451,7 +2493,6 @@ func TestRepositoryDeliverableEnv_FallsBackToSelfBuiltWhenSettingsLackCloneURL(t
 	// must still produce a usable cloneURL from GITEA_PUBLIC_BASE_URL — this is
 	// the fallback path, not the cross-repo-aligned happy path.
 	t.Setenv("GITEA_BASE_URL", "http://gitea:3000")
-	t.Setenv("GITEA_ADMIN_TOKEN", "set")
 	t.Setenv("GITEA_PUBLIC_BASE_URL", "http://localhost:23000")
 
 	mdb := newEnsureRepoTestDB()
@@ -2585,7 +2626,6 @@ func TestResolveDeliveryRepo_RewritesInternalHostToPublic(t *testing.T) {
 // stays EXACTLY equal to resolveDeliveryRepo's repos[].URL (lookupRepoRole).
 func TestRepositoryDeliverableEnv_RewritesInternalHostToPublic(t *testing.T) {
 	t.Setenv("GITEA_BASE_URL", "http://10.20.19.101:33000")
-	t.Setenv("GITEA_ADMIN_TOKEN", "set")
 	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://zgsmtest.xyz:30443")
 
 	mdb := newEnsureRepoTestDB()

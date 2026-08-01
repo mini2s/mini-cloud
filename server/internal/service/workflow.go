@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/coderepo"
 	"github.com/multica-ai/multica/server/internal/events"
-	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/teamnamespace"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/internal/workflowmeta"
@@ -37,14 +36,7 @@ type WorkflowService struct {
 	// repository file, branch, review-request, and merge operations.
 	RepositoryProvider coderepo.RepositoryProvider
 
-	// Gitea is the platform Gitea admin client, used (in M2 Tasks 4-5) for
-	// run-start scaffolding and approve-time PR merging of document deliverables.
-	// Dormant (scaffold + merge are skipped) when GITEA_BASE_URL/GITEA_ADMIN_TOKEN
 	// are unset — the client is always non-nil post-construction; dormancy is
-	// gated by Client.Configured(), not by a nil pointer. nil only in tests that
-	// construct WorkflowService without going through the router.
-	Gitea *gitea.Client
-
 	// TeamNamespace is the costrict-web-backend internal API client for team
 	// namespace lifecycle, membership sync, bot credentials, and workflow repo
 	// initialization. When configured, it is the source of truth for every

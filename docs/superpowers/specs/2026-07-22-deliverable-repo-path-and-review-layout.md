@@ -85,7 +85,7 @@ submission: http://localhost:23000/t-6aacc277/wf-cd431ac0/pulls/2
 
 ## 6. 落盘机制
 
-- **时机**：每次 `ReviewNodeRun` 动作（approve / reject）后，server 用 admin token 把该轮 review 文件提交到 **inst 分支**。
+- **时机**：每次 `ReviewNodeRun` 动作（approve / reject）后，server 用 workspace bot token 把该轮 review 文件提交到 **inst 分支**。
 - **幂等**：同 (node-run, round) 重写 = no-op。
 - **决定归属**：approve / rejected 仍以 multica DB 为准（SoT §3.3：人当 critic、无 daemon 也能合 PR）；git 只存意见文本 + 结构化元数据。
 - **commit author** = workspace bot；frontmatter 记真实 critic（归属不靠 git author，同交付物提交原则）。

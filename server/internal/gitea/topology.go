@@ -1,5 +1,5 @@
 // Package gitea provides the platform-owned Gitea integration: a topology
-// (name derivation) layer, an admin-token HTTP client, and idempotent
+// (name derivation) layer, a token-authenticated HTTP client, and idempotent
 // scaffolding + workspace-bot provisioning. multica stores only pointers to
 // Gitea; the document deliverable bodies live in Gitea repos, symmetric with
 // code-type PRs in customer repos.

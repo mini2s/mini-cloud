@@ -26,7 +26,7 @@ import {
 
 const GITEA_ENABLED = giteaE2eEnabled();
 const GITEA_URL = process.env.GITEA_BASE_URL || "http://127.0.0.1:23000";
-const GITEA_ADMIN_TOKEN = process.env.GITEA_ADMIN_TOKEN || "";
+const GITEA_BOT_TOKEN = process.env.GITEA_BOT_TOKEN || "";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const short8 = (uuid: string) => uuid.replace(/-/g, "").slice(0, 8);
 const pad2 = (n: number) => String(n).padStart(2, "0");
@@ -62,7 +62,7 @@ function deliverableFile(seq: number, nodeTitle: string, nodeRunID: string, deli
 async function repoTree(owner: string, repo: string, branch: string): Promise<string[]> {
   const res = await fetch(
     `${GITEA_URL}/api/v1/repos/${owner}/${repo}/git/trees/${branch}?recursive=true`,
-    { headers: { Authorization: `token ${GITEA_ADMIN_TOKEN}` } },
+    { headers: { Authorization: `token ${GITEA_BOT_TOKEN}` } },
   );
   if (!res.ok) throw new Error(`tree fetch ${owner}/${repo}/${branch}: ${res.status}`);
   const body = (await res.json()) as { tree?: { path: string; type: string }[] };
@@ -74,7 +74,7 @@ test.describe("deliverable repo layout (Scheme A)", () => {
   test.afterAll(() => { if (GITEA_ENABLED) cleanupCsWorkflowArtifacts(); });
 
   test("readable node dir + deliverable file + review archive via e2e-workspace", async ({ page }) => {
-    test.skip(!GITEA_ENABLED, "needs GITEA_BASE_URL+ADMIN_TOKEN + reachable Gitea");
+    test.skip(!GITEA_ENABLED, "needs GITEA_BASE_URL+GITEA_BOT_TOKEN + reachable Gitea");
     test.setTimeout(300000);
 
     const api = await createTestApi();

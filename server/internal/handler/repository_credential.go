@@ -27,12 +27,9 @@ func giteaPublicBaseURL() string {
 	return giteaBaseURL()
 }
 
-func giteaAdminToken() string { return strings.TrimSpace(os.Getenv("GITEA_ADMIN_TOKEN")) }
-
-// isGiteaConfigured reports whether the server can act as an admin against the
-// platform Gitea (scaffolding + merge). The per-workspace bot PAT lives in
-// workspace.settings and is independent of this flag.
-func isGiteaConfigured() bool { return giteaBaseURL() != "" && giteaAdminToken() != "" }
+// isGiteaConfigured reports whether the platform Gitea endpoint is known. Write
+// operations still require the current workspace's bot PAT from workspace.settings.
+func isGiteaConfigured() bool { return giteaBaseURL() != "" }
 
 // ── workspace.settings partial view (mirror gitlabSettings) ──────────────────
 
