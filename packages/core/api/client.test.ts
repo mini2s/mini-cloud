@@ -208,54 +208,6 @@ describe("ApiClient", () => {
     );
   });
 
-  it("uses the node-run takeover endpoint and parses its response", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({
-        id: "node-run-1",
-        workflow_run_id: "run-1",
-        workflow_node_id: "node-1",
-        status: "blocked",
-      }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const client = new ApiClient("https://api.example.test");
-    const nodeRun = await client.takeoverNodeRun("node-run-1");
-
-    expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "https://api.example.test/api/node-runs/node-run-1/blocked",
-    );
-    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "POST" });
-    expect(nodeRun).toMatchObject({
-      id: "node-run-1",
-      status: "blocked",
-      session_id: null,
-    });
-  });
-
-  it("falls back safely when the node-run takeover response is malformed", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ status: null }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
-      ),
-    );
-
-    const client = new ApiClient("https://api.example.test");
-
-    await expect(client.takeoverNodeRun("node-run-1")).resolves.toMatchObject({
-      id: "",
-      status: "pending",
-      session_id: null,
-    });
-  });
-
   it("emits X-Client-* headers when identity is configured", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify([]), {

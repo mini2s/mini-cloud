@@ -55,6 +55,9 @@ vi.mock("@multica/core/workflows/queries", () => ({
   useReviewNodeRun: () => ({ mutate: vi.fn(), isPending: false }),
   useSkipNodeRun: () => ({ mutate: vi.fn(), isPending: false }),
   useSessionPermission: () => ({ data: { can_control: false } }),
+  useTakeoverNodeRun: () => ({ mutate: vi.fn(), isPending: false }),
+  useHandbackNodeRun: () => ({ mutate: vi.fn(), isPending: false }),
+  useFinalizeNodeRun: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@multica/core/chat/queries", () => ({

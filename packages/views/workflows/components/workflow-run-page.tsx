@@ -402,6 +402,8 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
                 key={nodeRun.id}
                 nodeRun={nodeRun}
                 maxRetries={3}
+                workflowId={workflowId}
+                runId={runId}
                 isSplitNode={splitNodeIds.has(nodeRun.workflow_node_id)}
                 onOpenSplit={() => setSelectedSplitNodeId(nodeRun.workflow_node_id)}
               />

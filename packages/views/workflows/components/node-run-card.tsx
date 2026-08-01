@@ -13,6 +13,7 @@ import {
   useSkipNodeRun,
 } from "@multica/core/workflows/queries";
 import type { WorkflowNodeRun, NodeRunStatus } from "@multica/core/types";
+import { NodeRunControlActions } from "./node-run-control-actions";
 
 const STATUS_ACTIVE: Set<NodeRunStatus> = new Set([
   "format_checking", "working", "critic_reviewing", "splitting", "split_active",
@@ -66,6 +67,8 @@ function CollapsibleJSON({ data, label }: { data: unknown; label: string }) {
 interface NodeRunCardProps {
   nodeRun: WorkflowNodeRun;
   maxRetries?: number;
+  workflowId?: string;
+  runId?: string;
   isSplitNode?: boolean;
   onOpenSplit?: () => void;
 }
@@ -73,6 +76,8 @@ interface NodeRunCardProps {
 export function NodeRunCard({
   nodeRun,
   maxRetries = 3,
+  workflowId,
+  runId,
   isSplitNode = false,
   onOpenSplit,
 }: NodeRunCardProps) {
@@ -191,6 +196,13 @@ export function NodeRunCard({
             Split review
           </Button>
         ) : null}
+        <NodeRunControlActions
+          nodeRun={nodeRun}
+          workflowId={workflowId}
+          runId={runId}
+          wsId={wsId}
+          size="sm"
+        />
       </div>
     </div>
   );

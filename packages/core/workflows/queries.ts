@@ -297,32 +297,6 @@ export function useSubmitNodeRun(wsId: string) {
   });
 }
 
-export function useTakeoverNodeRun(
-  wsId: string,
-  workflowId: string,
-  runId: string,
-) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (nodeRunId: string) => api.takeoverNodeRun(nodeRunId),
-    onSuccess: (updatedNodeRun) => {
-      if (workflowId && runId) {
-        queryClient.setQueryData(
-          workflowKeys.nodeRuns(wsId, workflowId, runId),
-          (nodeRuns: Array<typeof updatedNodeRun> | undefined) =>
-            nodeRuns?.map((nodeRun) =>
-              nodeRun.id === updatedNodeRun.id ? updatedNodeRun : nodeRun,
-            ),
-        );
-        queryClient.invalidateQueries({
-          queryKey: workflowKeys.nodeRuns(wsId, workflowId, runId),
-        });
-      }
-      queryClient.invalidateQueries({ queryKey: workflowKeys.myTasks(wsId) });
-    },
-  });
-}
-
 export function useReviewNodeRun(wsId: string) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -498,6 +472,84 @@ export function useCancelSplitNode(wsId: string) {
     onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
   });
 }
+
+interface NodeRunControlVars {
+  nodeRunId: string;
+  sessionId?: string | null;
+  workflowId?: string;
+  runId?: string;
+}
+
+export function useTakeoverNodeRun(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeRunId }: NodeRunControlVars) => api.takeoverNodeRun(nodeRunId),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: workflowKeys.myTasks(wsId) });
+      if (vars.workflowId && vars.runId) {
+        queryClient.invalidateQueries({
+          queryKey: workflowKeys.nodeRuns(wsId, vars.workflowId, vars.runId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: workflowKeys.runCanvasSummary(wsId, vars.workflowId, vars.runId),
+        });
+      }
+      if (vars.sessionId) {
+        queryClient.invalidateQueries({
+          queryKey: workflowKeys.sessionPermission(vars.sessionId),
+        });
+      }
+    },
+  });
+}
+
+export function useHandbackNodeRun(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeRunId }: NodeRunControlVars) => api.handbackNodeRun(nodeRunId),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: workflowKeys.myTasks(wsId) });
+      if (vars.workflowId && vars.runId) {
+        queryClient.invalidateQueries({
+          queryKey: workflowKeys.nodeRuns(wsId, vars.workflowId, vars.runId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: workflowKeys.runCanvasSummary(wsId, vars.workflowId, vars.runId),
+        });
+      }
+      if (vars.sessionId) {
+        queryClient.invalidateQueries({
+          queryKey: workflowKeys.sessionPermission(vars.sessionId),
+        });
+      }
+    },
+  });
+}
+
+export function useFinalizeNodeRun(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: NodeRunControlVars & { approved: boolean }) =>
+      api.finalizeNodeRun(vars.nodeRunId, vars.approved),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: workflowKeys.myTasks(wsId) });
+      if (vars.workflowId && vars.runId) {
+        queryClient.invalidateQueries({
+          queryKey: workflowKeys.nodeRuns(wsId, vars.workflowId, vars.runId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: workflowKeys.runCanvasSummary(wsId, vars.workflowId, vars.runId),
+        });
+      }
+      if (vars.sessionId) {
+        queryClient.invalidateQueries({
+          queryKey: workflowKeys.sessionPermission(vars.sessionId),
+        });
+      }
+    },
+  });
+}
+
 export function workflowTemplateListOptions(wsId: string) {
   return queryOptions({
     queryKey: workflowKeys.templates(),

@@ -136,7 +136,6 @@ vi.mock("@multica/views/i18n", () => ({
               retry: "Retry",
               review_comment: "Review Comment",
               open_session: "Open session",
-              take_over_session: "Take over session",
             },
           },
           });
@@ -363,28 +362,6 @@ describe("ExecutionDetailPanel", () => {
     ]);
     expect(mockSetActiveSession).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111");
     expect(mockSetOpen).toHaveBeenCalledWith(true);
-  });
-
-  it("renders takeover next to open session and delegates navigation", async () => {
-    const onTakeoverSession = vi.fn();
-    render(
-      <ExecutionDetailPanel
-        node={{ ...node, title: "Run node" }}
-        nodeRun={{ ...run, node_title: "Run node", session_id: "sess-1" }}
-        workerName="Backend assistant"
-        criticName="Reviewer"
-        onClose={vi.fn()}
-        onTakeoverSession={onTakeoverSession}
-        wsId="ws-1"
-      />,
-    );
-
-    const actions = screen.getByTestId("runtime-primary-actions");
-    expect(actions).toContainElement(screen.getByRole("button", { name: "Open session" }));
-    expect(actions).toContainElement(screen.getByRole("button", { name: "Take over session" }));
-
-    await userEvent.click(screen.getByRole("button", { name: "Take over session" }));
-    expect(onTakeoverSession).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to the matching chat session when CoStrict navigation cannot post to a parent frame", async () => {
@@ -711,3 +688,4 @@ describe("ExecutionDetailPanel", () => {
   });
 
 });
+

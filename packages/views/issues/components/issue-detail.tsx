@@ -14,7 +14,6 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleCheck,
-  CornerDownRight,
   Loader2,
   Maximize2,
   Minimize2,
@@ -61,8 +60,6 @@ import { CommentInput } from "./comment-input";
 import { ResolvedThreadBar } from "./resolved-thread-bar";
 import { collectThreadReplies } from "./thread-utils";
 import { AgentLiveCard } from "./agent-live-card";
-import { type SessionMode } from "../../common/session";
-import { IssueConversationPanel } from "./issue-conversation-panel";
 import { ExecutionLogSection } from "./execution-log-section";
 import { PullRequestList } from "./pull-request-list";
 import { useGitHubSettings } from "@multica/core/github";
@@ -79,14 +76,9 @@ import { ProjectIcon } from "../../projects/components/project-icon";
 import { issueLabelsOptions } from "@multica/core/labels";
 import { memberListOptions, agentListOptions } from "@multica/core/workspace/queries";
 import { isActiveWorkspaceMember } from "@multica/core/workspace/members";
-import {
-  workflowStagesOptions,
-  workflowNodeRunsOptions,
-  useSessionPermission,
-  useTakeoverNodeRun,
-} from "@multica/core/workflows/queries";
+import { workflowStagesOptions, workflowNodeRunsOptions } from "@multica/core/workflows/queries";
 import type { WorkflowNodeRun } from "@multica/core/types";
-import { useNodeRunControlPermission } from "@multica/core/permissions";
+import { NodeRunControlActions } from "../../workflows/components/node-run-control-actions";
 import { useRecentIssuesStore } from "@multica/core/issues/stores";
 import { useIssueSelectionStore } from "@multica/core/issues/stores/selection-store";
 import { BatchActionToolbar } from "./batch-action-toolbar";
@@ -698,10 +690,6 @@ function SubIssueRow({
 
 interface IssueDetailProps {
   issueId: string;
-  /** Opens the live-session tab as soon as the issue session becomes available. */
-  initialLiveSession?: boolean;
-  /** Requests control once when opening a live-session deep link. */
-  takeoverSessionOnOpen?: boolean;
   onDelete?: () => void;
   /** Called after the issue is marked as done via the toolbar button. */
   onDone?: () => void;
@@ -769,17 +757,7 @@ function StagePicker({ workflowId, stageId, onUpdate, disabled }: StagePickerPro
 // IssueDetail
 // ---------------------------------------------------------------------------
 
-export function IssueDetail({
-  issueId,
-  initialLiveSession = false,
-  takeoverSessionOnOpen = false,
-  onDelete,
-  onDone,
-  defaultSidebarOpen = true,
-  layoutId = "multica_issue_detail_layout",
-  highlightCommentId,
-  openIssueLinksInModal = false,
-}: IssueDetailProps) {
+export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = true, layoutId = "multica_issue_detail_layout", highlightCommentId, openIssueLinksInModal = false }: IssueDetailProps) {
   const { t } = useT("issues");
   const id = issueId;
   const router = useNavigation();
@@ -848,11 +826,6 @@ export function IssueDetail({
   // that: setState triggers the re-render that hands Virtuoso the element.
   const [scrollContainerEl, setScrollContainerEl] = useState<HTMLDivElement | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
-  const [contentTab, setContentTab] = useState<"activity" | "session">("activity");
-  const [sessionOpened, setSessionOpened] = useState(false);
-  const [sessionMode, setSessionMode] = useState<SessionMode>("observe");
-  const deepLinkSessionOpenedRef = useRef<string | null>(null);
-  const deepLinkTakeoverAttemptedRef = useRef<string | null>(null);
 
   // Per-session: which resolved threads the user has temporarily expanded.
   // Not persisted (matches Linear) — reload collapses everything back to bars.
@@ -1154,8 +1127,8 @@ export function IssueDetail({
     initialData: () => allIssues.find((i) => i.id === parentIssueId),
   });
 
-  // For workflow-generated sub-issues, fetch the node run so its live session
-  // entry point can be surfaced in the issue document.
+  // For workflow-generated sub-issues, fetch the node run so control actions
+  // (take over / hand back / open session / finalize) can be surfaced here too.
   // Older sub-issues may not have workflow_id/workflow_run_id stamped, so fall
   // back to the parent issue's workflow fields when available.
   const isWorkflowOrigin = issue?.origin_type === "workflow" && !!issue?.origin_id;
@@ -1170,111 +1143,6 @@ export function IssueDetail({
     () => nodeRuns.find((nr) => nr.id === issue?.origin_id),
     [nodeRuns, issue?.origin_id],
   );
-  const { data: sessionPermission } = useSessionPermission(originNodeRun?.session_id);
-  const sessionControlDecision = useNodeRunControlPermission(
-    sessionPermission?.can_control === true,
-    wsId,
-  );
-  const canControlSession = originNodeRun?.session_id != null && sessionControlDecision.allowed;
-  const sessionIsTakenOver =
-    originNodeRun?.status === "blocked" && originNodeRun.completed_at == null;
-  const canTakeOverSession =
-    canControlSession &&
-    originNodeRun?.status === "working" &&
-    originNodeRun.completed_at == null;
-  const takeoverMutation = useTakeoverNodeRun(
-    wsId,
-    effectiveWorkflowId ?? "",
-    effectiveWorkflowRunId ?? "",
-  );
-
-  const handleTakeoverSession = useCallback(async () => {
-    if (!canTakeOverSession || !originNodeRun || takeoverMutation.isPending) return;
-    try {
-      await takeoverMutation.mutateAsync(originNodeRun.id);
-      setSessionOpened(true);
-      setSessionMode("control");
-      setContentTab("session");
-    } catch (error) {
-      toast.error(
-        error instanceof Error && error.message
-          ? error.message
-          : t(($) => $.detail.take_over_session_failed),
-      );
-    }
-  }, [canTakeOverSession, originNodeRun, takeoverMutation, t]);
-
-  useEffect(() => {
-    deepLinkSessionOpenedRef.current = null;
-    deepLinkTakeoverAttemptedRef.current = null;
-  }, [id]);
-
-  useEffect(() => {
-    setSessionOpened(false);
-    setSessionMode(sessionIsTakenOver ? "control" : "observe");
-    setContentTab("activity");
-  }, [
-    id,
-    originNodeRun?.session_id,
-    originNodeRun?.completed_at,
-    sessionIsTakenOver,
-  ]);
-
-  useEffect(() => {
-    if (!canControlSession) {
-      setSessionMode("observe");
-    }
-    if (!canControlSession && contentTab === "session") {
-      setContentTab("activity");
-    }
-    if (!canControlSession) {
-      setSessionOpened(false);
-    }
-  }, [canControlSession, contentTab]);
-
-  useEffect(() => {
-    if (!initialLiveSession) {
-      deepLinkSessionOpenedRef.current = null;
-      return;
-    }
-    if (!originNodeRun?.session_id || !canControlSession) return;
-
-    const sessionKey = `${id}:${originNodeRun.session_id}`;
-    if (deepLinkSessionOpenedRef.current === sessionKey) return;
-
-    deepLinkSessionOpenedRef.current = sessionKey;
-
-    setSessionOpened(true);
-    setSessionMode(sessionIsTakenOver ? "control" : "observe");
-    setContentTab("session");
-  }, [
-    canControlSession,
-    id,
-    initialLiveSession,
-    originNodeRun?.session_id,
-    sessionIsTakenOver,
-  ]);
-
-  useEffect(() => {
-    if (
-      !initialLiveSession ||
-      !takeoverSessionOnOpen ||
-      !canTakeOverSession ||
-      !originNodeRun?.id ||
-      deepLinkTakeoverAttemptedRef.current === originNodeRun.id
-    ) {
-      return;
-    }
-
-    deepLinkTakeoverAttemptedRef.current = originNodeRun.id;
-    void handleTakeoverSession();
-  }, [
-    canTakeOverSession,
-    handleTakeoverSession,
-    initialLiveSession,
-    originNodeRun?.id,
-    takeoverSessionOnOpen,
-  ]);
 
   // Project segment in the breadcrumb. The issue's project_id is the source of
   // truth — same URL renders the same breadcrumb regardless of entry path.
@@ -2101,36 +1969,18 @@ export function IssueDetail({
             )}
 
             {originNodeRun && (
-              <div className="mt-3 flex min-h-12 items-center gap-3 rounded-lg border bg-card/50 px-3 py-2">
+              <div className="mt-3 flex items-center gap-3 rounded-lg border bg-card/50 px-3 py-2">
                 <span className="text-xs text-muted-foreground">
                   {t(($) => $.detail.workflow_node_label)}
                 </span>
-                <span className="min-w-0 truncate text-xs font-medium">
-                  {originNodeRun.node_title}
-                </span>
-                <div className="ml-auto flex shrink-0 items-center gap-3">
-                  {originNodeRun.status === "working" && (
-                    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <span className="h-1.5 w-1.5 rounded-full bg-success shadow-[0_0_0_3px] shadow-success/10" />
-                      {t(($) => $.detail.session_running)}
-                    </span>
-                  )}
-                  {canTakeOverSession && sessionMode !== "control" && (
-                    <Button
-                      size="sm"
-                      className="h-7 text-xs"
-                      disabled={takeoverMutation.isPending}
-                      onClick={handleTakeoverSession}
-                    >
-                      {takeoverMutation.isPending ? (
-                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <CornerDownRight className="mr-1 h-3.5 w-3.5" />
-                      )}
-                      {t(($) => $.detail.take_over_session)}
-                    </Button>
-                  )}
-                </div>
+                <NodeRunControlActions
+                  nodeRun={originNodeRun}
+                  workflowId={issue?.workflow_id ?? undefined}
+                  runId={issue?.workflow_run_id ?? undefined}
+                  wsId={wsId}
+                  size="sm"
+                  alwaysShow
+                />
               </div>
             )}
 
@@ -2283,126 +2133,52 @@ export function IssueDetail({
 
           <div className="my-8 border-t" />
 
-          {/* Live session / Activity */}
+          {/* Activity / Comments */}
           <div>
             <div className="flex items-center justify-between">
-              {originNodeRun ? (
-                <div
-                  role="tablist"
-                  aria-label={t(($) => $.detail.content_tabs_aria)}
-                  className="flex min-h-10 items-stretch gap-6"
-                >
-                  <button
-                    type="button"
-                    role="tab"
-                    id="issue-session-tab"
-                    aria-controls="issue-session-panel"
-                    aria-selected={contentTab === "session"}
-                    disabled={!canControlSession}
-                    onClick={() => {
-                      setSessionOpened(true);
-                      setContentTab("session");
-                    }}
-                    className={cn(
-                      "relative border-b-2 border-transparent text-sm font-medium transition-colors",
-                      contentTab === "session"
-                        ? "border-foreground text-foreground"
-                        : "text-muted-foreground hover:text-foreground",
-                      !canControlSession &&
-                        "cursor-not-allowed text-muted-foreground/45 hover:text-muted-foreground/45",
-                    )}
-                  >
-                    {t(($) => $.detail.realtime_session)}
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    id="issue-activity-tab"
-                    aria-controls="issue-activity-panel"
-                    aria-selected={contentTab === "activity"}
-                    onClick={() => setContentTab("activity")}
-                    className={cn(
-                      "border-b-2 border-transparent text-sm font-medium transition-colors",
-                      contentTab === "activity"
-                        ? "border-foreground text-foreground"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {t(($) => $.detail.activity_section)}
-                  </button>
-                </div>
-              ) : (
+              <div className="flex items-center gap-3">
                 <h2 className="text-base font-semibold">{t(($) => $.detail.activity_section)}</h2>
-              )}
-              {contentTab === "activity" && (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleToggleSubscribe}
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {isSubscribed ? t(($) => $.detail.unsubscribe) : t(($) => $.detail.subscribe)}
-                  </button>
-                  <Popover>
-                    <PopoverTrigger className="cursor-pointer hover:opacity-80 transition-opacity">
-                      {subscribers.length > 0 ? (
-                        <AvatarGroup>
-                          {subscribers.slice(0, 4).map((sub) => (
-                            <ActorAvatar
-                              key={`${sub.user_type}-${sub.user_id}`}
-                              actorType={sub.user_type}
-                              actorId={sub.user_id}
-                              size={24}
-                              enableHoverCard
-                            />
-                          ))}
-                          {subscribers.length > 4 && (
-                            <AvatarGroupCount>+{subscribers.length - 4}</AvatarGroupCount>
-                          )}
-                        </AvatarGroup>
-                      ) : (
-                        <span className="flex items-center justify-center h-6 w-6 rounded-full border border-dashed border-muted-foreground/30 text-muted-foreground">
-                          <Users className="h-3 w-3" />
-                        </span>
-                      )}
-                    </PopoverTrigger>
-                    <SubscriberPopoverContent
-                      members={members}
-                      agents={agents}
-                      subscribers={subscribers}
-                      toggleSubscriber={toggleSubscriber}
-                      t={t}
-                    />
-                  </Popover>
-                </div>
-              )}
-            </div>
-
-            {originNodeRun && <div className="border-t" />}
-
-            {originNodeRun?.session_id && canControlSession && (
-              <div
-                id="issue-session-panel"
-                role="tabpanel"
-                aria-labelledby="issue-session-tab"
-                hidden={contentTab !== "session"}
-              >
-                {sessionOpened && (
-                  <IssueConversationPanel
-                    workspaceId={wsId}
-                    issueId={id}
-                    mode={sessionMode}
-                    active={contentTab === "session"}
-                    onTakeover={handleTakeoverSession}
-                  />
-                )}
               </div>
-            )}
-            {contentTab === "activity" && (
-              <div
-                id={originNodeRun ? "issue-activity-panel" : undefined}
-                role={originNodeRun ? "tabpanel" : undefined}
-                aria-labelledby={originNodeRun ? "issue-activity-tab" : undefined}
-              >
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleToggleSubscribe}
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {isSubscribed ? t(($) => $.detail.unsubscribe) : t(($) => $.detail.subscribe)}
+                </button>
+                <Popover>
+                  <PopoverTrigger className="cursor-pointer hover:opacity-80 transition-opacity">
+                    {subscribers.length > 0 ? (
+                      <AvatarGroup>
+                        {subscribers.slice(0, 4).map((sub) => (
+                          <ActorAvatar
+                            key={`${sub.user_type}-${sub.user_id}`}
+                            actorType={sub.user_type}
+                            actorId={sub.user_id}
+                            size={24}
+                            enableHoverCard
+                          />
+                        ))}
+                        {subscribers.length > 4 && (
+                          <AvatarGroupCount>+{subscribers.length - 4}</AvatarGroupCount>
+                        )}
+                      </AvatarGroup>
+                    ) : (
+                      <span className="flex items-center justify-center h-6 w-6 rounded-full border border-dashed border-muted-foreground/30 text-muted-foreground">
+                        <Users className="h-3 w-3" />
+                      </span>
+                    )}
+                  </PopoverTrigger>
+                  <SubscriberPopoverContent
+                    members={members}
+                    agents={agents}
+                    subscribers={subscribers}
+                    toggleSubscriber={toggleSubscriber}
+                    t={t}
+                  />
+                </Popover>
+              </div>
+            </div>
 
             {/* Agent live output — sticky banner in the activity section,
                 keyed by issue id so switching issues remounts the card and
@@ -2484,9 +2260,7 @@ export function IssueDetail({
                   draft key. */}
               <CommentInput key={id} issueId={id} onSubmit={submitComment} />
             </div>
-              </div>
-            )}
-          </div>
+            </div>
         </div>
           )}
         </div>

@@ -2350,15 +2350,6 @@ export class ApiClient {
     });
   }
 
-  async takeoverNodeRun(nodeRunId: string): Promise<WorkflowNodeRun> {
-    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/blocked`, {
-      method: "POST",
-    });
-    return parseWithFallback(raw, WorkflowNodeRunSchema, EMPTY_WORKFLOW_NODE_RUN, {
-      endpoint: "POST /api/node-runs/:nodeRunId/blocked",
-    });
-  }
-
   async reviewNodeRun(nodeRunId: string, approved: boolean, comment?: string): Promise<WorkflowNodeRun> {
     return this.fetch(`/api/node-runs/${nodeRunId}/review`, {
       method: "POST",
@@ -2512,6 +2503,25 @@ export class ApiClient {
     const raw = await this.fetch<unknown>(`/api/sessions/${sessionId}/permission`);
     return parseWithFallback(raw, SessionPermissionSchema, EMPTY_SESSION_PERMISSION, {
       endpoint: "GET /api/sessions/:sessionId/permission",
+    });
+  }
+
+  async takeoverNodeRun(nodeRunId: string): Promise<WorkflowNodeRun> {
+    return this.fetch(`/api/node-runs/${nodeRunId}/blocked`, {
+      method: "POST",
+    });
+  }
+
+  async handbackNodeRun(nodeRunId: string): Promise<WorkflowNodeRun> {
+    return this.fetch(`/api/node-runs/${nodeRunId}/working`, {
+      method: "POST",
+    });
+  }
+
+  async finalizeNodeRun(nodeRunId: string, approved: boolean): Promise<WorkflowNodeRun> {
+    return this.fetch(`/api/node-runs/${nodeRunId}/finalize`, {
+      method: "POST",
+      body: JSON.stringify({ approved }),
     });
   }
 

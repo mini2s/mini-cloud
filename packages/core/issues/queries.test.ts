@@ -12,7 +12,6 @@ import {
   flattenIssueBuckets,
   issueGraphOptions,
   issueKeys,
-  openWorkflowOriginIssuesOptions,
   projectGanttIssuesOptions,
 } from "./queries";
 
@@ -77,30 +76,6 @@ describe("flattenIssueBuckets", () => {
         },
       }).map((issue) => issue.id),
     ).toEqual([regularIssue.id]);
-  });
-});
-
-describe("openWorkflowOriginIssuesOptions", () => {
-  it("requests all open issues including workflow-origin rows", async () => {
-    const listIssues = vi
-      .fn<(params?: ListIssuesParams) => Promise<ListIssuesResponse>>()
-      .mockResolvedValue({ issues: [makeIssue(1)], total: 1 });
-    installFakeApi(listIssues);
-    const qc = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-
-    const data = await qc.fetchQuery(openWorkflowOriginIssuesOptions(WS_ID));
-
-    expect(listIssues).toHaveBeenCalledWith({
-      open_only: true,
-      include_workflow_origin: true,
-    });
-    expect(data).toHaveLength(1);
-    expect(openWorkflowOriginIssuesOptions(WS_ID).queryKey).toEqual(
-      issueKeys.openWorkflowOrigin(WS_ID),
-    );
-    qc.clear();
   });
 });
 

@@ -1,14 +1,13 @@
 import { forwardRef, useRef, useState, useImperativeHandle, type ComponentProps } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { Issue, TimelineEntry, WorkflowNodeRun } from "@multica/core/types";
+import type { Issue, TimelineEntry } from "@multica/core/types";
 import { I18nProvider } from "@multica/core/i18n/react";
 import enCommon from "../../locales/en/common.json";
 import enIssues from "../../locales/en/issues.json";
-import enChat from "../../locales/en/chat.json";
 
-const TEST_RESOURCES = { en: { common: enCommon, issues: enIssues, chat: enChat } };
+const TEST_RESOURCES = { en: { common: enCommon, issues: enIssues } };
 
 const mockViewport = vi.hoisted(() => ({ isMobile: false }));
 const mockExecutionPanoramaProps = vi.hoisted(() => ({
@@ -20,10 +19,6 @@ const mockExecutionPanoramaProps = vi.hoisted(() => ({
     fillAvailableHeight?: boolean;
   },
 }));
-const mockWorkflowNodeRuns = vi.hoisted(() => ({
-  current: [] as WorkflowNodeRun[],
-}));
-const mockTakeoverNodeRun = vi.hoisted(() => vi.fn());
 
 vi.mock("@multica/ui/hooks/use-mobile", () => ({
   useIsMobile: () => mockViewport.isMobile,
@@ -104,11 +99,7 @@ vi.mock("@multica/core/workflows/queries", async (importOriginal) => {
     }),
     workflowNodeRunsOptions: (_wsId: string, workflowId: string, runId: string) => ({
       queryKey: ["workflows", "ws-1", workflowId, runId, "node-runs"],
-      queryFn: () => Promise.resolve(mockWorkflowNodeRuns.current),
-    }),
-    useTakeoverNodeRun: () => ({
-      isPending: false,
-      mutateAsync: mockTakeoverNodeRun,
+      queryFn: () => Promise.resolve([]),
     }),
   };
 });
@@ -238,30 +229,6 @@ vi.mock("./execution", () => ({
   },
 }));
 
-vi.mock("./issue-conversation-panel", () => ({
-  IssueConversationPanel: ({
-    mode,
-    onTakeover,
-  }: {
-    mode: "observe" | "control";
-    active: boolean;
-    onTakeover: () => void;
-  }) => (
-    <div data-testid="session">
-      {mode === "observe" ? (
-        <>
-          <p>Take over the session to send messages or stop the current run.</p>
-          <button type="button" onClick={onTakeover}>
-            Take over session
-          </button>
-        </>
-      ) : (
-        <textarea aria-label="Live session message" />
-      )}
-    </div>
-  ),
-}));
-
 // Mock api
 const mockApiObj = vi.hoisted(() => ({
   getIssue: vi.fn(),
@@ -290,7 +257,6 @@ const mockApiObj = vi.hoisted(() => ({
   removeCommentReaction: vi.fn(),
   listMembers: vi.fn().mockResolvedValue([{ user_id: "user-1", name: "Test User", email: "test@test.com", role: "admin" }]),
   listAgents: vi.fn().mockResolvedValue([]),
-  getSessionPermission: vi.fn(),
   getProject: vi.fn(),
   listProjects: vi.fn().mockResolvedValue({ projects: [] }),
 }));
@@ -486,34 +452,6 @@ const mockIssue: Issue = {
   updated_at: "2026-01-20T00:00:00Z",
 };
 
-const mockOriginNodeRun: WorkflowNodeRun = {
-  id: "node-run-1",
-  workflow_run_id: "run-1",
-  workflow_node_id: "node-1",
-  node_title: "Requirements analysis",
-  status: "working",
-  retry_count: 0,
-  worker_type: "agent",
-  worker_id: "agent-1",
-  worker_output: null,
-  worker_agent_task_id: "task-1",
-  critic_type: "human",
-  critic_id: null,
-  critic_output: null,
-  critic_comment: "",
-  critic_agent_task_id: null,
-  agent_task_id: "task-1",
-  session_id: "session-1",
-  runtime_id: "runtime-1",
-  device_id: "device-1",
-  split_review_chat_session_id: null,
-  split_config_version: 1,
-  started_at: "2026-01-20T00:00:00Z",
-  completed_at: null,
-  created_at: "2026-01-20T00:00:00Z",
-  updated_at: "2026-01-20T00:00:00Z",
-};
-
 const mockTimeline: TimelineEntry[] = [
   {
     type: "comment",
@@ -605,7 +543,6 @@ describe("IssueDetail (shared)", () => {
     vi.clearAllMocks();
     mockViewport.isMobile = false;
     mockExecutionPanoramaProps.latest = null;
-    mockWorkflowNodeRuns.current = [];
     // Default: issue loads successfully
     mockApiObj.getIssue.mockResolvedValue(mockIssue);
     // /timeline returns the entries flat in chronological order (oldest first).
@@ -620,19 +557,6 @@ describe("IssueDetail (shared)", () => {
       { user_id: "user-1", name: "Test User", email: "test@test.com", role: "admin" },
     ]);
     mockApiObj.listAgents.mockResolvedValue([]);
-    mockApiObj.getSessionPermission.mockResolvedValue({
-      workspace_id: "ws-1",
-      node_run_id: "node-run-1",
-      device_id: "device-1",
-      session_id: "session-1",
-      role: "",
-      can_control: false,
-      can_observe: false,
-    });
-    mockTakeoverNodeRun.mockResolvedValue({
-      ...mockOriginNodeRun,
-      status: "blocked",
-    });
     // Reset project mock — individual tests override per case. Default fixture
     // has project_id: null so getProject is not invoked.
     mockApiObj.getProject.mockReset();
@@ -948,228 +872,6 @@ describe("IssueDetail (shared)", () => {
     await waitFor(() => {
       expect(screen.getAllByText("Activity").length).toBeGreaterThanOrEqual(1);
     });
-  });
-
-  it("takes over the node run before opening the live session in control mode", async () => {
-    mockApiObj.getIssue.mockResolvedValue({
-      ...mockIssue,
-      origin_type: "workflow",
-      origin_id: "node-run-1",
-      workflow_id: "workflow-1",
-      workflow_run_id: "run-1",
-    });
-    mockWorkflowNodeRuns.current = [mockOriginNodeRun];
-    mockApiObj.getSessionPermission.mockResolvedValue({
-      workspace_id: "ws-1",
-      node_run_id: "node-run-1",
-      device_id: "device-1",
-      session_id: "session-1",
-      role: "operator",
-      can_control: true,
-      can_observe: true,
-    });
-    let resolveTakeover!: (nodeRun: WorkflowNodeRun) => void;
-    mockTakeoverNodeRun.mockImplementation(
-      () => new Promise((resolve) => {
-        resolveTakeover = resolve;
-      }),
-    );
-
-    renderIssueDetail();
-
-    const takeoverButton = await screen.findByRole("button", { name: "Take over session" });
-    const liveSessionTab = screen.getByRole("tab", { name: "Live session" });
-    const activityTab = screen.getByRole("tab", { name: "Activity" });
-
-    expect(activityTab).toHaveAttribute("aria-selected", "true");
-    expect(liveSessionTab).toBeEnabled();
-    expect(document.getElementById("issue-session-panel")).not.toBeVisible();
-
-    fireEvent.click(takeoverButton);
-
-    expect(mockTakeoverNodeRun).toHaveBeenCalledWith("node-run-1");
-    expect(screen.queryByRole("textbox", { name: "Live session message" })).not.toBeInTheDocument();
-    await act(async () => {
-      resolveTakeover({ ...mockOriginNodeRun, status: "blocked" });
-    });
-    await waitFor(() =>
-      expect(screen.getByRole("textbox", { name: "Live session message" })).toBeEnabled(),
-    );
-    expect(liveSessionTab).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByTestId("session")).toBeVisible();
-    expect(screen.queryByText("Started working on this")).not.toBeInTheDocument();
-
-    const sessionElement = screen.getByTestId("session");
-    fireEvent.click(activityTab);
-    expect(sessionElement).not.toBeVisible();
-    fireEvent.click(liveSessionTab);
-    expect(screen.getByTestId("session")).toBe(sessionElement);
-    expect(screen.getByRole("textbox", { name: "Live session message" })).toBeEnabled();
-  });
-
-  it("opens a deep-linked live session and takes it over once", async () => {
-    mockApiObj.getIssue.mockResolvedValue({
-      ...mockIssue,
-      origin_type: "workflow",
-      origin_id: "node-run-1",
-      workflow_id: "workflow-1",
-      workflow_run_id: "run-1",
-    });
-    mockWorkflowNodeRuns.current = [mockOriginNodeRun];
-    mockApiObj.getSessionPermission.mockResolvedValue({
-      workspace_id: "ws-1",
-      node_run_id: "node-run-1",
-      device_id: "device-1",
-      session_id: "session-1",
-      role: "operator",
-      can_control: true,
-      can_observe: true,
-    });
-
-    renderIssueDetail("issue-1", {
-      initialLiveSession: true,
-      takeoverSessionOnOpen: true,
-    });
-
-    await waitFor(() => expect(mockTakeoverNodeRun).toHaveBeenCalledWith("node-run-1"));
-    expect(mockTakeoverNodeRun).toHaveBeenCalledTimes(1);
-    const liveSessionTab = screen.getByRole("tab", { name: "Live session" });
-    const activityTab = screen.getByRole("tab", { name: "Activity" });
-    expect(liveSessionTab).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("textbox", { name: "Live session message" })).toBeEnabled();
-
-    fireEvent.click(activityTab);
-
-    expect(activityTab).toHaveAttribute("aria-selected", "true");
-    expect(liveSessionTab).toHaveAttribute("aria-selected", "false");
-    expect(mockTakeoverNodeRun).toHaveBeenCalledTimes(1);
-  });
-
-  it("enters the live session tab in observe mode and takes over from inside", async () => {
-    mockApiObj.getIssue.mockResolvedValue({
-      ...mockIssue,
-      origin_type: "workflow",
-      origin_id: "node-run-1",
-      workflow_id: "workflow-1",
-      workflow_run_id: "run-1",
-    });
-    mockWorkflowNodeRuns.current = [mockOriginNodeRun];
-    mockApiObj.getSessionPermission.mockResolvedValue({
-      workspace_id: "ws-1",
-      node_run_id: "node-run-1",
-      device_id: "device-1",
-      session_id: "session-1",
-      role: "operator",
-      can_control: true,
-      can_observe: true,
-    });
-
-    renderIssueDetail();
-
-    fireEvent.click(await screen.findByRole("tab", { name: "Live session" }));
-    expect(
-      screen.getByText("Take over the session to send messages or stop the current run."),
-    ).toBeVisible();
-    expect(screen.queryByRole("textbox", { name: "Live session message" })).not.toBeInTheDocument();
-
-    const takeoverButtons = screen.getAllByRole("button", { name: "Take over session" });
-    fireEvent.click(takeoverButtons.at(-1)!);
-
-    expect(mockTakeoverNodeRun).toHaveBeenCalledWith("node-run-1");
-    await waitFor(() =>
-      expect(screen.getByRole("textbox", { name: "Live session message" })).toBeEnabled(),
-    );
-    expect(
-      screen.queryByText("Take over the session to send messages or stop the current run."),
-    ).not.toBeInTheDocument();
-  });
-
-  it("keeps the session in observe mode when node-run takeover fails", async () => {
-    mockApiObj.getIssue.mockResolvedValue({
-      ...mockIssue,
-      origin_type: "workflow",
-      origin_id: "node-run-1",
-      workflow_id: "workflow-1",
-      workflow_run_id: "run-1",
-    });
-    mockWorkflowNodeRuns.current = [mockOriginNodeRun];
-    mockApiObj.getSessionPermission.mockResolvedValue({
-      workspace_id: "ws-1",
-      node_run_id: "node-run-1",
-      device_id: "device-1",
-      session_id: "session-1",
-      role: "operator",
-      can_control: true,
-      can_observe: true,
-    });
-    mockTakeoverNodeRun.mockRejectedValue(new Error("takeover rejected"));
-
-    renderIssueDetail();
-
-    fireEvent.click(await screen.findByRole("tab", { name: "Live session" }));
-    const takeoverButtons = screen.getAllByRole("button", { name: "Take over session" });
-    fireEvent.click(takeoverButtons.at(-1)!);
-
-    await waitFor(() =>
-      expect(mockToast.error).toHaveBeenCalledWith("takeover rejected"),
-    );
-    expect(
-      screen.getByText("Take over the session to send messages or stop the current run."),
-    ).toBeVisible();
-    expect(screen.queryByRole("textbox", { name: "Live session message" })).not.toBeInTheDocument();
-  });
-
-  it("opens an already-taken-over node run in control mode without another takeover request", async () => {
-    mockApiObj.getIssue.mockResolvedValue({
-      ...mockIssue,
-      origin_type: "workflow",
-      origin_id: "node-run-1",
-      workflow_id: "workflow-1",
-      workflow_run_id: "run-1",
-    });
-    mockWorkflowNodeRuns.current = [{
-      ...mockOriginNodeRun,
-      status: "blocked",
-      completed_at: null,
-    }];
-    mockApiObj.getSessionPermission.mockResolvedValue({
-      workspace_id: "ws-1",
-      node_run_id: "node-run-1",
-      device_id: "device-1",
-      session_id: "session-1",
-      role: "operator",
-      can_control: true,
-      can_observe: true,
-    });
-
-    renderIssueDetail();
-
-    fireEvent.click(await screen.findByRole("tab", { name: "Live session" }));
-
-    expect(screen.getByRole("textbox", { name: "Live session message" })).toBeEnabled();
-    expect(mockTakeoverNodeRun).not.toHaveBeenCalled();
-  });
-
-  it("keeps the live session tab disabled and hides takeover without permission", async () => {
-    mockApiObj.getIssue.mockResolvedValue({
-      ...mockIssue,
-      origin_type: "workflow",
-      origin_id: "node-run-1",
-      workflow_id: "workflow-1",
-      workflow_run_id: "run-1",
-    });
-    mockWorkflowNodeRuns.current = [mockOriginNodeRun];
-
-    renderIssueDetail();
-
-    const liveSessionTab = await screen.findByRole("tab", { name: "Live session" });
-
-    await waitFor(() => expect(liveSessionTab).toBeDisabled());
-    expect(screen.getByRole("tab", { name: "Activity" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    expect(screen.queryByRole("button", { name: "Take over session" })).not.toBeInTheDocument();
   });
 
   it("retries a failed task directly from the activity timeline", async () => {
