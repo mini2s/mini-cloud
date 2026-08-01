@@ -3,7 +3,6 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import type { Agent } from "@multica/core/types";
-import type { BuiltinPlugin } from "@multica/core/api";
 import { useBoundPlugin } from "./use-bound-plugin";
 
 // hoisted so the mock fn identity is shared between the test and the hook
@@ -15,7 +14,9 @@ const pluginApiMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@multica/core/api", async (importOriginal) => {
-  const real = await importOriginal();
+  const real = (await importOriginal()) as Record<string, unknown> & {
+    api: Record<string, unknown>;
+  };
   return { ...real, api: { ...real.api, ...pluginApiMocks } };
 });
 
@@ -27,7 +28,7 @@ const wrapper = ({ children }: { children: ReactNode }) => (
   </QueryClientProvider>
 );
 
-function makePlugin(overrides: Record<string, unknown> = {}): BuiltinPlugin {
+function makePlugin(overrides: Record<string, unknown> = {}) {
   return {
     id: "new-uuid",
     slug: "cospowers-task-planning",
@@ -36,7 +37,7 @@ function makePlugin(overrides: Record<string, unknown> = {}): BuiltinPlugin {
     description: "",
     category: "builtin",
     ...overrides,
-  } as unknown as BuiltinPlugin;
+  };
 }
 
 function makeAgent(overrides: Partial<Agent> = {}): Agent {
