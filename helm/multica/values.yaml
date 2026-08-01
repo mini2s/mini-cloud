@@ -71,10 +71,6 @@ backend:
     # service (namespace costrict, port 8080). Set deptSyncQueryKey to enable
     # dept-backed member management; leave both empty to disable.
     deptSyncBaseUrl: "http://costrict-dept-sync-svc.costrict:8080/costrict-dept-info/api/v1"
-    deptSyncTimeout: "10s"
-    deptSyncCacheTtl: "1m"
-    deptLinkTimeout: "15s"
-    deptLinkInterval: "5m"
     # cs-user integration — member search/resolve by cs-user subject_id. Point at
     # the in-cluster cs-user service (e.g. http://cs-user-svc.costrict:8082) and
     # set csUserInternalToken (backend.secrets) to enable. Leave empty to disable
@@ -128,14 +124,6 @@ backend:
     workflowRoleLlmProvider: "openai"
     workflowRoleLlmModel: "glm-4-plus"
     workflowRoleLlmBaseUrl: "https://open.bigmodel.cn/api/paas/v4"
-    workflowRoleLlmMaxOutputTokens: "4096"
-    workflowRoleLlmTemperature: "0"
-    workflowRoleLlmTimeoutSeconds: "30"
-    workflowRoleLlmMaxCandidates: "200"
-    workflowRoleLlmMaxSlots: "50"
-    workflowRoleLlmMaxInputChars: "100000"
-    workflowRoleWorkerConcurrency: "2"
-    workflowRoleMaxActiveJobsPerWorkspace: "5"
 
   persistence:
     enabled: false
