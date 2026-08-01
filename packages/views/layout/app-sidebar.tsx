@@ -38,7 +38,7 @@ import {
   GitBranch,
   // Upcoming product surface — placeholder nav entries.
   LayoutDashboard,
-  // MessagesSquare,
+  MessagesSquare,
   // ClipboardCheck,
   FileText,
   // Brain,
@@ -206,7 +206,7 @@ const personalNav: NavItem[] = [
 const workbenchNav: NavItem[] = [
   { key: "inbox", labelKey: "inbox", icon: Inbox },
   // 隐藏菜单项（保留代码，仅注释）
-  // { key: "sessions", labelKey: "sessions", icon: MessagesSquare },
+  { key: "sessions", labelKey: "sessions", icon: MessagesSquare },
   { key: "myIssues", labelKey: "my_issues", icon: CircleUser },
   // { key: "reviews", labelKey: "reviews", icon: ClipboardCheck },
   { key: "projects", labelKey: "projects", icon: FolderKanban },
