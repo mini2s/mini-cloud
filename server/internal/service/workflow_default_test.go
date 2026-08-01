@@ -751,9 +751,9 @@ func TestUploadMemberDeliverable(t *testing.T) {
 	srv, prCount, paths := uploadFakeGiteaServer(t)
 	defer srv.Close()
 	svc := &WorkflowService{
-		Queries:   db.New(pool),
-		TxStarter: pool,
-		Gitea:     gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+		Queries:            db.New(pool),
+		TxStarter:          pool,
+		RepositoryProvider: testGiteaProvider(srv.URL, "bot-tok"),
 	}
 
 	issue := db.MulticaIssue{
@@ -859,9 +859,9 @@ func TestUploadMemberDeliverable_UpdatesExistingFileAfterRejection(t *testing.T)
 	srv, prCount, _ := uploadFakeGiteaServer(t)
 	defer srv.Close()
 	svc := &WorkflowService{
-		Queries:   db.New(pool),
-		TxStarter: pool,
-		Gitea:     gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+		Queries:            db.New(pool),
+		TxStarter:          pool,
+		RepositoryProvider: testGiteaProvider(srv.URL, "bot-tok"),
 	}
 
 	issue := db.MulticaIssue{
@@ -997,9 +997,9 @@ func TestUploadMemberDeliverable_PartialSetWaitsAndCarriesSummary(t *testing.T) 
 	srv, _, _ := uploadFakeGiteaServer(t)
 	defer srv.Close()
 	svc := &WorkflowService{
-		Queries:   db.New(pool),
-		TxStarter: pool,
-		Gitea:     gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+		Queries:            db.New(pool),
+		TxStarter:          pool,
+		RepositoryProvider: testGiteaProvider(srv.URL, "bot-tok"),
 	}
 
 	issue := db.MulticaIssue{
@@ -1429,9 +1429,9 @@ func TestMergeDeliverablePRs_SkipsRejectedSubmissions(t *testing.T) {
 
 	srv, paths := multiLinkFakeGiteaServer(t)
 	svc := &WorkflowService{
-		Queries:   db.New(pool),
-		TxStarter: pool,
-		Gitea:     gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+		Queries:            db.New(pool),
+		TxStarter:          pool,
+		RepositoryProvider: testGiteaProvider(srv.URL, "bot-tok"),
 	}
 
 	if _, err := pool.Exec(ctx, `

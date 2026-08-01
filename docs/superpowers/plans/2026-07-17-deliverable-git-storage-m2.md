@@ -14,7 +14,7 @@
 - **Merge model = B (inline):** merge inside `ReviewNodeRun` approve, NO new state; persist `critic_approved` → external merge (retry) → `completed`/`blocked`. Add `critic_approved → blocked`.
 - **PR-URL report = A:** dedicated daemon endpoint `POST /api/daemon/node-runs/{nodeRunId}/deliverables/{deliverableId}/report-pr`.
 - **Ordering:** scaffold FIRST (creates org), THEN provision (adds bot to the now-existing org). Provision is lazy + once-per-workspace (skip if `gitea_pat` already in settings).
-- **Dormant when unconfigured:** if `WorkflowService.Gitea == nil` (no `GITEA_BASE_URL`/`GITEA_ADMIN_TOKEN`), scaffolding and merge are skipped entirely — the feature is off. (Doc deliverables then have no Gitea PRs to merge, so approve behaves as before.)
+- **Dormant when unconfigured:** if Gitea base URL or workspace bot token is unavailable, scaffolding and merge are skipped entirely — the feature is off. (Doc deliverables then have no Gitea PRs to merge, so approve behaves as before.)
 - **Scaffold persistent failure → run failed** (design §4.1). Implemented with bounded retry; exhaustion transitions the run to `failed`.
 
 ## File Structure (Milestone 2)
@@ -135,7 +135,7 @@ import (
 	"strings"
 )
 
-// MergePR merges a pull request by its numeric index. Uses the admin token.
+// MergePR merges a pull request by its numeric index. Uses the configured token.
 // Gitea returns 409 if the PR cannot be merged (conflicts) — surfaced as an error
 // so the caller can block the node run rather than silently complete it.
 func (c *Client) MergePR(ctx context.Context, owner, repo string, index int) error {
@@ -408,7 +408,7 @@ type WorkflowService struct {
 
 	// Gitea is the platform Gitea admin client, used for run-start scaffolding
 	// and approve-time PR merging of document deliverables. nil when Gitea is not
-	// configured (GITEA_BASE_URL/GITEA_ADMIN_TOKEN unset) — the feature stays dormant.
+	// configured (Gitea base URL or workspace bot token unavailable) — the feature stays dormant.
 	Gitea *gitea.Client
 
 	OnNodeStatusChanged func(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun)
@@ -443,7 +443,7 @@ In `server/cmd/server/router.go`:
 	if giteaClient == nil {
 		giteaClient = gitea.NewClient(gitea.Config{
 			BaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("GITEA_BASE_URL")), "/"),
-			Token:   os.Getenv("GITEA_ADMIN_TOKEN"),
+			Token:   workspaceBotToken,
 			Timeout: envDuration("GITEA_TIMEOUT", 10*time.Second),
 		})
 	}
@@ -457,7 +457,7 @@ In `server/cmd/server/main.go`, near the `deptSyncClient` construction (~line 30
 ```go
 	giteaClient := gitea.NewClient(gitea.Config{
 		BaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("GITEA_BASE_URL")), "/"),
-		Token:   os.Getenv("GITEA_ADMIN_TOKEN"),
+		Token:   workspaceBotToken,
 		Timeout: envDuration("GITEA_TIMEOUT", 10*time.Second),
 	})
 ```

@@ -25,6 +25,10 @@ import (
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
+func testGiteaProvider(baseURL, token string) coderepo.RepositoryProvider {
+	return coderepo.GiteaAdapter{Client: gitea.NewClient(gitea.Config{BaseURL: baseURL, Token: token})}
+}
+
 // giteaFixture holds the seeded IDs for a single Gitea run-start test. Cleanup
 // is registered via t.Cleanup in the seed helper.
 type giteaFixture struct {
@@ -811,8 +815,8 @@ func TestArchiveReviewComment_WritesReviewUnderNodeDir(t *testing.T) {
 			}
 
 			svc := &WorkflowService{
-				Queries: queries,
-				Gitea:   gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+				Queries:            queries,
+				RepositoryProvider: testGiteaProvider(srv.URL, "bot-tok"),
 			}
 			svc.ArchiveReviewComment(ctx, nodeRun, c.decision, "评审意见正文")
 
@@ -831,9 +835,9 @@ func TestArchiveReviewComment_WritesReviewUnderNodeDir(t *testing.T) {
 // so the spy satisfies the interface without a full httptest backend.
 type spyRepoProvider struct {
 	configured  bool
-	mu         sync.Mutex
-	upserts    []spyUpsertCall
-	branches   []spyBranchCall
+	mu          sync.Mutex
+	upserts     []spyUpsertCall
+	branches    []spyBranchCall
 	openReviews []spyOpenReviewCall
 }
 
@@ -1413,7 +1417,6 @@ func TestHandleWorkflowTaskCompletion_CriticOutputFallsBackToReviewComment(t *te
 		Queries:   db.New(pool),
 		TxStarter: pool,
 		Bus:       events.New(),
-		Gitea:     nil,
 	}
 	nrID, _ := util.ParseUUID(nodeRunID)
 	err := svc.HandleWorkflowTaskCompletion(ctx, db.MulticaAgentTaskQueue{
@@ -1456,7 +1459,7 @@ func TestNormalizeAgentCriticCommentPrefixesUnstructuredOutput(t *testing.T) {
 // TestReviewNodeRun_MergesDocumentDeliverablePRs is the M2 capstone behavior:
 // when a critic approves a node run whose workflow has a document deliverable
 // (and Gitea is configured), the server merges each document submission's PR
-// with the admin token, then completes the node and marks the submission
+// with the workspace bot token, then completes the node and marks the submission
 // approved. The merge runs AFTER the critic_approved tx commits (it can't be
 // rolled back), so a tx failure leaves no half-merged state.
 func TestReviewNodeRun_MergesDocumentDeliverablePRs(t *testing.T) {
@@ -1467,10 +1470,10 @@ func TestReviewNodeRun_MergesDocumentDeliverablePRs(t *testing.T) {
 	srv, mergeCalls := fakeGiteaMergeServer(t, http.StatusOK)
 
 	svc := &WorkflowService{
-		Queries:   db.New(pool),
-		TxStarter: pool,
-		Bus:       events.New(),
-		Gitea:     gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+		Queries:            db.New(pool),
+		TxStarter:          pool,
+		Bus:                events.New(),
+		RepositoryProvider: testGiteaProvider(srv.URL, "bot-tok"),
 	}
 	ctx := context.Background()
 
@@ -1518,7 +1521,6 @@ func TestReviewNodeRun_SkipsGitLabMR(t *testing.T) {
 		Queries:   db.New(pool),
 		TxStarter: pool,
 		Bus:       events.New(),
-		Gitea:     nil, // code-only workspace — Gitea dormant
 	}
 
 	// Seed a critic_reviewing node_run + a runtime requirement + a submission
@@ -1570,7 +1572,6 @@ func TestMergeReviewURL_SkipsCodeMR(t *testing.T) {
 	svc := &WorkflowService{
 		Queries:            db.New(pool),
 		RepositoryProvider: spy,
-		Gitea:              gitea.NewClient(gitea.Config{BaseURL: "http://gitea.test", Token: "tok"}),
 	}
 	// External code MR URL: must NOT merge (returns nil, no provider merge call).
 	if err := svc.mergeReviewURL(context.Background(), pgtype.UUID{}, "t-x", "wf-y",
@@ -1764,10 +1765,10 @@ func TestReviewNodeRun_ApproveDoesNotClose(t *testing.T) {
 
 	giteaSrv, closeCalls := fakeGiteaCloseServer(t, http.StatusOK)
 	svc := &WorkflowService{
-		Queries:   db.New(pool),
-		TxStarter: pool,
-		Bus:       events.New(),
-		Gitea:     gitea.NewClient(gitea.Config{BaseURL: giteaSrv.URL, Token: "admin"}),
+		Queries:            db.New(pool),
+		TxStarter:          pool,
+		Bus:                events.New(),
+		RepositoryProvider: testGiteaProvider(giteaSrv.URL, "bot-tok"),
 	}
 	// Use a non-merge URL shape so mergeDeliverablePRs finds nothing to merge
 	// (the fake server doesn't implement /merge) — we only care that close isn't hit.
@@ -1795,10 +1796,10 @@ func TestReviewNodeRun_BlocksWhenMergeConflicts(t *testing.T) {
 	srv, mergeCalls := fakeGiteaMergeServer(t, http.StatusConflict)
 
 	svc := &WorkflowService{
-		Queries:   db.New(pool),
-		TxStarter: pool,
-		Bus:       events.New(),
-		Gitea:     gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin-tok"}),
+		Queries:            db.New(pool),
+		TxStarter:          pool,
+		Bus:                events.New(),
+		RepositoryProvider: testGiteaProvider(srv.URL, "bot-tok"),
 	}
 	ctx := context.Background()
 
@@ -1820,6 +1821,37 @@ func TestReviewNodeRun_BlocksWhenMergeConflicts(t *testing.T) {
 	}
 }
 
+func TestMergeReviewURLUsesWorkspaceBotTokenWithoutAdminClient(t *testing.T) {
+	mdb := newEnsureRepoTestDB()
+	mdb.workspace.Settings = []byte(`{"gitea_pat":"workspace-bot-token"}`)
+
+	var gotAuth string
+	mergeCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/merge") {
+			mergeCalls++
+			gotAuth = r.Header.Get("Authorization")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	t.Setenv("GITEA_BASE_URL", srv.URL)
+
+	svc := &WorkflowService{Queries: db.New(mdb)}
+	err := svc.mergeReviewURL(context.Background(), mdb.workspace.ID, "t-ws", "wf-docworkflow", srv.URL+"/t-ws/wf-docworkflow/pulls/7")
+	if err != nil {
+		t.Fatalf("mergeReviewURL: %v", err)
+	}
+	if mergeCalls != 1 {
+		t.Fatalf("merge calls = %d, want 1", mergeCalls)
+	}
+	if gotAuth != "token workspace-bot-token" {
+		t.Fatalf("Authorization = %q, want workspace bot token", gotAuth)
+	}
+}
+
 // TestReviewNodeRun_RejectKeepsPROpen_RetryMergeSucceeds reproduces the
 // member-deliverable retry bug: on rejection the node-run's Gitea PR was closed,
 // but the submission stayed "submitted". The member path reuses ONE branch/PR
@@ -1835,10 +1867,10 @@ func TestReviewNodeRun_RejectKeepsPROpen_RetryMergeSucceeds(t *testing.T) {
 
 	srv, mergeCalls := fakeGiteaMergeServerTrackingClose(t)
 	svc := &WorkflowService{
-		Queries:   db.New(pool),
-		TxStarter: pool,
-		Bus:       events.New(),
-		Gitea:     gitea.NewClient(gitea.Config{BaseURL: srv.URL, Token: "admin"}),
+		Queries:            db.New(pool),
+		TxStarter:          pool,
+		Bus:                events.New(),
+		RepositoryProvider: testGiteaProvider(srv.URL, "bot-tok"),
 	}
 
 	// One PR per deliverable, reused across retry rounds (member-upload semantics).
@@ -1886,7 +1918,6 @@ func TestReviewNodeRun_CompletesWithoutMergeWhenGiteaNil(t *testing.T) {
 		Queries:   db.New(pool),
 		TxStarter: pool,
 		Bus:       events.New(),
-		Gitea:     nil, // feature dormant
 	}
 	ctx := context.Background()
 
@@ -2467,10 +2498,10 @@ func TestMergeAndApprove_KindAgnostic(t *testing.T) {
 
 	giteaSrv, mergeCalls := fakeGiteaMergeServer(t, http.StatusOK)
 	svc := &WorkflowService{
-		Queries:   db.New(pool),
-		TxStarter: pool,
-		Bus:       events.New(),
-		Gitea:     gitea.NewClient(gitea.Config{BaseURL: giteaSrv.URL, Token: "admin-tok"}),
+		Queries:            db.New(pool),
+		TxStarter:          pool,
+		Bus:                events.New(),
+		RepositoryProvider: testGiteaProvider(giteaSrv.URL, "bot-tok"),
 	}
 
 	docPRURL := giteaSrv.URL + "/owner/repo/pulls/10"
@@ -2608,4 +2639,3 @@ func TestArchiveCodeLinksToInst_WritesInstBranchAndNoPR(t *testing.T) {
 		t.Errorf("OpenReviewRequest calls = %d, want 0 (code links no longer open a PR)", len(reviews))
 	}
 }
-

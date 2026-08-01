@@ -41,7 +41,6 @@ backend:
     rateLimitTrustedProxies: []
     realtimeMetricsToken: ""
     multicaCloudFleetUrl: ""
-    multicaFleetUrl: ""
     redisUrl: ""
     realtimeRelayMode: ""
     realtimeRelayShards: ""
@@ -117,7 +116,7 @@ backend:
     # Gitea — backs the workflow deliverable feature: document deliverables are
     # stored in per-workspace Gitea repos. Leave all empty to keep the feature
     # dormant (server reports isGiteaConfigured=false). Enable by setting
-    # giteaBaseUrl + giteaAdminToken (below in backend.secrets). Set
+    # giteaBaseUrl and team-namespace provisioning. Set
     # giteaPublicBaseUrl to a daemon/agent-reachable clone URL when the
     # in-cluster giteaBaseUrl is not resolvable from where daemons run.
     giteaBaseUrl: ""
@@ -169,8 +168,6 @@ backend:
     # provisioning (teamNamespaceApiBaseUrl in backend.config).
     teamNamespaceInternalServiceToken: ""
     workflowRoleLlmApiKey: ""
-    giteaAdminToken: ""
-
   resources: {}
   nodeSelector: {}
   tolerations: []

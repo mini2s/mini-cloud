@@ -85,7 +85,6 @@ func TestSubmitNodeRunDeliverable_RejectsContentUploadWhenGiteaConfigured(t *tes
 		t.Skip("database not available")
 	}
 	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
-	t.Setenv("GITEA_ADMIN_TOKEN", "admin-tok")
 
 	// seedDeliverableAndNodeRunIn creates a document-kind deliverable.
 	nodeRunID, docID := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
@@ -112,7 +111,6 @@ func TestSubmitNodeRunDeliverable_RejectsPullRequestKindContentWhenGiteaConfigur
 		t.Skip("database not available")
 	}
 	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
-	t.Setenv("GITEA_ADMIN_TOKEN", "admin-tok")
 
 	ctx := context.Background()
 	nodeRunID, _ := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
@@ -159,7 +157,6 @@ func TestSubmitNodeRunDeliverable_AllowsPullRequestURLWhenGiteaConfigured(t *tes
 		t.Skip("database not available")
 	}
 	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
-	t.Setenv("GITEA_ADMIN_TOKEN", "admin-tok")
 
 	nodeRunID, docID := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
 	t.Cleanup(func() {
@@ -185,7 +182,6 @@ func TestSubmitNodeRunDeliverable_AllowsContentWhenDormant(t *testing.T) {
 		t.Skip("database not available")
 	}
 	t.Setenv("GITEA_BASE_URL", "")
-	t.Setenv("GITEA_ADMIN_TOKEN", "")
 
 	nodeRunID, docID := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
 	t.Cleanup(func() {

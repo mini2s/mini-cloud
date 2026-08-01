@@ -21,7 +21,6 @@ import (
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
-	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/handler"
 	"github.com/multica-ai/multica/server/internal/integration"
 	"github.com/multica-ai/multica/server/internal/logger"
@@ -341,11 +340,6 @@ func main() {
 		Token:   os.Getenv("CS_USER_INTERNAL_TOKEN"),
 		Timeout: envDuration("CS_USER_API_TIMEOUT", 10*time.Second),
 	})
-	giteaClient := gitea.NewClient(gitea.Config{
-		BaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("GITEA_BASE_URL")), "/"),
-		Token:   os.Getenv("GITEA_ADMIN_TOKEN"),
-		Timeout: envDuration("GITEA_TIMEOUT", 10*time.Second),
-	})
 	teamNamespaceClient := teamnamespace.NewClient(teamnamespace.Config{
 		BaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("TEAM_NAMESPACE_API_BASE_URL")), "/"),
 		Token:   os.Getenv("TEAM_NAMESPACE_INTERNAL_SERVICE_TOKEN"),
@@ -543,7 +537,6 @@ func main() {
 		SkillProxy:             skillProxy,
 		DeptSync:               deptSyncClient,
 		CsUser:                 csUserClient,
-		Gitea:                  giteaClient,
 		TeamNamespace:          teamNamespaceClient,
 		WorkflowRoleResolution: roleResolutionRuntime,
 	})
@@ -568,7 +561,6 @@ func main() {
 		Timeout: envDuration("MULTICA_CLOUD_FLEET_TIMEOUT", 35*time.Second),
 	})
 	roleWorkflowSvc := service.NewWorkflowService(queries, pool, bus, taskSvc)
-	roleWorkflowSvc.Gitea = giteaClient
 	roleWorkflowSvc.TeamNamespace = teamNamespaceClient
 	assignmentSvc := &service.IssueAssignmentService{Queries: queries, Tasks: taskSvc, Workflows: roleWorkflowSvc}
 	splitDispatchSvc := service.NewSplitOrchestrator(queries, pool, roleWorkflowSvc, assignmentSvc, bus)

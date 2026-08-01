@@ -17,7 +17,7 @@ import (
 // retry; for the approve-time merge it means the node run must block.
 var ErrMergeConflict = errors.New("gitea: pull request merge conflict")
 
-// MergePR merges a pull request by its numeric index. Uses the admin token.
+// MergePR merges a pull request by its numeric index. Uses the configured token.
 // Gitea returns 409 if the PR cannot be merged (conflicts) — surfaced as an error
 // so the caller can block the node run rather than silently complete it.
 func (c *Client) MergePR(ctx context.Context, owner, repo string, index int) error {
@@ -38,7 +38,7 @@ func (c *Client) MergePR(ctx context.Context, owner, repo string, index int) err
 }
 
 // ClosePR closes a pull request (sets state=closed). Used by the critic reject
-// path to close document deliverable PRs after a rejection. Uses the admin
+// path to close document deliverable PRs after a rejection. Uses the configured
 // token; the caller treats failure as best-effort (logged, non-blocking).
 func (c *Client) ClosePR(ctx context.Context, owner, repo string, index int) error {
 	resp, err := c.do(ctx, http.MethodPatch, "/repos/"+owner+"/"+repo+"/pulls/"+strconv.Itoa(index), map[string]any{
@@ -56,7 +56,7 @@ func (c *Client) ClosePR(ctx context.Context, owner, repo string, index int) err
 
 // OpenPR creates a pull request (head→base) and returns its html_url. Used by
 // the server-side member-upload path to open a node→inst PR — symmetric with the
-// daemon/cs-workflow path, which opens PRs client-side. Uses the admin token;
+// daemon/cs-workflow path, which opens PRs client-side. Uses the configured token;
 // the submission's submitted_by_* records the human author, not the git committer.
 func (c *Client) OpenPR(ctx context.Context, owner, repo, head, base, title string) (string, error) {
 	resp, err := c.do(ctx, http.MethodPost, "/repos/"+owner+"/"+repo+"/pulls", map[string]any{
