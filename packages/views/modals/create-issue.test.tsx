@@ -52,6 +52,11 @@ const mockQuickCreateStore = {
   setKeepOpen: mockSetKeepOpen,
 };
 
+const REQUIRED_CREATE_DATA = {
+  project_id: "proj-test",
+  responsible_user_id: "member-1",
+};
+
 vi.mock("../navigation", () => ({
   useNavigation: () => ({ push: mockPush }),
 }));
@@ -192,24 +197,41 @@ vi.mock("../issues/components", () => ({
   AssigneePicker: ({
     onUpdate,
     open,
+    allowedTypes,
+    emptyTriggerLabel,
   }: {
     onUpdate: (updates: Record<string, unknown>) => void;
     open?: boolean;
-  }) => (
+    allowedTypes?: string[];
+    emptyTriggerLabel?: string;
+  }) => {
+    const isResponsiblePicker = allowedTypes?.length === 1 && allowedTypes[0] === "member";
+    return (
     <button
       type="button"
-      data-testid="assignee-picker"
+      data-testid={isResponsiblePicker ? "responsible-picker" : "assignee-picker"}
       data-open={open ? "true" : "false"}
-      onClick={() => onUpdate({
-        assignee_type: "workflow",
-        assignee_id: "workflow-1",
-        runtime_selection_policy: "specified_runtime_first",
-        runtime_id: "runtime-1",
-      })}
+      data-empty-trigger-label={emptyTriggerLabel}
+      onClick={() =>
+        onUpdate(
+          isResponsiblePicker
+            ? {
+                assignee_type: "member",
+                assignee_id: "member-2",
+              }
+            : {
+                assignee_type: "workflow",
+                assignee_id: "workflow-1",
+                runtime_selection_policy: "specified_runtime_first",
+                runtime_id: "runtime-1",
+              },
+        )
+      }
     >
-      Select workflow assignee
+      {isResponsiblePicker ? "Select responsible member" : "Select workflow assignee"}
     </button>
-  ),
+    );
+  },
   StartDatePicker: () => <div data-testid="start-date-picker" />,
   DueDatePicker: () => <div data-testid="due-date-picker" />,
 }));
@@ -353,7 +375,7 @@ describe("CreateIssueModal", () => {
     expect(screen.getByTestId("project-picker")).toHaveAttribute("data-open", "true");
   });
 
-  it("shows assignee-required feedback when Create Issue is clicked without an assignee", async () => {
+  it("shows responsible-required feedback when Create Issue is clicked without a responsible member", async () => {
     const user = userEvent.setup();
     renderModal(<CreateIssueModal onClose={vi.fn()} data={{ project_id: "proj-test" }} />);
 
@@ -362,7 +384,13 @@ describe("CreateIssueModal", () => {
 
     expect(mockCreateIssue).not.toHaveBeenCalled();
     expect(screen.getByText("Pick an owner first. Every issue must have someone responsible.")).toBeInTheDocument();
-    expect(screen.getByTestId("assignee-picker")).toHaveAttribute("data-open", "true");
+    expect(screen.getByTestId("responsible-picker")).toHaveAttribute("data-open", "true");
+  });
+
+  it("shows a task-owner empty label for the responsible picker", () => {
+    renderModal(<CreateIssueModal onClose={vi.fn()} data={{ project_id: "proj-test" }} />);
+
+    expect(screen.getByTestId("responsible-picker")).toHaveAttribute("data-empty-trigger-label", "Responsible");
   });
 
   it("highlights the project picker while project is missing", () => {
@@ -376,7 +404,7 @@ describe("CreateIssueModal", () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
 
-    renderModal(<CreateIssueModal onClose={onClose} data={{ project_id: "proj-test" }} />);
+    renderModal(<CreateIssueModal onClose={onClose} data={REQUIRED_CREATE_DATA} />);
 
     fireEvent.change(screen.getByPlaceholderText("Issue title"), {
       target: { value: "  Ship create issue regression coverage  " },
@@ -391,6 +419,7 @@ describe("CreateIssueModal", () => {
         priority: "none",
         assignee_type: undefined,
         assignee_id: undefined,
+        responsible_user_id: "member-1",
         runtime_selection_policy: undefined,
         runtime_id: undefined,
         start_date: undefined,
@@ -426,7 +455,7 @@ describe("CreateIssueModal", () => {
     const onClose = vi.fn();
     mockQuickCreateStore.keepOpen = true;
 
-    renderModal(<CreateIssueModal onClose={onClose} data={{ project_id: "proj-test" }} />);
+    renderModal(<CreateIssueModal onClose={onClose} data={REQUIRED_CREATE_DATA} />);
 
     await user.type(screen.getByPlaceholderText("Issue title"), "First follow-up issue");
     await user.type(screen.getByPlaceholderText("Add description..."), "Description to clear");
@@ -440,6 +469,7 @@ describe("CreateIssueModal", () => {
         priority: "none",
         assignee_type: undefined,
         assignee_id: undefined,
+        responsible_user_id: "member-1",
         runtime_selection_policy: undefined,
         runtime_id: undefined,
         start_date: undefined,
@@ -471,11 +501,13 @@ describe("CreateIssueModal", () => {
     renderModal(<CreateIssueModal onClose={vi.fn()} data={{ project_id: "proj-test" }} />);
 
     await user.type(screen.getByPlaceholderText("Issue title"), "Run release workflow");
+    await user.click(screen.getByRole("button", { name: "Select responsible member" }));
     await user.click(screen.getByRole("button", { name: "Select workflow assignee" }));
     await user.click(screen.getByRole("button", { name: "Create Issue" }));
 
     await waitFor(() => {
       expect(mockCreateIssue).toHaveBeenCalledWith(expect.objectContaining({
+        responsible_user_id: "member-2",
         assignee_type: "workflow",
         assignee_id: "workflow-1",
         runtime_selection_policy: "specified_runtime_first",
@@ -502,7 +534,7 @@ describe("CreateIssueModal", () => {
       }),
     );
 
-    renderModal(<CreateIssueModal onClose={onClose} data={{ project_id: "proj-test" }} />);
+    renderModal(<CreateIssueModal onClose={onClose} data={REQUIRED_CREATE_DATA} />);
     await user.type(screen.getByPlaceholderText("Issue title"), "Login bug");
     await user.click(screen.getByRole("button", { name: "Create Issue" }));
 
@@ -535,7 +567,7 @@ describe("CreateIssueModal", () => {
       }),
     );
 
-    renderModal(<CreateIssueModal onClose={vi.fn()} data={{ project_id: "proj-test" }} />);
+    renderModal(<CreateIssueModal onClose={vi.fn()} data={REQUIRED_CREATE_DATA} />);
     await user.type(screen.getByPlaceholderText("Issue title"), "Login bug");
     await user.click(screen.getByRole("button", { name: "Create Issue" }));
 
@@ -550,7 +582,7 @@ describe("CreateIssueModal", () => {
     const user = userEvent.setup();
     mockCreateIssue.mockRejectedValue(new Error("Server is overloaded, try again"));
 
-    renderModal(<CreateIssueModal onClose={vi.fn()} data={{ project_id: "proj-test" }} />);
+    renderModal(<CreateIssueModal onClose={vi.fn()} data={REQUIRED_CREATE_DATA} />);
     await user.type(screen.getByPlaceholderText("Issue title"), "Anything");
     await user.click(screen.getByRole("button", { name: "Create Issue" }));
 
@@ -564,7 +596,7 @@ describe("CreateIssueModal", () => {
     const user = userEvent.setup();
     mockCreateIssue.mockRejectedValue("network exploded");
 
-    renderModal(<CreateIssueModal onClose={vi.fn()} data={{ project_id: "proj-test" }} />);
+    renderModal(<CreateIssueModal onClose={vi.fn()} data={REQUIRED_CREATE_DATA} />);
     await user.type(screen.getByPlaceholderText("Issue title"), "Anything");
     await user.click(screen.getByRole("button", { name: "Create Issue" }));
 

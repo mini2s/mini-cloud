@@ -11,6 +11,7 @@ export interface CreateIssueRequest {
   priority?: IssuePriority;
   assignee_type?: IssueAssigneeType;
   assignee_id?: string;
+  responsible_user_id: string;
   /** Optional preferred runtime when the assignee starts a workflow. */
   runtime_id?: string | null;
   runtime_selection_policy?: WorkflowRuntimeSelectionPolicy;

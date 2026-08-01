@@ -166,7 +166,7 @@
     "empty_title": "No runtime available",
     "empty_description": "Connect a runtime device before running a built-in digital human.",
     "auto_title": "Auto-select (recommended)",
-    "auto_description": "For built-in digital humans, select per node: idle first, then the Issue creator's runtime. Regular digital humans keep their binding.",
+    "auto_description": "For built-in digital humans, select per node: idle first, then the Issue owner's runtime. Regular digital humans keep their binding.",
     "cancel": "Cancel",
     "confirm": "Run"
   },

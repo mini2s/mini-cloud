@@ -29,16 +29,17 @@ func TestIssueAssignmentServiceStampsFailedWorkflowRun(t *testing.T) {
 
 	queries := db.New(fixture.pool)
 	issue, err := queries.CreateIssue(fixture.ctx, db.CreateIssueParams{
-		WorkspaceID:  fixture.workspaceID,
-		Title:        "Invalid workflow assignment",
-		Status:       "todo",
-		Priority:     "none",
-		AssigneeType: pgtype.Text{String: "workflow", Valid: true},
-		AssigneeID:   fixture.workflowID,
-		CreatorType:  "member",
-		CreatorID:    fixture.userID,
-		Number:       1,
-		WorkflowID:   fixture.workflowID,
+		WorkspaceID:       fixture.workspaceID,
+		Title:             "Invalid workflow assignment",
+		Status:            "todo",
+		Priority:          "none",
+		AssigneeType:      pgtype.Text{String: "workflow", Valid: true},
+		AssigneeID:        fixture.workflowID,
+		ResponsibleUserID: fixture.userID,
+		CreatorType:       "member",
+		CreatorID:         fixture.userID,
+		Number:            1,
+		WorkflowID:        fixture.workflowID,
 	})
 	if err != nil {
 		t.Fatal(err)

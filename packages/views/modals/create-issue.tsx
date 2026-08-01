@@ -121,6 +121,11 @@ export function ManualCreatePanel({
     }
     return draft.assigneeId;
   });
+  const [responsibleUserId, setResponsibleUserId] = useState<string | undefined>(() =>
+    (data?.responsible_user_id as string | null | undefined) ?? undefined,
+  );
+  const [responsibleRequiredVisible, setResponsibleRequiredVisible] = useState(false);
+  const [responsiblePickerOpen, setResponsiblePickerOpen] = useState(false);
   const [runtimeSelectionPolicy, setRuntimeSelectionPolicy] = useState<WorkflowRuntimeSelectionPolicy | undefined>(
     data?.runtime_selection_policy as WorkflowRuntimeSelectionPolicy | undefined,
   );
@@ -173,6 +178,11 @@ export function ManualCreatePanel({
     setRuntimeId(type === "workflow" || type === "agent" ? updates.runtime_id ?? undefined : undefined);
     setDraft({ assigneeType: type, assigneeId: id });
   };
+  const updateResponsibleUser = (updates: Partial<UpdateIssueRequest>) => {
+    if (updates.assignee_type !== "member" || !updates.assignee_id) return;
+    setResponsibleUserId(updates.assignee_id);
+    setResponsibleRequiredVisible(false);
+  };
   const updateStartDate = (v: string | null) => { setStartDate(v); setDraft({ startDate: v }); };
   const updateDueDate = (v: string | null) => { setDueDate(v); setDraft({ dueDate: v }); };
 
@@ -187,6 +197,8 @@ export function ManualCreatePanel({
     setProjectId(undefined);
     setProjectRequiredVisible(false);
     setProjectPickerOpen(false);
+    setResponsibleRequiredVisible(false);
+    setResponsiblePickerOpen(false);
     setParentIssueId(undefined);
     setChildIssues([]);
     setAttachmentIds([]);
@@ -211,6 +223,11 @@ export function ManualCreatePanel({
       setProjectPickerOpen(true);
       return;
     }
+    if (!responsibleUserId) {
+      setResponsibleRequiredVisible(true);
+      setResponsiblePickerOpen(true);
+      return;
+    }
     setSubmitting(true);
     try {
       const issue = await createIssueMutation.mutateAsync({
@@ -220,6 +237,7 @@ export function ManualCreatePanel({
         priority,
         assignee_type: assigneeType,
         assignee_id: assigneeId,
+        responsible_user_id: responsibleUserId,
         runtime_selection_policy: assigneeType === "workflow" ? runtimeSelectionPolicy : undefined,
         runtime_id: assigneeType === "workflow" || assigneeType === "agent" ? runtimeId : undefined,
         start_date: startDate || undefined,
@@ -480,6 +498,28 @@ export function ManualCreatePanel({
                 onOpenChange={setProjectPickerOpen}
               />
 
+              {/* Responsible member */}
+              <AssigneePicker
+                assigneeType={responsibleUserId ? "member" : null}
+                assigneeId={responsibleUserId ?? null}
+                onUpdate={updateResponsibleUser}
+                triggerRender={
+                  <PillButton
+                    className={cn(
+                      !responsibleUserId && "ring-1 ring-brand/30 bg-brand/5",
+                      responsibleRequiredVisible && "border-destructive/60 bg-destructive/10 text-destructive ring-2 ring-destructive/25",
+                    )}
+                  />
+                }
+                align="start"
+                open={responsiblePickerOpen}
+                onOpenChange={setResponsiblePickerOpen}
+                allowedTypes={["member"]}
+                allowUnassigned={false}
+                ariaLabel={t(($) => $.create_issue.responsible_aria)}
+                emptyTriggerLabel={t(($) => $.create_issue.responsible_empty_label)}
+              />
+
               {/* Status */}
               <StatusPicker
                 status={status}
@@ -618,6 +658,11 @@ export function ManualCreatePanel({
             {projectRequiredVisible && !projectId && (
               <div className="px-5 pb-2 text-xs font-medium text-destructive">
                 {t(($) => $.create_issue.project_required_detail)}
+              </div>
+            )}
+            {responsibleRequiredVisible && !responsibleUserId && (
+              <div className="px-5 pb-2 text-xs font-medium text-destructive">
+                {t(($) => $.create_issue.responsible_required_detail)}
               </div>
             )}
 

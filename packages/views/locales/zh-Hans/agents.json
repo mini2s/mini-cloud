@@ -162,7 +162,7 @@
     "empty_title": "没有可用的运行时",
     "empty_description": "请先连接一个运行时设备后再执行内置数智人。",
     "auto_title": "自动选择（推荐）",
-    "auto_description": "内置数智人 按节点选择：空闲运行时优先，其次为 Issue 创建人的运行时；普通 Agent 保持自身绑定。",
+    "auto_description": "内置数智人按节点选择：空闲运行时优先，其次为 Issue 负责人的运行时；普通 Agent 保持自身绑定。",
     "cancel": "取消",
     "confirm": "确认执行"
   },
