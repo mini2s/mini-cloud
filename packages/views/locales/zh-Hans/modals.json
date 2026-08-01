@@ -133,8 +133,6 @@
     "toast_duplicate_view": "查看已有 issue",
     "toast_link_subissues_all_failed": "关联子 issue 失败",
     "toast_link_subissues_partial": "{{total}} 个子 issue 中有 {{failed}} 个关联失败",
-    "switch_to_agent": "切换到数智人",
-    "switch_to_agent_tooltip": "切换到通过数智人创建——一句话描述，让它替你建",
     "switch_to_manual": "切换到手动",
     "switch_to_manual_tooltip": "切换到手动创建——自己填字段",
     "create_another": "继续创建",

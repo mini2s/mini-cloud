@@ -189,10 +189,17 @@ vi.mock("../issues/components", () => ({
   StatusIcon: ({ status }: { status: string }) => <span data-testid="status-icon">{status}</span>,
   StatusPicker: () => <div data-testid="status-picker" />,
   PriorityPicker: () => <div data-testid="priority-picker" />,
-  AssigneePicker: ({ onUpdate }: { onUpdate: (updates: Record<string, unknown>) => void }) => (
+  AssigneePicker: ({
+    onUpdate,
+    open,
+  }: {
+    onUpdate: (updates: Record<string, unknown>) => void;
+    open?: boolean;
+  }) => (
     <button
       type="button"
       data-testid="assignee-picker"
+      data-open={open ? "true" : "false"}
       onClick={() => onUpdate({
         assignee_type: "workflow",
         assignee_id: "workflow-1",
@@ -299,7 +306,7 @@ vi.mock("sonner", () => ({
   },
 }));
 
-import { CreateIssueModal, ManualCreatePanel } from "./create-issue";
+import { CreateIssueModal } from "./create-issue";
 
 function renderModal(element: React.ReactElement) {
   const qc = new QueryClient({
@@ -344,6 +351,18 @@ describe("CreateIssueModal", () => {
     expect(mockCreateIssue).not.toHaveBeenCalled();
     expect(screen.getByText("Pick a project first. Every issue must belong to a project.")).toBeInTheDocument();
     expect(screen.getByTestId("project-picker")).toHaveAttribute("data-open", "true");
+  });
+
+  it("shows assignee-required feedback when Create Issue is clicked without an assignee", async () => {
+    const user = userEvent.setup();
+    renderModal(<CreateIssueModal onClose={vi.fn()} data={{ project_id: "proj-test" }} />);
+
+    await user.type(screen.getByPlaceholderText("Issue title"), "Needs an owner");
+    await user.click(screen.getByRole("button", { name: "Create Issue" }));
+
+    expect(mockCreateIssue).not.toHaveBeenCalled();
+    expect(screen.getByText("Pick an owner first. Every issue must have someone responsible.")).toBeInTheDocument();
+    expect(screen.getByTestId("assignee-picker")).toHaveAttribute("data-open", "true");
   });
 
   it("highlights the project picker while project is missing", () => {
@@ -465,40 +484,6 @@ describe("CreateIssueModal", () => {
     });
   });
 
-  // Manual → agent must also forward the picked squad. Without this branch
-  // the agent panel silently falls back to the persisted actor / first
-  // visible agent and the user loses the squad they just chose in manual.
-  it("forwards the picked squad when switching to agent mode", async () => {
-    mockDraftStore.draft.assigneeType = "squad";
-    mockDraftStore.draft.assigneeId = "squad-1";
-    const user = userEvent.setup();
-    const onSwitchMode = vi.fn();
-
-    renderModal(
-      <ManualCreatePanel
-        onClose={vi.fn()}
-        onSwitchMode={onSwitchMode}
-        isExpanded={false}
-        setIsExpanded={vi.fn()}
-        backlogHintIssueId={null}
-        setBacklogHintIssueId={vi.fn()}
-      />,
-    );
-
-    await user.type(screen.getByPlaceholderText("Issue title"), "Refactor auth");
-    await user.click(screen.getByRole("button", { name: /Switch to Digital Human/i }));
-
-    expect(onSwitchMode).toHaveBeenCalledTimes(1);
-    const carry = onSwitchMode.mock.calls[0]?.[0];
-    expect(carry).toEqual(
-      expect.objectContaining({ prompt: "Refactor auth", squad_id: "squad-1" }),
-    );
-    expect(carry).not.toHaveProperty("agent_id");
-  });
-
-  // Manual → agent must forward the picked project so the new modal pins to
-  // the same target. Without this the agent panel re-seeds from its own
-  // persisted `lastProjectId` and silently routes the issue to a stale one.
   // Reporter scenario: backend rejects same-titled create with a 409 +
   // structured duplicate body. The user should land on a duplicate toast
   // pointing at the existing issue, not a generic "create failed" message.
@@ -585,61 +570,5 @@ describe("CreateIssueModal", () => {
 
     await waitFor(() => expect(mockToastError).toHaveBeenCalledTimes(1));
     expect(mockToastError).toHaveBeenCalledWith("Failed to create issue");
-  });
-
-  it("forwards the picked project when switching to agent mode", async () => {
-    const user = userEvent.setup();
-    const onSwitchMode = vi.fn();
-
-    renderModal(
-      <ManualCreatePanel
-        onClose={vi.fn()}
-        onSwitchMode={onSwitchMode}
-        data={{ project_id: "proj-1" }}
-        isExpanded={false}
-        setIsExpanded={vi.fn()}
-        backlogHintIssueId={null}
-        setBacklogHintIssueId={vi.fn()}
-      />,
-    );
-
-    await user.type(screen.getByPlaceholderText("Issue title"), "Refactor auth");
-
-    await user.click(screen.getByRole("button", { name: /Switch to Digital Human/i }));
-
-    expect(onSwitchMode).toHaveBeenCalledTimes(1);
-    expect(onSwitchMode.mock.calls[0]?.[0]).toEqual(
-      expect.objectContaining({
-        prompt: "Refactor auth",
-        project_id: "proj-1",
-      }),
-    );
-  });
-
-  // Title + description are packed into the agent prompt on switch; if we
-  // leave them in the shared draft store, the next agent→manual switch
-  // surfaces the stale manual draft on top of the prompt-as-description,
-  // duplicating the user's text on every round-trip.
-  it("clears the manual draft when packing title and description into the agent prompt", async () => {
-    const user = userEvent.setup();
-
-    renderModal(
-      <ManualCreatePanel
-        onClose={vi.fn()}
-        onSwitchMode={vi.fn()}
-        isExpanded={false}
-        setIsExpanded={vi.fn()}
-        backlogHintIssueId={null}
-        setBacklogHintIssueId={vi.fn()}
-      />,
-    );
-
-    await user.type(screen.getByPlaceholderText("Issue title"), "Update");
-    await user.type(screen.getByPlaceholderText("Add description..."), "Some body");
-
-    mockSetDraft.mockClear();
-    await user.click(screen.getByRole("button", { name: /Switch to Digital Human/i }));
-
-    expect(mockSetDraft).toHaveBeenCalledWith({ title: "", description: "" });
   });
 });

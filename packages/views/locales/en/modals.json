@@ -133,8 +133,6 @@
     "toast_duplicate_view": "View existing issue",
     "toast_link_subissues_all_failed": "Failed to link sub-issues",
     "toast_link_subissues_partial": "Failed to link {{failed}} of {{total}} sub-issues",
-    "switch_to_agent": "Switch to Digital Human",
-    "switch_to_agent_tooltip": "Switch to create with digital human — describe in one line and let the digital human file it",
     "switch_to_manual": "Switch to Manual",
     "switch_to_manual_tooltip": "Switch to manual create — fill the fields yourself",
     "create_another": "Create another",
