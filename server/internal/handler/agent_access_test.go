@@ -238,11 +238,12 @@ func TestCreateIssue_AssignToPrivateAgentForbidsPlainMember(t *testing.T) {
 
 	body := func(actorID string) map[string]any {
 		return map[string]any{
-			"title":         "assign-to-private-agent test " + actorID,
-			"status":        "todo",
-			"priority":      "medium",
-			"assignee_type": "agent",
-			"assignee_id":   agentID,
+			"title":               "assign-to-private-agent test " + actorID,
+			"status":              "todo",
+			"priority":            "medium",
+			"assignee_type":       "agent",
+			"assignee_id":         agentID,
+			"responsible_user_id": actorID,
 		}
 	}
 

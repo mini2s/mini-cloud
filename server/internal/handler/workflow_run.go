@@ -1188,8 +1188,8 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 
 // ReviewNodeRunDeliverable POST /api/node-runs/{nodeRunId}/deliverables/{submissionId}/review
 //
-// Permission gate: only a workspace owner/admin, the issue's creator, the
-// issue's assignee, or the node-run's designated critic may approve/reject a
+// Permission gate: only a workspace owner/admin, the issue's assignee, or the
+// node-run's designated critic may approve/reject a
 // deliverable submission. The submission must also belong to a node-run in the
 // caller's workspace; cross-workspace and foreign-submission requests are
 // rejected as 404 to avoid leaking existence.

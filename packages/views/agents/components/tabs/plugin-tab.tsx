@@ -12,11 +12,11 @@ import {
   builtinPluginListOptions,
   catalogPluginListOptions,
   catalogSkillListOptions,
-  pluginDetailOptions,
   workspaceKeys,
 } from "@multica/core/workspace/queries";
 import { Button } from "@multica/ui/components/ui/button";
 import { useT } from "../../../i18n";
+import { useBoundPlugin } from "../../hooks/use-bound-plugin";
 import { PluginPickerList, useDebouncedPluginSearch } from "../plugin-picker-list";
 import {
   CloudSkillPickerList,
@@ -36,16 +36,7 @@ export function PluginTab({
   const { t } = useT("agents");
   const qc = useQueryClient();
   const wsId = useWorkspaceId();
-  const { data: plugins } = useQuery(builtinPluginListOptions());
-  const items = plugins?.items ?? [];
-  const listSelected = items.find((p) => p.id === agent.plugin_id) ?? null;
-  const shouldHydrateSelected = !!agent.plugin_id && !listSelected;
-  const { data: hydratedSelected, isFetching: isHydratingSelected } = useQuery({
-    ...pluginDetailOptions(agent.plugin_id ?? ""),
-    enabled: shouldHydrateSelected,
-  });
-  const selected = listSelected ?? (hydratedSelected?.id ? hydratedSelected : null);
-  const stale = !selected && !!agent.plugin_id && !isHydratingSelected;
+  const { selected, stale, items } = useBoundPlugin(agent);
 
   const cloudSkillsQuery = useQuery(agentCloudSkillOptions(wsId, agent.id));
   const cloudSkills = cloudSkillsQuery.data ?? [];

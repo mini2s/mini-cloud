@@ -30,28 +30,29 @@ import (
 
 // IssueResponse is the JSON response for an issue.
 type IssueResponse struct {
-	ID            string  `json:"id"`
-	WorkspaceID   string  `json:"workspace_id"`
-	Number        int32   `json:"number"`
-	Identifier    string  `json:"identifier"`
-	Title         string  `json:"title"`
-	Description   *string `json:"description"`
-	Status        string  `json:"status"`
-	Priority      string  `json:"priority"`
-	AssigneeType  *string `json:"assignee_type"`
-	AssigneeID    *string `json:"assignee_id"`
-	CreatorType   string  `json:"creator_type"`
-	CreatorID     string  `json:"creator_id"`
-	ParentIssueID *string `json:"parent_issue_id"`
-	ProjectID     *string `json:"project_id"`
-	Position      float64 `json:"position"`
-	StartDate     *string `json:"start_date"`
-	DueDate       *string `json:"due_date"`
-	CreatedAt     string  `json:"created_at"`
-	UpdatedAt     string  `json:"updated_at"`
-	WorkflowID    *string `json:"workflow_id"`
-	WorkflowRunID *string `json:"workflow_run_id"`
-	StageID       *string `json:"stage_id"`
+	ID                string  `json:"id"`
+	WorkspaceID       string  `json:"workspace_id"`
+	Number            int32   `json:"number"`
+	Identifier        string  `json:"identifier"`
+	Title             string  `json:"title"`
+	Description       *string `json:"description"`
+	Status            string  `json:"status"`
+	Priority          string  `json:"priority"`
+	AssigneeType      *string `json:"assignee_type"`
+	AssigneeID        *string `json:"assignee_id"`
+	ResponsibleUserID *string `json:"responsible_user_id"`
+	CreatorType       string  `json:"creator_type"`
+	CreatorID         string  `json:"creator_id"`
+	ParentIssueID     *string `json:"parent_issue_id"`
+	ProjectID         *string `json:"project_id"`
+	Position          float64 `json:"position"`
+	StartDate         *string `json:"start_date"`
+	DueDate           *string `json:"due_date"`
+	CreatedAt         string  `json:"created_at"`
+	UpdatedAt         string  `json:"updated_at"`
+	WorkflowID        *string `json:"workflow_id"`
+	WorkflowRunID     *string `json:"workflow_run_id"`
+	StageID           *string `json:"stage_id"`
 	// Metadata is the per-issue KV map (see issue_metadata.go). Always emitted
 	// (empty object when unset) so frontend code can `issue.metadata[key]`
 	// without nil-guarding the parent field.
@@ -72,31 +73,32 @@ type IssueResponse struct {
 func issueToResponse(i db.MulticaIssue, issuePrefix string) IssueResponse {
 	identifier := issuePrefix + "-" + strconv.Itoa(int(i.Number))
 	return IssueResponse{
-		ID:            uuidToString(i.ID),
-		WorkspaceID:   uuidToString(i.WorkspaceID),
-		Number:        i.Number,
-		Identifier:    identifier,
-		Title:         i.Title,
-		Description:   textToPtr(i.Description),
-		Status:        i.Status,
-		Priority:      i.Priority,
-		AssigneeType:  textToPtr(i.AssigneeType),
-		AssigneeID:    uuidToPtr(i.AssigneeID),
-		CreatorType:   i.CreatorType,
-		CreatorID:     uuidToString(i.CreatorID),
-		ParentIssueID: uuidToPtr(i.ParentIssueID),
-		ProjectID:     uuidToPtr(i.ProjectID),
-		Position:      i.Position,
-		StartDate:     timestampToPtr(i.StartDate),
-		DueDate:       timestampToPtr(i.DueDate),
-		CreatedAt:     timestampToString(i.CreatedAt),
-		UpdatedAt:     timestampToString(i.UpdatedAt),
-		WorkflowID:    uuidToPtr(i.WorkflowID),
-		WorkflowRunID: uuidToPtr(i.WorkflowRunID),
-		StageID:       uuidToPtr(i.StageID),
-		Metadata:      parseIssueMetadata(i.Metadata),
-		OriginType:    textToPtr(i.OriginType),
-		OriginID:      uuidToPtr(i.OriginID),
+		ID:                uuidToString(i.ID),
+		WorkspaceID:       uuidToString(i.WorkspaceID),
+		Number:            i.Number,
+		Identifier:        identifier,
+		Title:             i.Title,
+		Description:       textToPtr(i.Description),
+		Status:            i.Status,
+		Priority:          i.Priority,
+		AssigneeType:      textToPtr(i.AssigneeType),
+		AssigneeID:        uuidToPtr(i.AssigneeID),
+		ResponsibleUserID: uuidToPtr(i.ResponsibleUserID),
+		CreatorType:       i.CreatorType,
+		CreatorID:         uuidToString(i.CreatorID),
+		ParentIssueID:     uuidToPtr(i.ParentIssueID),
+		ProjectID:         uuidToPtr(i.ProjectID),
+		Position:          i.Position,
+		StartDate:         timestampToPtr(i.StartDate),
+		DueDate:           timestampToPtr(i.DueDate),
+		CreatedAt:         timestampToString(i.CreatedAt),
+		UpdatedAt:         timestampToString(i.UpdatedAt),
+		WorkflowID:        uuidToPtr(i.WorkflowID),
+		WorkflowRunID:     uuidToPtr(i.WorkflowRunID),
+		StageID:           uuidToPtr(i.StageID),
+		Metadata:          parseIssueMetadata(i.Metadata),
+		OriginType:        textToPtr(i.OriginType),
+		OriginID:          uuidToPtr(i.OriginID),
 	}
 }
 
@@ -104,31 +106,32 @@ func issueToResponse(i db.MulticaIssue, issuePrefix string) IssueResponse {
 func issueListRowToResponse(i db.ListIssuesRow, issuePrefix string) IssueResponse {
 	identifier := issuePrefix + "-" + strconv.Itoa(int(i.Number))
 	return IssueResponse{
-		ID:            uuidToString(i.ID),
-		WorkspaceID:   uuidToString(i.WorkspaceID),
-		Number:        i.Number,
-		Identifier:    identifier,
-		Title:         i.Title,
-		Description:   textToPtr(i.Description),
-		Status:        i.Status,
-		Priority:      i.Priority,
-		AssigneeType:  textToPtr(i.AssigneeType),
-		AssigneeID:    uuidToPtr(i.AssigneeID),
-		CreatorType:   i.CreatorType,
-		CreatorID:     uuidToString(i.CreatorID),
-		ParentIssueID: uuidToPtr(i.ParentIssueID),
-		ProjectID:     uuidToPtr(i.ProjectID),
-		Position:      i.Position,
-		StartDate:     timestampToPtr(i.StartDate),
-		DueDate:       timestampToPtr(i.DueDate),
-		WorkflowID:    uuidToPtr(i.WorkflowID),
-		WorkflowRunID: uuidToPtr(i.WorkflowRunID),
-		StageID:       uuidToPtr(i.StageID),
-		CreatedAt:     timestampToString(i.CreatedAt),
-		UpdatedAt:     timestampToString(i.UpdatedAt),
-		Metadata:      parseIssueMetadata(i.Metadata),
-		OriginType:    textToPtr(i.OriginType),
-		OriginID:      uuidToPtr(i.OriginID),
+		ID:                uuidToString(i.ID),
+		WorkspaceID:       uuidToString(i.WorkspaceID),
+		Number:            i.Number,
+		Identifier:        identifier,
+		Title:             i.Title,
+		Description:       textToPtr(i.Description),
+		Status:            i.Status,
+		Priority:          i.Priority,
+		AssigneeType:      textToPtr(i.AssigneeType),
+		AssigneeID:        uuidToPtr(i.AssigneeID),
+		ResponsibleUserID: uuidToPtr(i.ResponsibleUserID),
+		CreatorType:       i.CreatorType,
+		CreatorID:         uuidToString(i.CreatorID),
+		ParentIssueID:     uuidToPtr(i.ParentIssueID),
+		ProjectID:         uuidToPtr(i.ProjectID),
+		Position:          i.Position,
+		StartDate:         timestampToPtr(i.StartDate),
+		DueDate:           timestampToPtr(i.DueDate),
+		WorkflowID:        uuidToPtr(i.WorkflowID),
+		WorkflowRunID:     uuidToPtr(i.WorkflowRunID),
+		StageID:           uuidToPtr(i.StageID),
+		CreatedAt:         timestampToString(i.CreatedAt),
+		UpdatedAt:         timestampToString(i.UpdatedAt),
+		Metadata:          parseIssueMetadata(i.Metadata),
+		OriginType:        textToPtr(i.OriginType),
+		OriginID:          uuidToPtr(i.OriginID),
 	}
 }
 
@@ -166,31 +169,32 @@ func (h *Handler) labelsByIssue(ctx context.Context, wsUUID pgtype.UUID, issueID
 func openIssueRowToResponse(i db.ListOpenIssuesRow, issuePrefix string) IssueResponse {
 	identifier := issuePrefix + "-" + strconv.Itoa(int(i.Number))
 	return IssueResponse{
-		ID:            uuidToString(i.ID),
-		WorkspaceID:   uuidToString(i.WorkspaceID),
-		Number:        i.Number,
-		Identifier:    identifier,
-		Title:         i.Title,
-		Description:   textToPtr(i.Description),
-		Status:        i.Status,
-		Priority:      i.Priority,
-		AssigneeType:  textToPtr(i.AssigneeType),
-		AssigneeID:    uuidToPtr(i.AssigneeID),
-		CreatorType:   i.CreatorType,
-		CreatorID:     uuidToString(i.CreatorID),
-		ParentIssueID: uuidToPtr(i.ParentIssueID),
-		ProjectID:     uuidToPtr(i.ProjectID),
-		Position:      i.Position,
-		StartDate:     timestampToPtr(i.StartDate),
-		DueDate:       timestampToPtr(i.DueDate),
-		WorkflowID:    uuidToPtr(i.WorkflowID),
-		WorkflowRunID: uuidToPtr(i.WorkflowRunID),
-		StageID:       uuidToPtr(i.StageID),
-		CreatedAt:     timestampToString(i.CreatedAt),
-		UpdatedAt:     timestampToString(i.UpdatedAt),
-		Metadata:      parseIssueMetadata(i.Metadata),
-		OriginType:    textToPtr(i.OriginType),
-		OriginID:      uuidToPtr(i.OriginID),
+		ID:                uuidToString(i.ID),
+		WorkspaceID:       uuidToString(i.WorkspaceID),
+		Number:            i.Number,
+		Identifier:        identifier,
+		Title:             i.Title,
+		Description:       textToPtr(i.Description),
+		Status:            i.Status,
+		Priority:          i.Priority,
+		AssigneeType:      textToPtr(i.AssigneeType),
+		AssigneeID:        uuidToPtr(i.AssigneeID),
+		ResponsibleUserID: uuidToPtr(i.ResponsibleUserID),
+		CreatorType:       i.CreatorType,
+		CreatorID:         uuidToString(i.CreatorID),
+		ParentIssueID:     uuidToPtr(i.ParentIssueID),
+		ProjectID:         uuidToPtr(i.ProjectID),
+		Position:          i.Position,
+		StartDate:         timestampToPtr(i.StartDate),
+		DueDate:           timestampToPtr(i.DueDate),
+		WorkflowID:        uuidToPtr(i.WorkflowID),
+		WorkflowRunID:     uuidToPtr(i.WorkflowRunID),
+		StageID:           uuidToPtr(i.StageID),
+		CreatedAt:         timestampToString(i.CreatedAt),
+		UpdatedAt:         timestampToString(i.UpdatedAt),
+		Metadata:          parseIssueMetadata(i.Metadata),
+		OriginType:        textToPtr(i.OriginType),
+		OriginID:          uuidToPtr(i.OriginID),
 	}
 }
 
@@ -569,7 +573,7 @@ func buildSearchQuery(phrase string, terms []string, queryNum int, hasNum bool, 
 	offsetParam := nextArg(nil) // placeholder
 
 	query := fmt.Sprintf(`SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
-		i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
+		i.assignee_type, i.assignee_id, i.responsible_user_id, i.creator_type, i.creator_id,
 		i.parent_issue_id, i.acceptance_criteria, i.context_refs, i.position,
 		i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id,
 		COUNT(*) OVER() AS total_count,
@@ -653,6 +657,7 @@ func (h *Handler) SearchIssues(w http.ResponseWriter, r *http.Request) {
 			&sr.issue.Priority,
 			&sr.issue.AssigneeType,
 			&sr.issue.AssigneeID,
+			&sr.issue.ResponsibleUserID,
 			&sr.issue.CreatorType,
 			&sr.issue.CreatorID,
 			&sr.issue.ParentIssueID,
@@ -1238,7 +1243,7 @@ func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 WITH ranked AS (
 	SELECT
 		i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
-		i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
+		i.assignee_type, i.assignee_id, i.responsible_user_id, i.creator_type, i.creator_id,
 		i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at,
 		i.number, i.project_id, i.workflow_id, i.workflow_run_id, i.stage_id, i.metadata,
 		i.origin_type, i.origin_id,
@@ -1289,6 +1294,7 @@ ORDER BY
 			&row.Priority,
 			&row.AssigneeType,
 			&row.AssigneeID,
+			&row.ResponsibleUserID,
 			&row.CreatorType,
 			&row.CreatorID,
 			&row.ParentIssueID,
@@ -1727,6 +1733,7 @@ type CreateIssueRequest struct {
 	Priority               string   `json:"priority"`
 	AssigneeType           *string  `json:"assignee_type"`
 	AssigneeID             *string  `json:"assignee_id"`
+	ResponsibleUserID      *string  `json:"responsible_user_id"`
 	RuntimeSelectionPolicy *string  `json:"runtime_selection_policy"`
 	RuntimeID              *string  `json:"runtime_id"`
 	ParentIssueID          *string  `json:"parent_issue_id"`
@@ -1809,6 +1816,21 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		assigneeID = id
+	}
+	if req.ResponsibleUserID == nil || *req.ResponsibleUserID == "" {
+		writeError(w, http.StatusBadRequest, "responsible_user_id is required")
+		return
+	}
+	responsibleUserID, ok := parseUUIDOrBadRequest(w, *req.ResponsibleUserID, "responsible_user_id")
+	if !ok {
+		return
+	}
+	if _, err := h.Queries.GetMemberByUserAndWorkspace(ctx, db.GetMemberByUserAndWorkspaceParams{
+		UserID:      responsibleUserID,
+		WorkspaceID: wsUUID,
+	}); err != nil {
+		writeError(w, http.StatusBadRequest, "responsible user must be a workspace member")
+		return
 	}
 
 	if status, msg := h.validateAssigneePair(r.Context(), r, workspaceID, assigneeType, assigneeID); status != 0 {
@@ -1953,45 +1975,47 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	if originType.Valid {
 		issue, err = qtx.CreateIssueWithOrigin(r.Context(), db.CreateIssueWithOriginParams{
-			WorkspaceID:   wsUUID,
-			Title:         req.Title,
-			Description:   ptrToText(req.Description),
-			Status:        status,
-			Priority:      priority,
-			AssigneeType:  assigneeType,
-			AssigneeID:    assigneeID,
-			CreatorType:   creatorType,
-			CreatorID:     parseUUID(actualCreatorID),
-			ParentIssueID: parentIssueID,
-			Position:      0,
-			StartDate:     startDate,
-			DueDate:       dueDate,
-			Number:        issueNumber,
-			ProjectID:     projectID,
-			OriginType:    originType,
-			OriginID:      originID,
-			WorkflowID:    workflowID,
-			StageID:       stageID,
+			WorkspaceID:       wsUUID,
+			Title:             req.Title,
+			Description:       ptrToText(req.Description),
+			Status:            status,
+			Priority:          priority,
+			AssigneeType:      assigneeType,
+			AssigneeID:        assigneeID,
+			ResponsibleUserID: responsibleUserID,
+			CreatorType:       creatorType,
+			CreatorID:         parseUUID(actualCreatorID),
+			ParentIssueID:     parentIssueID,
+			Position:          0,
+			StartDate:         startDate,
+			DueDate:           dueDate,
+			Number:            issueNumber,
+			ProjectID:         projectID,
+			OriginType:        originType,
+			OriginID:          originID,
+			WorkflowID:        workflowID,
+			StageID:           stageID,
 		})
 	} else {
 		issue, err = qtx.CreateIssue(r.Context(), db.CreateIssueParams{
-			WorkspaceID:   wsUUID,
-			Title:         req.Title,
-			Description:   ptrToText(req.Description),
-			Status:        status,
-			Priority:      priority,
-			AssigneeType:  assigneeType,
-			AssigneeID:    assigneeID,
-			CreatorType:   creatorType,
-			CreatorID:     parseUUID(actualCreatorID),
-			ParentIssueID: parentIssueID,
-			Position:      0,
-			StartDate:     startDate,
-			DueDate:       dueDate,
-			Number:        issueNumber,
-			ProjectID:     projectID,
-			WorkflowID:    workflowID,
-			StageID:       stageID,
+			WorkspaceID:       wsUUID,
+			Title:             req.Title,
+			Description:       ptrToText(req.Description),
+			Status:            status,
+			Priority:          priority,
+			AssigneeType:      assigneeType,
+			AssigneeID:        assigneeID,
+			ResponsibleUserID: responsibleUserID,
+			CreatorType:       creatorType,
+			CreatorID:         parseUUID(actualCreatorID),
+			ParentIssueID:     parentIssueID,
+			Position:          0,
+			StartDate:         startDate,
+			DueDate:           dueDate,
+			Number:            issueNumber,
+			ProjectID:         projectID,
+			WorkflowID:        workflowID,
+			StageID:           stageID,
 		})
 	}
 	if err != nil {
@@ -3191,24 +3215,25 @@ func (h *Handler) createWorkflowSubIssue(
 	}
 
 	return qtx.CreateIssueWithOrigin(ctx, db.CreateIssueWithOriginParams{
-		WorkspaceID:   wsUUID,
-		Title:         subTitle,
-		Description:   pgtype.Text{String: description, Valid: description != ""},
-		Status:        "todo",
-		Priority:      parentIssue.Priority,
-		AssigneeType:  assigneeType,
-		AssigneeID:    assigneeID,
-		CreatorType:   "member",
-		CreatorID:     parentIssue.CreatorID,
-		ParentIssueID: parentIssue.ID,
-		Position:      0,
-		Number:        issueNumber,
-		ProjectID:     parentIssue.ProjectID,
-		OriginType:    pgtype.Text{String: "workflow", Valid: true},
-		OriginID:      nodeRun.ID,
-		WorkflowID:    run.WorkflowID,
-		WorkflowRunID: nodeRun.WorkflowRunID,
-		StageID:       stageID,
+		WorkspaceID:       wsUUID,
+		Title:             subTitle,
+		Description:       pgtype.Text{String: description, Valid: description != ""},
+		Status:            "todo",
+		Priority:          parentIssue.Priority,
+		AssigneeType:      assigneeType,
+		AssigneeID:        assigneeID,
+		ResponsibleUserID: parentIssue.ResponsibleUserID,
+		CreatorType:       "member",
+		CreatorID:         parentIssue.CreatorID,
+		ParentIssueID:     parentIssue.ID,
+		Position:          0,
+		Number:            issueNumber,
+		ProjectID:         parentIssue.ProjectID,
+		OriginType:        pgtype.Text{String: "workflow", Valid: true},
+		OriginID:          nodeRun.ID,
+		WorkflowID:        run.WorkflowID,
+		WorkflowRunID:     nodeRun.WorkflowRunID,
+		StageID:           stageID,
 	})
 }
 

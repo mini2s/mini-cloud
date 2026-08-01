@@ -302,28 +302,25 @@ func parseGitLabTimeRequired(s string) pgtype.Timestamptz {
 }
 
 // workspaceGitlabAutoLinkEnabled reports whether the workspace allows the
-// GitLab webhook to create issue ↔ MR link rows. Defaults to true so existing
-// workspaces keep auto-link on, and short-circuits to false when the master
-// gitlab_enabled switch is explicitly off.
+// GitLab webhook to create issue-MR link rows. The hidden auto-link sub-feature
+// defaults to off unless it is explicitly enabled. The master gitlab_enabled
+// switch can still gate it off.
 func (h *Handler) workspaceGitlabAutoLinkEnabled(ctx context.Context, workspaceID pgtype.UUID) bool {
 	ws, err := h.Queries.GetWorkspace(ctx, workspaceID)
 	if err != nil || len(ws.Settings) == 0 {
-		return true
+		return false
 	}
 	var s struct {
 		GitlabEnabled          *bool `json:"gitlab_enabled"`
 		GitlabAutoLinkEnabled  *bool `json:"gitlab_auto_link_enabled"`
 	}
 	if err := json.Unmarshal(ws.Settings, &s); err != nil {
-		return true
+		return false
 	}
 	if s.GitlabEnabled != nil && !*s.GitlabEnabled {
 		return false
 	}
-	if s.GitlabAutoLinkEnabled == nil {
-		return true
-	}
-	return *s.GitlabAutoLinkEnabled
+	return s.GitlabAutoLinkEnabled != nil && *s.GitlabAutoLinkEnabled
 }
 
 // ── List merge requests for an issue ────────────────────────────────────────
@@ -389,10 +386,10 @@ func (h *Handler) HandleGetGitlabSettings(w http.ResponseWriter, r *http.Request
 	}
 
 	resp := GitlabSettingsResponse{
-		GitlabEnabled:    boolVal(settings.GitlabEnabled, false),
+		GitlabEnabled:    boolVal(settings.GitlabEnabled, true),
 		Configured:       settings.GitlabAccessToken != nil && *settings.GitlabAccessToken != "",
 		MrSidebarEnabled: boolVal(settings.GitlabMrSidebarEnabled, false),
-		AutoLinkEnabled:  boolVal(settings.GitlabAutoLinkEnabled, true),
+		AutoLinkEnabled:  boolVal(settings.GitlabAutoLinkEnabled, false),
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

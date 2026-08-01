@@ -400,7 +400,7 @@
     "runtime_policy": "运行时策略",
     "runtime_policy_specified": "人工指定优先",
     "runtime_policy_idle": "空闲运行时优先",
-    "runtime_policy_issue_creator": "Issue 创建人运行时优先",
+    "runtime_policy_issue_creator": "Issue 负责人运行时优先",
     "historical_config_incomplete": "历史配置可能不完整",
     "cancel": "取消运行",
     "cancelling": "取消中...",
@@ -748,7 +748,7 @@
     "offline": "离线",
     "deleted_runtime": "已保存的运行时已离线、不存在或你已无权使用，请选择其他运行时后继续。",
     "no_runtime": "当前工作区没有可用运行时。",
-    "direct_run_hint": "直接测试运行没有所属 Issue 的创建人，将从空闲运行时开始选择。",
+    "direct_run_hint": "直接测试运行没有所属 Issue 的负责人，将从空闲运行时开始选择。",
     "cancel": "取消",
     "saving": "保存中...",
     "save_default": "保存默认策略",
@@ -758,15 +758,15 @@
     "policy": {
       "specified_runtime_first": {
         "title": "人工指定优先",
-        "description": "人工指定 → 空闲运行时 → Issue 创建人运行时 → 失败"
+        "description": "人工指定 → 空闲运行时 → Issue 负责人运行时 → 失败"
       },
       "idle_first": {
         "title": "空闲运行时优先",
-        "description": "空闲运行时 → Issue 创建人运行时 → 失败"
+        "description": "空闲运行时 → Issue 负责人运行时 → 失败"
       },
       "issue_creator_first": {
-        "title": "Issue 创建人运行时优先",
-        "description": "Issue 创建人运行时 → 空闲运行时 → 失败"
+        "title": "Issue 负责人运行时优先",
+        "description": "Issue 负责人运行时 → 空闲运行时 → 失败"
       }
     }
   },

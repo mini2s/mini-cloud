@@ -400,7 +400,7 @@
     "runtime_policy": "Runtime strategy",
     "runtime_policy_specified": "Specified runtime first",
     "runtime_policy_idle": "Idle runtime first",
-    "runtime_policy_issue_creator": "Issue creator runtime first",
+    "runtime_policy_issue_creator": "Issue owner runtime first",
     "historical_config_incomplete": "Historical configuration may be incomplete",
     "cancel": "Cancel Run",
     "cancelling": "Cancelling...",
@@ -758,15 +758,15 @@
     "policy": {
       "specified_runtime_first": {
         "title": "Specified runtime first",
-        "description": "Specified runtime → idle runtime → issue creator runtime → fail"
+        "description": "Specified runtime → idle runtime → issue owner runtime → fail"
       },
       "idle_first": {
         "title": "Idle runtime first",
-        "description": "Idle runtime → issue creator runtime → fail"
+        "description": "Idle runtime → issue owner runtime → fail"
       },
       "issue_creator_first": {
-        "title": "Issue creator runtime first",
-        "description": "Issue creator runtime → idle runtime → fail"
+        "title": "Issue owner runtime first",
+        "description": "Issue owner runtime → idle runtime → fail"
       }
     }
   },
