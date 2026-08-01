@@ -1,8 +1,6 @@
 {
   "page": {
     "title": "数智人",
-    "tagline": "能领取 issue、留下评论、推进状态的 AI 队友。",
-    "learn_more": "了解更多 →",
     "new_agent": "新建数智人",
     "search_placeholder": "搜索数智人...",
     "show_archived": "显示已归档（{{count}}）→",
