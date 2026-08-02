@@ -159,7 +159,7 @@ func (s *AutopilotService) dispatchCreateIssue(ctx context.Context, ap db.Multic
 		WorkspaceID:  ap.WorkspaceID,
 		Title:        title,
 		Description:  description,
-		Status:       "todo",
+		Status:       "in_progress",
 		Priority:     "none",
 		AssigneeType: pgtype.Text{String: ap.AssigneeType, Valid: true},
 		AssigneeID:   ap.AssigneeID,

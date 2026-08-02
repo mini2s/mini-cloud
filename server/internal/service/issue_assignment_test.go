@@ -31,7 +31,7 @@ func TestIssueAssignmentServiceStampsFailedWorkflowRun(t *testing.T) {
 	issue, err := queries.CreateIssue(fixture.ctx, db.CreateIssueParams{
 		WorkspaceID:  fixture.workspaceID,
 		Title:        "Invalid workflow assignment",
-		Status:       "todo",
+		Status:       "in_progress",
 		Priority:     "none",
 		AssigneeType: pgtype.Text{String: "workflow", Valid: true},
 		AssigneeID:   fixture.workflowID,
