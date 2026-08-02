@@ -209,7 +209,7 @@ func scanAgent(a *db.MulticaAgent, dest []any) error {
 func scanIssue(i *db.MulticaIssue, dest []any) error {
 	vals := []any{
 		&i.ID, &i.WorkspaceID, &i.Title, &i.Description, &i.Status,
-		&i.Priority, &i.AssigneeType, &i.AssigneeID, &i.ResponsibleUserID, &i.CreatorType,
+		&i.Priority, &i.AssigneeType, &i.AssigneeID, &i.CreatorType,
 		&i.CreatorID, &i.ParentIssueID, &i.AcceptanceCriteria,
 		&i.ContextRefs, &i.Position, &i.DueDate, &i.CreatedAt,
 		&i.UpdatedAt,
@@ -641,7 +641,7 @@ func scanWorkspaceFull(w *db.MulticaWorkspace, dest []any) error {
 func scanIssueFull(i *db.MulticaIssue, dest []any) error {
 	vals := []any{
 		&i.ID, &i.WorkspaceID, &i.Title, &i.Description, &i.Status,
-		&i.Priority, &i.AssigneeType, &i.AssigneeID, &i.ResponsibleUserID, &i.CreatorType,
+		&i.Priority, &i.AssigneeType, &i.AssigneeID, &i.CreatorType,
 		&i.CreatorID, &i.ParentIssueID, &i.AcceptanceCriteria,
 		&i.ContextRefs, &i.Position, &i.DueDate, &i.CreatedAt,
 		&i.UpdatedAt, &i.Number, &i.ProjectID, &i.OriginType,
@@ -721,10 +721,13 @@ func TestResolveCodeRepo_FallbackAllWorkspaceRepos(t *testing.T) {
 	svc := &TaskService{Queries: db.New(mdb)}
 	task := db.MulticaAgentTaskQueue{IssueID: testUUID(5)}
 
-	repos, token, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
+	repos, tokens, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
 
-	if token != "tok-abc" {
-		t.Fatalf("gitlab token = %q, want tok-abc", token)
+	if tokens.GitlabToken != "tok-abc" {
+		t.Fatalf("gitlab token = %q, want tok-abc", tokens.GitlabToken)
+	}
+	if tokens.GithubToken != "" {
+		t.Fatalf("github token = %q, want empty", tokens.GithubToken)
 	}
 	if projectID != "" {
 		t.Fatalf("projectID = %q, want empty", projectID)
@@ -781,10 +784,13 @@ func TestResolveCodeRepo_ProjectResourcesOverrideWorkspace(t *testing.T) {
 	svc := &TaskService{Queries: db.New(mdb)}
 	task := db.MulticaAgentTaskQueue{IssueID: testUUID(5)}
 
-	repos, token, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
+	repos, tokens, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
 
-	if token != "tok-xyz" {
-		t.Fatalf("gitlab token = %q, want tok-xyz", token)
+	if tokens.GitlabToken != "tok-xyz" {
+		t.Fatalf("gitlab token = %q, want tok-xyz", tokens.GitlabToken)
+	}
+	if tokens.GithubToken != "" {
+		t.Fatalf("github token = %q, want empty", tokens.GithubToken)
 	}
 	if projectID != util.UUIDToString(projID) {
 		t.Fatalf("projectID = %q, want %s", projectID, util.UUIDToString(projID))
@@ -830,10 +836,10 @@ func TestResolveCodeRepo_ProjectNoGithubRepoFallsBackToWorkspace(t *testing.T) {
 	svc := &TaskService{Queries: db.New(mdb)}
 	task := db.MulticaAgentTaskQueue{IssueID: testUUID(5)}
 
-	repos, token, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
+	repos, tokens, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
 
-	if token != "tok-fb" {
-		t.Fatalf("gitlab token = %q, want tok-fb", token)
+	if tokens.GitlabToken != "tok-fb" {
+		t.Fatalf("gitlab token = %q, want tok-fb", tokens.GitlabToken)
 	}
 	if projectID != util.UUIDToString(projID) {
 		t.Fatalf("projectID = %q, want %s", projectID, util.UUIDToString(projID))
@@ -861,13 +867,16 @@ func TestResolveCodeRepo_NoIssueReturnsEmpty(t *testing.T) {
 	svc := &TaskService{Queries: db.New(mdb)}
 	task := db.MulticaAgentTaskQueue{} // IssueID not valid
 
-	repos, token, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
+	repos, tokens, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
 
 	if len(repos) != 1 {
 		t.Fatalf("repos count = %d, want 1", len(repos))
 	}
-	if token != "" {
-		t.Fatalf("token = %q, want empty", token)
+	if tokens.GitlabToken != "" {
+		t.Fatalf("gitlab token = %q, want empty", tokens.GitlabToken)
+	}
+	if tokens.GithubToken != "" {
+		t.Fatalf("github token = %q, want empty", tokens.GithubToken)
 	}
 	if projectID != "" {
 		t.Fatalf("projectID = %q, want empty", projectID)

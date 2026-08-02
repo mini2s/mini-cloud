@@ -53,6 +53,13 @@ func codeRepoProvider(rawURL string) string {
 	return "gitlab"
 }
 
+// codeRepoTokens holds the workspace PATs for each code-repo platform.
+// Both fields may be empty (token not configured).
+type codeRepoTokens struct {
+	GitlabToken string
+	GithubToken string
+}
+
 // csCloudRepoSpec describes one repository the agent may work in.
 type csCloudRepoSpec struct {
 	URL        string `json:"url"`
@@ -355,13 +362,18 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	// code or submit documents.
 	repos := []csCloudRepoSpec{}
 	projectID := ""
-	var gitlabToken string
 	if phase == "worker" {
-		repos, gitlabToken, projectID = s.resolveCodeRepoAndProject(ctx, task, runtime.WorkspaceID)
+		var codeTokens codeRepoTokens
+		repos, codeTokens, projectID = s.resolveCodeRepoAndProject(ctx, task, runtime.WorkspaceID)
 		if len(repos) > 0 {
-			if gitlabToken != "" {
-				env["CS_CLOUD_GITLAB_TOKEN"] = gitlabToken
+			if codeTokens.GitlabToken != "" {
+				env["CS_CLOUD_GITLAB_TOKEN"] = codeTokens.GitlabToken
 			}
+			if codeTokens.GithubToken != "" {
+				env["CS_CLOUD_GITHUB_TOKEN"] = codeTokens.GithubToken
+			}
+			// First code repo's provider drives cs-cloud's submit routing.
+			env["CS_CLOUD_CODE_PROVIDER"] = repos[0].Provider
 			prompt = appendCodeRepoPrompt(prompt, repos)
 		}
 		// Append the Gitea wf delivery repo (inst base branch + bot PAT) when
@@ -459,13 +471,13 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 }
 
 // resolveCodeRepoAndProject returns all code repos for the task's issue,
-// the workspace's GitLab PAT, and the issue's project ID.
+// the workspace's code-repo PATs, and the issue's project ID.
 //
 // Project-bound github_repo resources take priority (all collected). If the
 // issue's project has no github_repo resources, falls back to all non-empty
 // workspace repos. Best-effort: errors are logged and yield empty results so a
 // lookup hiccup never blocks dispatch.
-func (s *TaskService) resolveCodeRepoAndProject(ctx context.Context, task db.MulticaAgentTaskQueue, workspaceID pgtype.UUID) (repos []csCloudRepoSpec, gitlabToken, projectID string) {
+func (s *TaskService) resolveCodeRepoAndProject(ctx context.Context, task db.MulticaAgentTaskQueue, workspaceID pgtype.UUID) (repos []csCloudRepoSpec, tokens codeRepoTokens, projectID string) {
 	// 1. Try project github_repo resources (override workspace repos).
 	if task.IssueID.Valid {
 		if issue, err := s.Queries.GetIssue(ctx, task.IssueID); err == nil && issue.ProjectID.Valid {
@@ -482,7 +494,7 @@ func (s *TaskService) resolveCodeRepoAndProject(ctx context.Context, task db.Mul
 					if json.Unmarshal(row.ResourceRef, &ref) == nil && strings.TrimSpace(ref.URL) != "" {
 						repos = append(repos, csCloudRepoSpec{
 							URL:      strings.TrimSpace(ref.URL),
-							Provider: "gitlab",
+							Provider: codeRepoProvider(ref.URL),
 							Role:     "code",
 						})
 					}
@@ -491,13 +503,15 @@ func (s *TaskService) resolveCodeRepoAndProject(ctx context.Context, task db.Mul
 		}
 	}
 
-	// 2. Read workspace settings (gitlab token needed regardless of repo path).
+	// 2. Read workspace settings (gitlab + github tokens needed regardless of repo path).
 	if ws, err := s.Queries.GetWorkspace(ctx, workspaceID); err == nil {
 		var settings struct {
 			GitlabAccessToken string `json:"gitlab_access_token"`
+			GithubAccessToken string `json:"github_access_token"`
 		}
 		if json.Unmarshal(ws.Settings, &settings) == nil {
-			gitlabToken = strings.TrimSpace(settings.GitlabAccessToken)
+			tokens.GitlabToken = strings.TrimSpace(settings.GitlabAccessToken)
+			tokens.GithubToken = strings.TrimSpace(settings.GithubAccessToken)
 		}
 
 		// 3. Fallback: if project had no github_repo resources, use all workspace repos.
@@ -510,7 +524,7 @@ func (s *TaskService) resolveCodeRepoAndProject(ctx context.Context, task db.Mul
 					if u := strings.TrimSpace(r.URL); u != "" {
 						repos = append(repos, csCloudRepoSpec{
 							URL:      u,
-							Provider: "gitlab",
+							Provider: codeRepoProvider(u),
 							Role:     "code",
 						})
 					}
@@ -520,7 +534,7 @@ func (s *TaskService) resolveCodeRepoAndProject(ctx context.Context, task db.Mul
 	} else {
 		slog.Warn("cs-cloud code repo: get workspace", "error", err)
 	}
-	return repos, gitlabToken, projectID
+	return repos, tokens, projectID
 }
 
 // resolveDeliveryRepo reads the Gitea delivery repo bundle from workspace.settings
