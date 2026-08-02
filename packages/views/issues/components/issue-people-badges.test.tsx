@@ -83,7 +83,7 @@ describe("IssuePeopleBadges", () => {
       />,
     );
 
-    expect(screen.getAllByText("Owner")).toHaveLength(2);
+    expect(screen.getByText("Owner")).toBeInTheDocument();
     expect(screen.getByText("Member")).toBeInTheDocument();
     expect(screen.getByText("Alice Owner")).toBeInTheDocument();
     expect(screen.getByTestId("actor-tile-member-user-1")).toHaveClass(
@@ -97,7 +97,7 @@ describe("IssuePeopleBadges", () => {
     expect(screen.getAllByLabelText("member icon")).toHaveLength(2);
     expect(screen.getAllByText("A")).toHaveLength(2);
     expect(screen.queryByText("O")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Assignee")).toHaveLength(2);
+    expect(screen.getByText("Assignee")).toBeInTheDocument();
     expect(screen.getByText("Digital Human")).toBeInTheDocument();
     expect(screen.getByText("Claude Worker")).toBeInTheDocument();
     expect(screen.getByTestId("actor-tile-agent-agent-1")).toHaveClass(
@@ -154,6 +154,34 @@ describe("IssuePeopleBadges", () => {
     }
   });
 
+  it("keeps each role hover scoped to that actor detail", () => {
+    render(
+      <IssuePeopleBadges
+        issue={baseIssue}
+        responsibleLabel="Owner"
+        assigneeLabel="Assignee"
+        actorTypeLabels={{
+          member: "Member",
+          agent: "Digital Human",
+        }}
+      />,
+    );
+
+    const responsible = screen.getByLabelText("Member: Alice Owner");
+    const assignee = screen.getByLabelText("Digital Human: Claude Worker");
+
+    expect(responsible).toHaveTextContent("Owner");
+    expect(responsible).toHaveTextContent("Member");
+    expect(responsible).toHaveTextContent("Alice Owner");
+    expect(responsible).not.toHaveTextContent("Assignee");
+    expect(responsible).not.toHaveTextContent("Claude Worker");
+    expect(assignee).toHaveTextContent("Assignee");
+    expect(assignee).toHaveTextContent("Digital Human");
+    expect(assignee).toHaveTextContent("Claude Worker");
+    expect(assignee).not.toHaveTextContent("Owner");
+    expect(assignee).not.toHaveTextContent("Alice Owner");
+  });
+
   it("keeps the editable picker trigger from clipping the hover details", () => {
     render(
       <IssuePeopleBadges
@@ -174,7 +202,7 @@ describe("IssuePeopleBadges", () => {
       expect.stringContaining("overflow-visible"),
     );
     expect(
-      screen.getByLabelText("Owner / Member: Alice Owner / Assignee / Digital Human: Claude Worker"),
+      screen.getByLabelText("Digital Human: Claude Worker"),
     ).not.toHaveAttribute("title");
   });
 });
