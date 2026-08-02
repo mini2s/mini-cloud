@@ -4,7 +4,6 @@ import { memo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AppLink } from "../../navigation";
 import type { Issue } from "@multica/core/types";
-import { ActorAvatar } from "../../common/actor-avatar";
 import { useIssueSelectionStore } from "@multica/core/issues/stores/selection-store";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useWorkspaceId } from "@multica/core/hooks";
@@ -16,6 +15,8 @@ import { ProgressRing } from "./progress-ring";
 import { IssueActionsContextMenu } from "../actions";
 import { LabelChip } from "../../labels/label-chip";
 import { IssueAgentActivityIndicator } from "./issue-agent-activity-indicator";
+import { IssuePeopleBadges } from "./issue-people-badges";
+import { useT } from "../../i18n";
 
 export interface ChildProgress {
   done: number;
@@ -36,6 +37,7 @@ export const ListRow = memo(function ListRow({
   issue: Issue;
   childProgress?: ChildProgress;
 }) {
+  const { t } = useT("issues");
   const selected = useIssueSelectionStore((s) => s.selectedIds.has(issue.id));
   const toggle = useIssueSelectionStore((s) => s.toggle);
   const p = useWorkspacePaths();
@@ -50,7 +52,9 @@ export const ListRow = memo(function ListRow({
 
   const showProject = storeProperties.project && project;
   const showChildProgress = storeProperties.childProgress && childProgress;
-  const showAssignee = storeProperties.assignee && issue.assignee_type && issue.assignee_id;
+  const showPeople =
+    storeProperties.assignee &&
+    (!!issue.responsible_user_id || (!!issue.assignee_type && !!issue.assignee_id));
   const showStartDate = storeProperties.startDate && issue.start_date;
   const showDueDate = storeProperties.dueDate && issue.due_date;
   const showLabels = storeProperties.labels && labels.length > 0;
@@ -124,12 +128,12 @@ export const ListRow = memo(function ListRow({
               {formatDate(issue.due_date!)}
             </span>
           )}
-          {showAssignee && (
-            <ActorAvatar
-              actorType={issue.assignee_type!}
-              actorId={issue.assignee_id!}
-              size={20}
-              enableHoverCard
+          {showPeople && (
+            <IssuePeopleBadges
+              issue={issue}
+              responsibleLabel={t(($) => $.card.responsible)}
+              assigneeLabel={t(($) => $.card.assignee)}
+              compact
             />
           )}
         </AppLink>

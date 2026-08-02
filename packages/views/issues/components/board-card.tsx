@@ -9,14 +9,13 @@ import { toast } from "sonner";
 import type { Issue, UpdateIssueRequest } from "@multica/core/types";
 import { CalendarClock, CalendarDays } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { ActorAvatar } from "../../common/actor-avatar";
 import { useUpdateIssue } from "@multica/core/issues/mutations";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { projectListOptions } from "@multica/core/projects/queries";
 import { ProjectIcon } from "../../projects/components/project-icon";
 import { PriorityIcon } from "./priority-icon";
-import { PriorityPicker, AssigneePicker, StartDatePicker, DueDatePicker } from "./pickers";
+import { PriorityPicker, StartDatePicker, DueDatePicker } from "./pickers";
 import { PRIORITY_CONFIG } from "@multica/core/issues/config";
 import { useViewStore } from "@multica/core/issues/stores/view-store-context";
 import { ProgressRing } from "./progress-ring";
@@ -24,6 +23,7 @@ import type { ChildProgress } from "./list-row";
 import { IssueActionsContextMenu } from "../actions";
 import { LabelChip } from "../../labels/label-chip";
 import { IssueAgentActivityIndicator } from "./issue-agent-activity-indicator";
+import { IssuePeopleBadges } from "./issue-people-badges";
 import { useT } from "../../i18n";
 
 function formatDate(date: string): string {
@@ -97,7 +97,9 @@ export const BoardCardContent = memo(function BoardCardContent({
 
   const showPriority = storeProperties.priority;
   const showDescription = storeProperties.description && issue.description;
-  const showAssignee = storeProperties.assignee && issue.assignee_type && issue.assignee_id;
+  const showPeople =
+    storeProperties.assignee &&
+    (!!issue.responsible_user_id || (!!issue.assignee_type && !!issue.assignee_id));
   const showStartDate = storeProperties.startDate && issue.start_date;
   const showDueDate = storeProperties.dueDate && issue.due_date;
   const showProject = storeProperties.project && project;
@@ -154,34 +156,18 @@ export const BoardCardContent = memo(function BoardCardContent({
         );
       })()}
 
-      {/* Row 3: Assignee, priority badge, start date, due date */}
-      {(showAssignee || showPriority || showStartDate || showDueDate) && (
-        <div className="mt-3 flex items-center gap-2">
-          {showAssignee &&
-            (editable ? (
-              <PickerWrapper>
-                <AssigneePicker
-                  assigneeType={issue.assignee_type}
-                  assigneeId={issue.assignee_id}
-                  onUpdate={handleUpdate}
-                  trigger={
-                    <ActorAvatar
-                      actorType={issue.assignee_type!}
-                      actorId={issue.assignee_id!}
-                      size={22}
-                      enableHoverCard
-                    />
-                  }
-                />
-              </PickerWrapper>
-            ) : (
-              <ActorAvatar
-                actorType={issue.assignee_type!}
-                actorId={issue.assignee_id!}
-                size={22}
-                enableHoverCard
-              />
-            ))}
+      {/* Row 3: people, priority badge, start date, due date */}
+      {(showPeople || showPriority || showStartDate || showDueDate) && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {showPeople && (
+            <IssuePeopleBadges
+              issue={issue}
+              responsibleLabel={t(($) => $.card.responsible)}
+              assigneeLabel={t(($) => $.card.assignee)}
+              editableAssignee={editable}
+              onAssigneeUpdate={handleUpdate}
+            />
+          )}
           {showPriority &&
             (editable ? (
               <PickerWrapper>
