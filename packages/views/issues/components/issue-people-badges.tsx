@@ -36,7 +36,7 @@ function PeopleTooltipRow({ label, actorName }: PeopleTooltipRowProps) {
   );
 }
 
-interface RoleAvatarProps {
+interface RolePersonProps {
   label: string;
   actorType: string;
   actorId: string;
@@ -44,26 +44,25 @@ interface RoleAvatarProps {
   variant: "responsible" | "assignee";
 }
 
-function RoleAvatar({ label, actorType, actorId, size, variant }: RoleAvatarProps) {
+function RolePerson({ label, actorType, actorId, size, variant }: RolePersonProps) {
   return (
-    <span className="relative inline-flex" title={label}>
+    <span
+      className="inline-flex min-w-0 items-center gap-1 rounded-sm text-[11px] font-medium leading-none text-muted-foreground"
+      title={label}
+    >
+      <span className="shrink-0">{label}</span>
       <ActorAvatar
         actorType={actorType}
         actorId={actorId}
         size={size}
-        className="ring-2 ring-card"
+        className={
+          variant === "responsible"
+            ? "ring-1 ring-primary/60"
+            : "ring-1 ring-muted-foreground/30"
+        }
         enableHoverCard
         showStatusDot={actorType === "agent"}
       />
-      <span
-        className={`absolute -bottom-1 -right-1 flex size-3 items-center justify-center rounded-full border border-card text-[8px] font-semibold leading-none ${
-          variant === "responsible"
-            ? "bg-primary text-primary-foreground"
-            : "bg-muted text-muted-foreground"
-        }`}
-      >
-        {label.trim().slice(0, 1)}
-      </span>
     </span>
   );
 }
@@ -102,10 +101,10 @@ export function IssuePeopleBadges({
     hasAssignee ? `${assigneeLabel}: ${assigneeName}` : null,
   ].filter(Boolean).join(" / ");
 
-  const avatarStack = (
-    <span className="flex shrink-0 -space-x-1">
+  const rolePeople = (
+    <span className="inline-flex shrink-0 items-center gap-2">
       {hasResponsible && (
-        <RoleAvatar
+        <RolePerson
           label={responsibleLabel}
           actorType="member"
           actorId={issue.responsible_user_id!}
@@ -114,7 +113,7 @@ export function IssuePeopleBadges({
         />
       )}
       {hasAssignee && (
-        <RoleAvatar
+        <RolePerson
           label={assigneeLabel}
           actorType={issue.assignee_type!}
           actorId={issue.assignee_id!}
@@ -140,10 +139,10 @@ export function IssuePeopleBadges({
 
   const trigger = (
     <span
-      className="group/people relative inline-flex shrink-0 items-center rounded-full transition-transform hover:-translate-y-px focus-within:-translate-y-px"
+      className="group/people relative inline-flex shrink-0 items-center transition-transform hover:-translate-y-px focus-within:-translate-y-px"
       title={tooltipTitle}
     >
-      {avatarStack}
+      {rolePeople}
       {hoverTooltip}
     </span>
   );

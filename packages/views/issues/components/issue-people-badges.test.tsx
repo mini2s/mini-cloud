@@ -56,13 +56,13 @@ describe("IssuePeopleBadges", () => {
       />,
     );
 
-    expect(screen.getByText("Owner")).toBeInTheDocument();
+    expect(screen.getAllByText("Owner")).toHaveLength(2);
     expect(screen.getByText("Alice Owner")).toBeInTheDocument();
     expect(screen.getByTestId("avatar-member-user-1")).toBeInTheDocument();
-    expect(screen.getByText("O")).toBeInTheDocument();
-    expect(screen.getByText("Assignee")).toBeInTheDocument();
+    expect(screen.queryByText("O")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Assignee")).toHaveLength(2);
     expect(screen.getByText("Claude Worker")).toBeInTheDocument();
     expect(screen.getByTestId("avatar-agent-agent-1")).toBeInTheDocument();
-    expect(screen.getByText("A")).toBeInTheDocument();
+    expect(screen.queryByText("A")).not.toBeInTheDocument();
   });
 });
