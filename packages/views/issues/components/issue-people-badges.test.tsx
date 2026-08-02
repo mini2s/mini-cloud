@@ -199,6 +199,26 @@ describe("IssuePeopleBadges", () => {
     expect(assignee).not.toHaveTextContent("Alice Owner");
   });
 
+  it("aligns each hover detail to its actor tile", () => {
+    render(
+      <IssuePeopleBadges
+        issue={baseIssue}
+        responsibleLabel="Owner"
+        assigneeLabel="Assignee"
+      />,
+    );
+
+    const responsibleTile = screen.getByTestId("actor-tile-member-user-1");
+    const responsibleTooltip = screen.getByTestId("actor-tooltip-member-user-1");
+    const assigneeTile = screen.getByTestId("actor-tile-agent-agent-1");
+    const assigneeTooltip = screen.getByTestId("actor-tooltip-agent-agent-1");
+
+    expect(responsibleTooltip.parentElement).toHaveClass("relative");
+    expect(responsibleTooltip.parentElement).toContainElement(responsibleTile);
+    expect(assigneeTooltip.parentElement).toHaveClass("relative");
+    expect(assigneeTooltip.parentElement).toContainElement(assigneeTile);
+  });
+
   it("keeps the editable picker trigger from clipping the hover details", () => {
     render(
       <IssuePeopleBadges

@@ -131,15 +131,20 @@ function RolePerson({
       aria-label={tooltipTitle}
     >
       <span className="shrink-0">{label}</span>
-      <ActorTypeTile
-        actorType={actorType}
-        actorId={actorId}
-        initials={initials}
-        compact={compact}
-        variant={variant}
-      />
-      <span className="pointer-events-none absolute bottom-full left-0 z-20 mb-2 hidden w-max max-w-64 rounded-md border border-border bg-popover px-2.5 py-1.5 text-popover-foreground shadow-md group-hover/person:block group-focus-within/person:block">
-        <PeopleTooltipRow actorName={actorName} />
+      <span className="relative inline-flex shrink-0">
+        <ActorTypeTile
+          actorType={actorType}
+          actorId={actorId}
+          initials={initials}
+          compact={compact}
+          variant={variant}
+        />
+        <span
+          data-testid={`actor-tooltip-${actorType}-${actorId}`}
+          className="pointer-events-none absolute bottom-full left-0 z-20 mb-2 hidden w-max max-w-64 rounded-md border border-border bg-popover px-2.5 py-1.5 text-popover-foreground shadow-md group-hover/person:block group-focus-within/person:block"
+        >
+          <PeopleTooltipRow actorName={actorName} />
+        </span>
       </span>
     </span>
   );
