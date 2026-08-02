@@ -465,8 +465,9 @@ func TestDeleteIssueRejectsInvalidUUID(t *testing.T) {
 	}
 }
 
-// TestCreateIssueDefaultStatusIsBacklog verifies that manually-created issues
-// start in backlog unless the caller explicitly asks for another status.
+// TestCreateIssueDefaultStatusIsBacklog verifies that issues created without
+// an explicit status default to backlog, where assigned workers stay parked
+// until a member moves the issue to in_progress.
 func TestCreateIssueDefaultStatusIsBacklog(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
@@ -535,6 +536,60 @@ func TestCreateIssueExplicitBacklogPreserved(t *testing.T) {
 	cleanupReq := newRequest("DELETE", "/api/issues/"+created.ID, nil)
 	cleanupReq = withURLParam(cleanupReq, "id", created.ID)
 	testHandler.DeleteIssue(httptest.NewRecorder(), cleanupReq)
+}
+
+func TestShouldEnqueueOnComment_OnlyWhenInProgress(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+	agentID := createHandlerTestAgent(t, "comment-trigger-agent", nil)
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":         "Comment trigger issue",
+		"status":        "backlog",
+		"assignee_type": "agent",
+		"assignee_id":   agentID,
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var created IssueResponse
+	if err := json.NewDecoder(w.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created issue: %v", err)
+	}
+	t.Cleanup(func() {
+		cleanupReq := newRequest("DELETE", "/api/issues/"+created.ID, nil)
+		cleanupReq = withURLParam(cleanupReq, "id", created.ID)
+		testHandler.DeleteIssue(httptest.NewRecorder(), cleanupReq)
+	})
+
+	for _, status := range []string{"backlog", "todo"} {
+		if _, err := testPool.Exec(ctx, `UPDATE multica_issue SET status = $1 WHERE id = $2`, status, created.ID); err != nil {
+			t.Fatalf("set issue status to %s: %v", status, err)
+		}
+		issue, err := testHandler.Queries.GetIssue(ctx, parseUUID(created.ID))
+		if err != nil {
+			t.Fatalf("reload issue after setting %s: %v", status, err)
+		}
+		if got := testHandler.shouldEnqueueOnComment(ctx, issue); got {
+			t.Fatalf("shouldEnqueueOnComment() = true for status %q, want false", status)
+		}
+	}
+
+	if _, err := testPool.Exec(ctx, `UPDATE multica_issue SET status = 'in_progress' WHERE id = $1`, created.ID); err != nil {
+		t.Fatalf("set issue status to in_progress: %v", err)
+	}
+	issue, err := testHandler.Queries.GetIssue(ctx, parseUUID(created.ID))
+	if err != nil {
+		t.Fatalf("reload issue after setting in_progress: %v", err)
+	}
+	if got := testHandler.shouldEnqueueOnComment(ctx, issue); !got {
+		t.Fatal("shouldEnqueueOnComment() = false for status in_progress, want true")
+	}
 }
 
 func TestCreateSubIssueInheritsParentProject(t *testing.T) {

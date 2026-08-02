@@ -21,6 +21,11 @@ describe("issue draft store — last assignee", () => {
     useIssueDraftStore.setState(RESET_STATE);
   });
 
+  it("starts new manual issue drafts in backlog", () => {
+    const { draft } = useIssueDraftStore.getState();
+    expect(draft.status).toBe("backlog");
+  });
+
   it("clearDraft prefills the next draft with the remembered assignee", () => {
     const { setDraft, setLastAssignee, clearDraft } =
       useIssueDraftStore.getState();

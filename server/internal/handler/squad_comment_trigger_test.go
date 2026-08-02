@@ -614,3 +614,35 @@ func TestCreateComment_SquadMentionTriggersLeader(t *testing.T) {
 		t.Fatalf("after @squad mention: expected 1 leader task, got %d", got)
 	}
 }
+
+func TestShouldEnqueueSquadLeaderOnComment_OnlyWhenInProgress(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	fx := newSquadCommentTriggerFixture(t)
+	ctx := context.Background()
+
+	for _, status := range []string{"backlog", "todo"} {
+		if _, err := testPool.Exec(ctx, `UPDATE multica_issue SET status = $1 WHERE id = $2`, status, fx.Issue.ID); err != nil {
+			t.Fatalf("set issue status to %s: %v", status, err)
+		}
+		issue, err := testHandler.Queries.GetIssue(ctx, fx.Issue.ID)
+		if err != nil {
+			t.Fatalf("reload issue after setting %s: %v", status, err)
+		}
+		if got := testHandler.shouldEnqueueSquadLeaderOnComment(ctx, issue, "noted", "member", testUserID); got {
+			t.Fatalf("shouldEnqueueSquadLeaderOnComment() = true for status %q, want false", status)
+		}
+	}
+
+	if _, err := testPool.Exec(ctx, `UPDATE multica_issue SET status = 'in_progress' WHERE id = $1`, fx.Issue.ID); err != nil {
+		t.Fatalf("set issue status to in_progress: %v", err)
+	}
+	issue, err := testHandler.Queries.GetIssue(ctx, fx.Issue.ID)
+	if err != nil {
+		t.Fatalf("reload issue after setting in_progress: %v", err)
+	}
+	if got := testHandler.shouldEnqueueSquadLeaderOnComment(ctx, issue, "noted", "member", testUserID); !got {
+		t.Fatal("shouldEnqueueSquadLeaderOnComment() = false for status in_progress, want true")
+	}
+}

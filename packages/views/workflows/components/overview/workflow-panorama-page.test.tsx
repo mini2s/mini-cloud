@@ -496,13 +496,14 @@ vi.mock("@xyflow/react", () => ({
 vi.mock("../node-config-panel", () => ({
   NodeConfigPanel: (props: {
     node: { id: string };
-    recentNodeRun?: { workflow_node_id: string } | null;
+    recentNodeRun?: { workflow_node_id: string; status?: string } | null;
+    disabled?: boolean;
     onStageChange?: (nodeId: string, stageId: string | null) => void;
     onDeleteNode?: (nodeId: string) => void;
     onDirtyChange?: (dirty: boolean) => void;
     onRegisterSave?: (save: (() => Promise<boolean>) | null) => void;
   }) => (
-    <div data-testid="node-config-panel">
+    <div data-testid="node-config-panel" data-disabled={String(props.disabled === true)}>
       <button
         type="button"
         onClick={() => {
@@ -1645,6 +1646,29 @@ describe("WorkflowPanoramaPage (new)", () => {
     rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
     expect(screen.queryByTestId("node-config-panel")).not.toBeInTheDocument();
     expect(mocks.selectNode).toHaveBeenLastCalledWith(null);
+  });
+
+  it("disables node editing while the latest run is working", () => {
+    mocks.nodesData = [
+      { id: "node-1", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 100, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+    ];
+    mocks.nodeRunsData = [
+      {
+        id: "run-1",
+        workflow_node_id: "node-1",
+        status: "working",
+      },
+    ];
+
+    const { rerender } = render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
+    act(() => {
+      mocks.reactFlowProps?.onNodeClick?.({} as React.MouseEvent, worker!);
+    });
+    rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    expect(screen.getByTestId("node-config-panel")).toHaveAttribute("data-disabled", "true");
   });
 
   it("prompts with an app dialog before closing a dirty node config panel", async () => {

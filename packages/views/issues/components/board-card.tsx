@@ -106,10 +106,20 @@ export const BoardCardContent = memo(function BoardCardContent({
 
   return (
     <div className="rounded-lg border-[0.5px] border-border bg-card py-3 px-2.5 shadow-[0_3px_6px_-2px_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)] transition-colors group-hover/card:border-accent group-hover/card:bg-accent group-data-[popup-open]/card:border-accent group-data-[popup-open]/card:bg-accent">
-      {/* Row 1: Identifier + agent activity indicator (top-right) */}
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">{issue.identifier}</p>
-        <IssueAgentActivityIndicator issueId={issue.id} />
+      {/* Row 1: Project + identifier + agent activity indicator */}
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        {showProject ? (
+          <span className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-full bg-muted/60 px-1.5 py-0.5 text-[11px] text-muted-foreground">
+            <ProjectIcon project={project} size="sm" />
+            <span className="truncate">{project!.title}</span>
+          </span>
+        ) : (
+          <p className="min-w-0 flex-1 text-xs text-muted-foreground">{issue.identifier}</p>
+        )}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {showProject && <p className="text-xs text-muted-foreground">{issue.identifier}</p>}
+          <IssueAgentActivityIndicator issueId={issue.id} />
+        </div>
       </div>
 
       {/* Row 2: Title */}
@@ -117,8 +127,8 @@ export const BoardCardContent = memo(function BoardCardContent({
         {issue.title}
       </p>
 
-      {/* Sub-issue progress + project + labels */}
-      {(showChildProgress || showProject || showLabels) && (
+      {/* Sub-issue progress + labels */}
+      {(showChildProgress || showLabels) && (
         <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
           {showChildProgress && (
             <div className="inline-flex items-center gap-1 rounded-full bg-muted/60 px-1.5 py-0.5">
@@ -127,12 +137,6 @@ export const BoardCardContent = memo(function BoardCardContent({
                 {childProgress!.done}/{childProgress!.total}
               </span>
             </div>
-          )}
-          {showProject && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-muted/60 px-1.5 py-0.5 text-[11px] text-muted-foreground max-w-[160px]">
-              <ProjectIcon project={project} size="sm" />
-              <span className="truncate">{project!.title}</span>
-            </span>
           )}
           {showLabels && labels.map((label) => (
             <LabelChip key={label.id} label={label} />

@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-// TestCreateIssueAssignedToSquadEnqueuesLeader verifies that creating an
-// issue with assignee_type=squad immediately enqueues a task for the squad
-// leader (mirrors the agent-assignee parking-lot rule: skip backlog only).
-func TestCreateIssueAssignedToSquadEnqueuesLeader(t *testing.T) {
+// TestCreateIssueAssignedToSquadWaitsUntilInProgress verifies that creating a
+// squad-assigned issue does not trigger the squad leader until a member starts
+// the issue by moving it to in_progress.
+func TestCreateIssueAssignedToSquadWaitsUntilInProgress(t *testing.T) {
 	ctx := context.Background()
 
 	// Look up the seeded test agent — it has a runtime, so it can lead a squad.
@@ -37,6 +37,7 @@ func TestCreateIssueAssignedToSquadEnqueuesLeader(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
 		"title":         "Squad-assigned at creation",
+		"status":        "todo",
 		"assignee_type": "squad",
 		"assignee_id":   squadID,
 	})
@@ -55,7 +56,6 @@ func TestCreateIssueAssignedToSquadEnqueuesLeader(t *testing.T) {
 		testHandler.DeleteIssue(httptest.NewRecorder(), cleanupReq)
 	}()
 
-	// A task for the squad leader should now exist for this issue.
 	var taskCount int
 	if err := testPool.QueryRow(ctx, `
 		SELECT count(*) FROM multica_agent_task_queue
@@ -63,7 +63,27 @@ func TestCreateIssueAssignedToSquadEnqueuesLeader(t *testing.T) {
 	`, created.ID, leaderID).Scan(&taskCount); err != nil {
 		t.Fatalf("count tasks: %v", err)
 	}
+	if taskCount != 0 {
+		t.Fatalf("expected no squad-leader task before in_progress, got %d", taskCount)
+	}
+
+	w = httptest.NewRecorder()
+	req = newRequest("PUT", "/api/issues/"+created.ID, map[string]any{
+		"status": "in_progress",
+	})
+	req = withURLParam(req, "id", created.ID)
+	testHandler.UpdateIssue(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("UpdateIssue: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if err := testPool.QueryRow(ctx, `
+		SELECT count(*) FROM multica_agent_task_queue
+		WHERE issue_id = $1 AND agent_id = $2
+	`, created.ID, leaderID).Scan(&taskCount); err != nil {
+		t.Fatalf("count tasks after in_progress: %v", err)
+	}
 	if taskCount == 0 {
-		t.Fatalf("expected squad-leader task to be enqueued after squad-assigned create, got 0")
+		t.Fatalf("expected squad-leader task after in_progress, got 0")
 	}
 }

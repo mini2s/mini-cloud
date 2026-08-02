@@ -8,21 +8,21 @@
   },
   "create_workspace": {
     "title": "创建新工作区",
-    "description": "工作区是团队协作处理项目和 issue 的共享空间。"
+    "description": "工作区是团队协作处理项目和任务的共享空间。"
   },
   "delete_issue": {
-    "title": "删除 issue",
-    "description": "将永久删除该 issue 及其所有评论。此操作不可撤销。",
-    "hint": "工作区任何成员都可以删除 issue。",
+    "title": "删除任务",
+    "description": "将永久删除该任务及其所有评论。此操作不可撤销。",
+    "hint": "工作区任何成员都可以删除任务。",
     "cancel": "取消",
     "confirm": "删除",
     "deleting": "删除中...",
-    "toast_deleted": "已删除 issue",
-    "toast_delete_failed": "删除 issue 失败",
-    "active_split_blocking": "所选 issue 存在正在执行的任务拆分，请先取消拆分后再删除。"
+    "toast_deleted": "已删除任务",
+    "toast_delete_failed": "删除任务失败",
+    "active_split_blocking": "所选任务存在正在执行的任务拆分，请先取消拆分后再删除。"
   },
   "issue_detail": {
-    "title": "Issue 详情"
+    "title": "任务详情"
   },
   "feedback": {
     "title": "反馈",
@@ -37,22 +37,22 @@
     "github_hint_link": "GitHub"
   },
   "issue_picker": {
-    "search_placeholder": "搜索 issue...",
+    "search_placeholder": "搜索任务...",
     "searching": "搜索中...",
-    "no_results": "未找到 issue。",
-    "prompt_to_search": "输入关键词搜索 issue"
+    "no_results": "未找到任务。",
+    "prompt_to_search": "输入关键词搜索任务"
   },
   "set_parent": {
-    "title": "设置父 issue",
-    "description": "搜索一个 issue，将其设为当前 issue 的父级",
-    "toast_failed": "更新 issue 失败",
-    "toast_success": "已将 {{identifier}} 设为父 issue"
+    "title": "设置父任务",
+    "description": "搜索一个任务，将其设为当前任务的父级",
+    "toast_failed": "更新任务失败",
+    "toast_success": "已将 {{identifier}} 设为父任务"
   },
   "add_child": {
-    "title": "添加子 issue",
-    "description": "搜索一个 issue 添加为子 issue",
-    "toast_failed": "添加子 issue 失败",
-    "toast_success": "已添加 {{identifier}} 为子 issue"
+    "title": "添加子任务",
+    "description": "搜索一个任务添加为子任务",
+    "toast_failed": "添加子任务失败",
+    "toast_success": "已添加 {{identifier}} 为子任务"
   },
   "backlog_hint": {
     "toast_status_failed": "更新状态失败"
@@ -114,46 +114,46 @@
     "repos_url_placeholder": "https://github.com/owner/repo 或 git@github.com:owner/repo.git"
   },
   "create_issue": {
-    "sr_manual": "新建 issue",
-    "sr_agent": "快速创建 issue",
+    "sr_manual": "新建任务",
+    "sr_agent": "快速创建任务",
     "manual_breadcrumb": "手动创建",
     "agent_breadcrumb": "通过数智人创建",
-    "title_placeholder": "issue 标题",
+    "title_placeholder": "任务标题",
     "description_placeholder": "添加描述...",
     "more_options_aria": "更多选项",
     "title_required": "请输入标题后再创建",
     "project_required": "请选择项目后再创建",
-    "project_required_detail": "请先选择项目。每个 issue 都必须归属到一个项目。",
+    "project_required_detail": "请先选择项目。每个任务都必须归属到一个项目。",
     "responsible_aria": "负责人",
     "responsible_empty_label": "责任人",
-    "responsible_required_detail": "请先选择负责人。每个 issue 都必须有负责人。",
-    "submit": "创建 issue",
+    "responsible_required_detail": "请先选择负责人。每个任务都必须有负责人。",
+    "submit": "创建任务",
     "submitting": "创建中...",
-    "toast_created": "已创建 issue",
-    "view_issue": "查看 issue",
-    "toast_failed": "创建 issue 失败",
-    "toast_duplicate_title": "已存在同名 issue",
-    "toast_duplicate_view": "查看已有 issue",
-    "toast_link_subissues_all_failed": "关联子 issue 失败",
-    "toast_link_subissues_partial": "{{total}} 个子 issue 中有 {{failed}} 个关联失败",
+    "toast_created": "已创建任务",
+    "view_issue": "查看任务",
+    "toast_failed": "创建任务失败",
+    "toast_duplicate_title": "已存在同名任务",
+    "toast_duplicate_view": "查看已有任务",
+    "toast_link_subissues_all_failed": "关联子任务失败",
+    "toast_link_subissues_partial": "{{total}} 个子任务中有 {{failed}} 个关联失败",
     "switch_to_manual": "切换到手动",
     "switch_to_manual_tooltip": "切换到手动创建——自己填字段",
     "create_another": "继续创建",
     "remove_parent_aria": "移除父级",
-    "remove_subissue_aria": "移除子 issue {{identifier}}",
-    "subissue_of": "{{identifier}} 的子 issue",
-    "subissue_chip": "子 issue：{{identifier}}",
+    "remove_subissue_aria": "移除子任务 {{identifier}}",
+    "subissue_of": "{{identifier}} 的子任务",
+    "subissue_chip": "子任务：{{identifier}}",
     "parent_with_id": "父：{{identifier}}",
-    "set_parent": "设置父 issue...",
-    "add_subissue": "添加子 issue...",
+    "set_parent": "设置父任务...",
+    "add_subissue": "添加子任务...",
     "remove_parent": "移除父级",
     "set_parent_picker": {
-      "title": "设置父 issue",
-      "description": "搜索一个 issue 设为父级"
+      "title": "设置父任务",
+      "description": "搜索一个任务设为父级"
     },
     "add_subissue_picker": {
-      "title": "添加子 issue",
-      "description": "搜索一个 issue 设为子级"
+      "title": "添加子任务",
+      "description": "搜索一个任务设为子级"
     },
     "agent": {
       "created_by": "创建者",
