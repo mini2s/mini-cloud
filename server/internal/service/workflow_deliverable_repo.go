@@ -1316,11 +1316,20 @@ func linkArchiveHash(link string) string {
 // stored as-is (no per-link Gitea branch/PR). Code links no longer touch Gitea
 // at submit time; they are archived to the inst branch on approval
 // (archiveCodeLinksToInst) - best-effort, dormant-safe.
-func (s *WorkflowService) UploadMemberDeliverablePR(ctx context.Context, issue db.MulticaIssue, pullRequestURLs []string, deliverableID, userID, summary string) error {
-	if len(pullRequestURLs) == 0 {
-		return errors.New("no pull request URLs to submit")
+// UploadMemberDeliverableAll is the unified member deliverable upload: it
+// archives any document files to Gitea AND records any code PR/MR links in a
+// single transaction, advancing the node-run at most once. Use this when a
+// member submits documents and links together — two separate calls race,
+// because the first can satisfy the required set and advance the node-run out
+// of the worker phase, after which the second is rejected and its submission
+// is lost. Either files or pullRequestURLs may be empty, but not both.
+func (s *WorkflowService) UploadMemberDeliverableAll(ctx context.Context, issue db.MulticaIssue, files []MemberDeliverableFile, pullRequestURLs []string, deliverableID, userID, summary string) error {
+	if len(files) == 0 && len(pullRequestURLs) == 0 {
+		return errors.New("no files or pull request URLs to submit")
 	}
 	var uploadedNodeRunID pgtype.UUID
+	var uploadedPRURL string
+	uploadedLinks := len(pullRequestURLs)
 	err := s.runLockedMemberUpload(ctx, issue, func(q *db.Queries, run db.MulticaWorkflowRun, nodeRun db.MulticaWorkflowNodeRun) (db.MulticaWorkflowNodeRun, bool, error) {
 		uploadedNodeRunID = nodeRun.ID
 		deliverables, err := q.ListNodeRunDeliverableRequirements(ctx, nodeRun.ID)
@@ -1331,13 +1340,69 @@ func (s *WorkflowService) UploadMemberDeliverablePR(ctx context.Context, issue d
 		if err != nil {
 			return db.MulticaWorkflowNodeRun{}, false, err
 		}
-		// Store the real code-MR links as-is (no Gitea PR, no per-link branch).
-		// The node PR archive is reconciled async after the commit below.
-		submissions := make([]db.UpsertNodeRunDeliverableSubmissionParams, 0, len(pullRequestURLs))
-		var firstLink string
+
+		submissions := make([]db.UpsertNodeRunDeliverableSubmissionParams, 0, len(files)+len(pullRequestURLs))
+		var primaryURL string
+
+		if len(files) > 0 {
+			workflow, err := workflowFromRunSnapshotWithQueries(ctx, q, run)
+			if err != nil {
+				return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("get run snapshot: %w", err)
+			}
+			repoProvider, err := s.deliverableRepositoryForWorkspace(ctx, run.WorkspaceID)
+			if err != nil {
+				return db.MulticaWorkflowNodeRun{}, false, err
+			}
+			topo, err := RunNodeTopoOrder(ctx, q, run.ID)
+			if err != nil {
+				return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("node topo order: %w", err)
+			}
+			nodeSeq := topo[util.UUIDToString(nodeRun.ID)]
+			owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
+			repo := DeliverableRepoNameForWorkflow(workflow)
+			inst := gitea.InstBranch(util.UUIDToString(run.ID))
+			// Documents share the node-run's single deliverable branch (NodeBranch)
+			// and are reviewed via one node->inst PR. Code-MR links do not share this
+			// branch — they are standalone submissions archived to inst on approval.
+			deliverableSuffix := shortHexSafe(util.UUIDToString(deliverable.ID))
+			nodeBranch := gitea.NodeBranch(nodeSeq, util.UUIDToString(nodeRun.ID))
+			nodeDir := gitea.NodeDir(nodeSeq, nodeRun.NodeTitle, util.UUIDToString(nodeRun.ID)) +
+				"/deliverables/" + deliverableSuffix
+
+			if err := repoProvider.CreateBranch(ctx, owner, repo, nodeBranch, inst); err != nil {
+				return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("create node branch: %w", err)
+			}
+			for _, f := range files {
+				raw, err := base64.StdEncoding.DecodeString(f.Content)
+				if err != nil {
+					return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("decode file %q: %w", f.Name, err)
+				}
+				filePath := nodeDir + "/" + sanitizeArchiveFileName(f.Name)
+				if err := repoProvider.UpsertFile(ctx, owner, repo, nodeBranch, filePath, string(raw), "deliverable upload: "+f.Name); err != nil {
+					return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("write deliverable file %q: %w", f.Name, err)
+				}
+			}
+			prURL, err := repoProvider.OpenReviewRequest(ctx, owner, repo, nodeBranch, inst,
+				"document deliverable "+util.UUIDToString(deliverable.ID))
+			if err != nil {
+				return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("open PR: %w", err)
+			}
+			uploadedPRURL = prURL
+			primaryURL = prURL
+			submissions = append(submissions, db.UpsertNodeRunDeliverableSubmissionParams{
+				WorkflowNodeRunID: nodeRun.ID,
+				DeliverableID:     deliverable.ID,
+				SubmittedByType:   "member",
+				SubmittedByID:     util.MustParseUUID(userID),
+				PullRequestUrl:    prURL,
+			})
+		}
+
+		// Code MR links are recorded as-is (no Gitea PR, no per-link branch);
+		// they are archived to the inst branch on approval (archiveCodeLinksToInst).
 		for _, link := range pullRequestURLs {
-			if firstLink == "" {
-				firstLink = link
+			if primaryURL == "" {
+				primaryURL = link
 			}
 			submissions = append(submissions, db.UpsertNodeRunDeliverableSubmissionParams{
 				WorkflowNodeRunID: nodeRun.ID,
@@ -1347,16 +1412,26 @@ func (s *WorkflowService) UploadMemberDeliverablePR(ctx context.Context, issue d
 				PullRequestUrl:    link,
 			})
 		}
-		return recordMemberUploadAndAdvance(ctx, q, nodeRun, submissions, workerOutputForAdvance(firstLink, summary))
+
+		return recordMemberUploadAndAdvance(ctx, q, nodeRun, submissions, workerOutputForAdvance(primaryURL, summary))
 	})
 	if err != nil {
 		return err
 	}
-	// Code MR links are archived to the inst branch only on approval
-	// (archiveCodeLinksToInst), not at upload time.
-	slog.Info("member code deliverable uploaded",
-		"issue_id", util.UUIDToString(issue.ID), "node_run_id", util.UUIDToString(uploadedNodeRunID), "links", len(pullRequestURLs))
+	slog.Info("member deliverable uploaded",
+		"issue_id", util.UUIDToString(issue.ID), "node_run_id", util.UUIDToString(uploadedNodeRunID),
+		"files", len(files), "links", uploadedLinks, "pr_url", uploadedPRURL)
 	return nil
+}
+
+// UploadMemberDeliverablePR records code PR/MR links for a member-assigned
+// issue. It is the link-only specialist; the combined files+links path lives in
+// UploadMemberDeliverableAll so the two never race the node-run state machine.
+func (s *WorkflowService) UploadMemberDeliverablePR(ctx context.Context, issue db.MulticaIssue, pullRequestURLs []string, deliverableID, userID, summary string) error {
+	if len(pullRequestURLs) == 0 {
+		return errors.New("no pull request URLs to submit")
+	}
+	return s.UploadMemberDeliverableAll(ctx, issue, nil, pullRequestURLs, deliverableID, userID, summary)
 }
 
 // MemberDeliverableFile is one uploaded document file. Content is the file
@@ -1380,91 +1455,15 @@ func sanitizeArchiveFileName(name string) string {
 	return base
 }
 
+// UploadMemberDeliverable archives document files for a member-assigned issue
+// to Gitea. It is the files-only specialist; the combined files+links path
+// lives in UploadMemberDeliverableAll so the two never race the node-run state
+// machine.
 func (s *WorkflowService) UploadMemberDeliverable(ctx context.Context, issue db.MulticaIssue, files []MemberDeliverableFile, deliverableID, userID, summary string) error {
 	if len(files) == 0 {
 		return errors.New("no files to upload")
 	}
-	var uploadedNodeRunID pgtype.UUID
-	var uploadedPRURL string
-	err := s.runLockedMemberUpload(ctx, issue, func(q *db.Queries, run db.MulticaWorkflowRun, nodeRun db.MulticaWorkflowNodeRun) (db.MulticaWorkflowNodeRun, bool, error) {
-		uploadedNodeRunID = nodeRun.ID
-		workflow, err := workflowFromRunSnapshotWithQueries(ctx, q, run)
-		if err != nil {
-			return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("get run snapshot: %w", err)
-		}
-		repoProvider, err := s.deliverableRepositoryForWorkspace(ctx, run.WorkspaceID)
-		if err != nil {
-			return db.MulticaWorkflowNodeRun{}, false, err
-		}
-		deliverables, err := q.ListNodeRunDeliverableRequirements(ctx, nodeRun.ID)
-		if err != nil {
-			return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("list deliverables: %w", err)
-		}
-		deliverable, err := resolveUploadDeliverable(deliverables, deliverableID)
-		if err != nil {
-			return db.MulticaWorkflowNodeRun{}, false, err
-		}
-
-		topo, err := RunNodeTopoOrder(ctx, q, run.ID)
-		if err != nil {
-			return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("node topo order: %w", err)
-		}
-		nodeSeq := topo[util.UUIDToString(nodeRun.ID)]
-		owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
-		repo := DeliverableRepoNameForWorkflow(workflow)
-		inst := gitea.InstBranch(util.UUIDToString(run.ID))
-		// Documents are committed to the node-run's single deliverable branch
-		// (NodeBranch) and reviewed via one node->inst PR. Code-MR links no longer
-		// share this branch - they are standalone submissions archived to the inst
-		// branch on approval (archiveCodeLinksToInst). Files are still namespaced
-		// per deliverable below, so same-named files don't collide.
-		deliverableSuffix := shortHexSafe(util.UUIDToString(deliverable.ID))
-		nodeBranch := gitea.NodeBranch(nodeSeq, util.UUIDToString(nodeRun.ID))
-		nodeDir := gitea.NodeDir(nodeSeq, nodeRun.NodeTitle, util.UUIDToString(nodeRun.ID)) +
-			"/deliverables/" + deliverableSuffix
-
-		if err := repoProvider.CreateBranch(ctx, owner, repo, nodeBranch, inst); err != nil {
-			return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("create node branch: %w", err)
-		}
-		for _, f := range files {
-			raw, err := base64.StdEncoding.DecodeString(f.Content)
-			if err != nil {
-				return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("decode file %q: %w", f.Name, err)
-			}
-			filePath := nodeDir + "/" + sanitizeArchiveFileName(f.Name)
-			if err := repoProvider.UpsertFile(ctx, owner, repo, nodeBranch, filePath, string(raw), "deliverable upload: "+f.Name); err != nil {
-				return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("write deliverable file %q: %w", f.Name, err)
-			}
-		}
-		prURL, err := repoProvider.OpenReviewRequest(ctx, owner, repo, nodeBranch, inst,
-			"document deliverable "+util.UUIDToString(deliverable.ID))
-		if err != nil {
-			return db.MulticaWorkflowNodeRun{}, false, fmt.Errorf("open PR: %w", err)
-		}
-		uploadedPRURL = prURL
-
-		submission := db.UpsertNodeRunDeliverableSubmissionParams{
-			WorkflowNodeRunID: nodeRun.ID,
-			DeliverableID:     deliverable.ID,
-			SubmittedByType:   "member",
-			SubmittedByID:     util.MustParseUUID(userID),
-			Content:           "",
-			PullRequestUrl:    prURL,
-		}
-		return recordMemberUploadAndAdvance(
-			ctx,
-			q,
-			nodeRun,
-			[]db.UpsertNodeRunDeliverableSubmissionParams{submission},
-			workerOutputForAdvance(prURL, summary),
-		)
-	})
-	if err != nil {
-		return err
-	}
-	slog.Info("member deliverable uploaded",
-		"issue_id", util.UUIDToString(issue.ID), "node_run_id", util.UUIDToString(uploadedNodeRunID), "pr_url", uploadedPRURL)
-	return nil
+	return s.UploadMemberDeliverableAll(ctx, issue, files, nil, deliverableID, userID, summary)
 }
 
 // workerOutputForAdvance builds the worker output recorded when a member

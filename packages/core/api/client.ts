@@ -734,6 +734,7 @@ export class ApiClient {
     files: { name: string; content: string }[],
     summary?: string,
     deliverableId?: string,
+    pullRequestURLs?: string[],
   ): Promise<{ ok: boolean }> {
     const raw = await this.fetch<unknown>(`/api/issues/${issueId}/deliverables/upload`, {
       method: "POST",
@@ -741,6 +742,10 @@ export class ApiClient {
         files,
         ...(summary ? { summary } : {}),
         ...(deliverableId ? { deliverable_id: deliverableId } : {}),
+        // Send files and PR links in ONE call: two separate calls race, because
+        // the file upload can advance the node-run out of the worker phase and
+        // the link upload is then rejected (losing the link submission).
+        ...(pullRequestURLs && pullRequestURLs.length > 0 ? { pull_request_urls: pullRequestURLs } : {}),
       }),
     });
     return parseWithFallback(raw, UploadIssueDeliverableResponseSchema, EMPTY_UPLOAD_ISSUE_DELIVERABLE_RESPONSE, {

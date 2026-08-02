@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -2637,5 +2638,104 @@ func TestArchiveCodeLinksToInst_WritesInstBranchAndNoPR(t *testing.T) {
 	// Assert: NO review request is opened — code links no longer create a PR.
 	if reviews := spy.openReviewCalls(); len(reviews) != 0 {
 		t.Errorf("OpenReviewRequest calls = %d, want 0 (code links no longer open a PR)", len(reviews))
+	}
+}
+
+// TestUploadMemberDeliverableAll_RecordsFilesAndLinksAndAdvancesOnce
+// reproduces the unified-form bug: when a member submits a document AND a PR
+// link for the same single-required deliverable, the two used to be two server
+// calls; the first advanced the node-run out of the worker phase and the second
+// was rejected (409), so the PR link submission was lost. The unified path
+// records both in one transaction and advances exactly once.
+func TestUploadMemberDeliverableAll_RecordsFilesAndLinksAndAdvancesOnce(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	fix := seedGiteaFixture(t, pool, true /*document deliverable*/, 1)
+
+	// teamnamespace resolves the creator from subject_id; base fixture lacks one.
+	if _, err := pool.Exec(ctx, `UPDATE multica_member SET subject_id = $1 WHERE workspace_id = $2`,
+		"usr-owner-"+util.UUIDToString(fix.workspace)[:8], fix.workspace); err != nil {
+		t.Fatalf("set member subject_id: %v", err)
+	}
+
+	// node_run in the worker phase — member upload requires 'working'.
+	var nodeRunID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (workflow_run_id, workflow_node_id, node_title, status, worker_type, worker_id, critic_type)
+		VALUES ($1, $2, 'Doc Node', 'working', 'human', $3, 'human')
+		RETURNING id
+	`, fix.run1, fix.node, fix.workspace).Scan(&nodeRunID); err != nil {
+		t.Fatalf("seed node run: %v", err)
+	}
+	nrUUID, _ := util.ParseUUID(nodeRunID)
+	seedRuntimeDeliverableRequirement(t, pool, nrUUID, fix.node, 0)
+
+	var userID string
+	if err := pool.QueryRow(ctx, `SELECT user_id FROM multica_member WHERE workspace_id = $1 AND role = 'owner'`, fix.workspace).Scan(&userID); err != nil {
+		t.Fatalf("get owner user id: %v", err)
+	}
+
+	// Issue routed to this run — UploadMemberDeliverableAll reads issue.WorkflowRunID.
+	var issueID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_issue (workspace_id, title, status, priority, creator_type, creator_id, responsible_user_id, workflow_run_id, number)
+		VALUES ($1, 'Delivery Issue', 'todo', 'none', 'member', $2, $2, $3, 1)
+		RETURNING id
+	`, fix.workspace, userID, fix.run1).Scan(&issueID); err != nil {
+		t.Fatalf("seed issue: %v", err)
+	}
+	issueUUID, _ := util.ParseUUID(issueID)
+
+	tnSrv, _ := newTeamNamespaceTestServer(t)
+	defer tnSrv.Close()
+	tnClient := teamnamespace.NewClient(teamnamespace.Config{BaseURL: tnSrv.URL, Token: "svc-token"})
+	spy := &spyRepoProvider{configured: true}
+	queries := db.New(pool)
+	svc := &WorkflowService{
+		Queries:            queries,
+		TxStarter:          pool,
+		TeamNamespace:      tnClient,
+		RepositoryProvider: spy,
+	}
+
+	issue, err := queries.GetIssue(ctx, issueUUID)
+	if err != nil {
+		t.Fatalf("get issue: %v", err)
+	}
+
+	files := []MemberDeliverableFile{
+		{Name: "spec.md", Content: base64.StdEncoding.EncodeToString([]byte("# spec"))},
+	}
+	links := []string{"https://gitlab.example.com/root/repo/-/merge_requests/42"}
+	if err := svc.UploadMemberDeliverableAll(ctx, issue, files, links, "", userID, "note"); err != nil {
+		t.Fatalf("UploadMemberDeliverableAll: %v", err)
+	}
+
+	// Both submissions recorded: the document (Gitea PR URL) AND the MR link.
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM multica_workflow_node_deliverable_submission WHERE workflow_node_run_id = $1`, nrUUID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("submission count = %d, want 2 (document + MR link)", count)
+	}
+
+	// The bug: the MR link submission was lost. It must survive.
+	var linkCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM multica_workflow_node_deliverable_submission WHERE workflow_node_run_id = $1 AND pull_request_url = $2`, nrUUID, links[0]).Scan(&linkCount); err != nil {
+		t.Fatal(err)
+	}
+	if linkCount != 1 {
+		t.Fatalf("MR link submission lost: count = %d, want 1", linkCount)
+	}
+
+	// Node-run advanced exactly once to awaiting_critic.
+	nr, err := queries.GetWorkflowNodeRun(ctx, nrUUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nr.Status != NodeRunStatusAwaitingCritic {
+		t.Fatalf("node run status = %q, want awaiting_critic", nr.Status)
 	}
 }
