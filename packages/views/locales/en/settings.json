@@ -29,7 +29,6 @@
       "notifications": "Notifications",
       "tokens": "API Tokens",
       "general": "General",
-      "repositories": "Repositories",
       "github": "GitHub",
       "gitlab": "GitLab",
       "integrations": "Integrations",
@@ -182,9 +181,6 @@
   },
   "github": {
     "page_description": "Connect a GitHub App, control how Pull Requests show up inside Multica, and decide what your digital humans leave behind in commit history.",
-    "section_master": "Enable GitHub features",
-    "master_description_on": "When off, every GitHub UI affordance is hidden and no new side-effects are written. Existing data is kept on the backend. Not a development team? Just turn it off here.",
-    "master_description_off": "GitHub features are turned off. The PR sidebar, co-author trailer, and auto-link are paused. Data on the backend is not deleted.",
     "section_connection": "Connection",
     "connection_title": "GitHub App",
     "connection_description_prefix": "Link issues to pull requests automatically. When a PR with",
@@ -218,16 +214,10 @@
     "feature_co_author_description_suffix": "to commits authored by digital humans.",
     "feature_auto_link_label": "Auto-link issues and PRs",
     "feature_auto_link_description": "Match PR titles, bodies, and branch names against issue identifiers and create the link automatically.",
-    "section_repositories": "Repositories",
-    "repositories_shortcut_label": "Repository URLs live in the Repositories tab",
-    "repositories_shortcut_link": "Manage repositories →",
     "toast_failed": "Failed to update GitHub settings"
   },
   "gitlab": {
     "page_description": "Configure a GitLab personal access token and webhook to show Merge Requests inside Multica.",
-    "section_master": "Enable GitLab features",
-    "master_description_on": "When off, every GitLab UI affordance is hidden and no new side-effects are written. Existing data is kept on the backend.",
-    "master_description_off": "GitLab features are turned off. The MR sidebar and auto-link are paused. Data on the backend is not deleted.",
     "section_connection": "Connection",
     "webhook_url_label": "Webhook URL",
     "webhook_url_hint": "Paste this into GitLab → Settings → Webhooks.",
@@ -278,9 +268,6 @@
     "manage_hint": "Only admins and owners can manage repositories.",
     "toast_saved": "Repositories saved",
     "toast_save_failed": "Failed to save repositories",
-    "code_platform_label": "Code Platform",
-    "platform_changed": "Platform changed",
-    "platform_save_failed": "Failed to change platform",
     "routed_to_other_tab": "Saved. Repositories are sorted into each platform tab by domain — check the other platform tab if you don't see one here."
   },
   "desktop": {
