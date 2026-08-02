@@ -63,7 +63,7 @@ type codeRepoTokens struct {
 // csCloudRepoSpec describes one repository the agent may work in.
 type csCloudRepoSpec struct {
 	URL        string `json:"url"`
-	Provider   string `json:"provider"`            // "gitlab" | "gitea"
+	Provider   string `json:"provider"`            // "gitlab" | "github" | "gitea"
 	Role       string `json:"role"`                // "code" | "delivery"
 	BaseBranch string `json:"base_branch"`         // code=remote default; delivery=inst branch
 	Alias      string `json:"alias,omitempty"`     // semantic label for the agent
