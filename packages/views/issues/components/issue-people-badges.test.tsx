@@ -199,7 +199,7 @@ describe("IssuePeopleBadges", () => {
     expect(assignee).not.toHaveTextContent("Alice Owner");
   });
 
-  it("aligns each hover detail to its actor tile", () => {
+  it("right-aligns each hover detail to its actor tile", () => {
     render(
       <IssuePeopleBadges
         issue={baseIssue}
@@ -215,8 +215,12 @@ describe("IssuePeopleBadges", () => {
 
     expect(responsibleTooltip.parentElement).toHaveClass("relative");
     expect(responsibleTooltip.parentElement).toContainElement(responsibleTile);
+    expect(responsibleTooltip).toHaveClass("right-0");
+    expect(responsibleTooltip).not.toHaveClass("left-0");
     expect(assigneeTooltip.parentElement).toHaveClass("relative");
     expect(assigneeTooltip.parentElement).toContainElement(assigneeTile);
+    expect(assigneeTooltip).toHaveClass("right-0");
+    expect(assigneeTooltip).not.toHaveClass("left-0");
   });
 
   it("keeps the editable picker trigger from clipping the hover details", () => {
