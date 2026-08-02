@@ -72,7 +72,7 @@
     "sort_title": "Title",
     "card_priority": "Priority",
     "card_description": "Description",
-    "card_assignee": "Assignee",
+    "card_assignee": "People",
     "card_start_date": "Start date",
     "card_due_date": "Due date",
     "card_project": "Project",
@@ -214,6 +214,7 @@
     "pull_request_card_show_less": "Show less",
     "prop_status": "Status",
     "prop_priority": "Priority",
+    "prop_responsible": "Responsible",
     "prop_assignee": "Assignee",
     "prop_stage": "Stage",
     "stage_placeholder": "Select stage",
@@ -410,7 +411,15 @@
     "cancel": "Cancel"
   },
   "card": {
-    "update_failed": "Failed to update issue"
+    "update_failed": "Failed to update issue",
+    "responsible": "Owner",
+    "assignee": "Assignee",
+    "actor_types": {
+      "member": "Member",
+      "agent": "Digital Human",
+      "squad": "Squad",
+      "workflow": "Workflow"
+    }
   },
   "actions": {
     "status": "Status",

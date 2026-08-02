@@ -9,14 +9,13 @@ import { toast } from "sonner";
 import type { Issue, UpdateIssueRequest } from "@multica/core/types";
 import { CalendarClock, CalendarDays } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { ActorAvatar } from "../../common/actor-avatar";
 import { useUpdateIssue } from "@multica/core/issues/mutations";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { projectListOptions } from "@multica/core/projects/queries";
 import { ProjectIcon } from "../../projects/components/project-icon";
 import { PriorityIcon } from "./priority-icon";
-import { PriorityPicker, AssigneePicker, StartDatePicker, DueDatePicker } from "./pickers";
+import { PriorityPicker, StartDatePicker, DueDatePicker } from "./pickers";
 import { PRIORITY_CONFIG } from "@multica/core/issues/config";
 import { useViewStore } from "@multica/core/issues/stores/view-store-context";
 import { ProgressRing } from "./progress-ring";
@@ -24,6 +23,7 @@ import type { ChildProgress } from "./list-row";
 import { IssueActionsContextMenu } from "../actions";
 import { LabelChip } from "../../labels/label-chip";
 import { IssueAgentActivityIndicator } from "./issue-agent-activity-indicator";
+import { IssuePeopleBadges } from "./issue-people-badges";
 import { useT } from "../../i18n";
 
 function formatDate(date: string): string {
@@ -42,6 +42,53 @@ function descriptionPreview(markdown: string): string {
     .replace(/^[\s>#]+/gm, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function PriorityTile({
+  priority,
+  label,
+  compact = false,
+}: {
+  priority: Issue["priority"];
+  label: string;
+  compact?: boolean;
+}) {
+  const cfg = PRIORITY_CONFIG[priority];
+  const initial = label.trim().charAt(0).toUpperCase() || "?";
+
+  return (
+    <span
+      data-testid={`priority-tile-${priority}`}
+      className={`inline-flex shrink-0 items-center justify-center gap-0.5 rounded-[4px] font-semibold leading-none ring-1 ring-current/25 ${
+        compact ? "h-[18px] min-w-7 px-0.5 text-[9px]" : "h-5 min-w-8 px-1 text-[10px]"
+      } ${cfg.badgeBg} ${cfg.badgeText}`}
+      aria-label={label}
+    >
+      <PriorityIcon
+        priority={priority}
+        className={compact ? "size-2.5" : "size-3"}
+        inheritColor
+      />
+      <span className="min-w-2 text-center tabular-nums">{initial}</span>
+    </span>
+  );
+}
+
+function PriorityCardBadge({
+  issue,
+  label,
+  valueLabel,
+}: {
+  issue: Issue;
+  label: string;
+  valueLabel: string;
+}) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1 rounded-sm text-[11px] font-medium leading-none text-muted-foreground">
+      <span className="shrink-0">{label}</span>
+      <PriorityTile priority={issue.priority} label={valueLabel} />
+    </span>
+  );
 }
 
 /** Stops event from bubbling to Link/drag handlers */
@@ -68,7 +115,6 @@ export const BoardCardContent = memo(function BoardCardContent({
 }) {
   const { t } = useT("issues");
   const storeProperties = useViewStore((s) => s.cardProperties);
-  const priorityCfg = PRIORITY_CONFIG[issue.priority];
   const wsId = useWorkspaceId();
   const { data: projects = [] } = useQuery({
     ...projectListOptions(wsId),
@@ -97,12 +143,23 @@ export const BoardCardContent = memo(function BoardCardContent({
 
   const showPriority = storeProperties.priority;
   const showDescription = storeProperties.description && issue.description;
-  const showAssignee = storeProperties.assignee && issue.assignee_type && issue.assignee_id;
+  const showPeople =
+    storeProperties.assignee &&
+    (!!issue.responsible_user_id || (!!issue.assignee_type && !!issue.assignee_id));
   const showStartDate = storeProperties.startDate && issue.start_date;
   const showDueDate = storeProperties.dueDate && issue.due_date;
   const showProject = storeProperties.project && project;
   const showChildProgress = storeProperties.childProgress && childProgress;
   const showLabels = storeProperties.labels && labels.length > 0;
+  const priorityLabel = t(($) => $.display.card_priority);
+  const priorityValueLabel = t(($) => $.priority[issue.priority]);
+  const priorityTrigger = (
+    <PriorityCardBadge
+      issue={issue}
+      label={priorityLabel}
+      valueLabel={priorityValueLabel}
+    />
+  );
 
   return (
     <div className="rounded-lg border-[0.5px] border-border bg-card py-3 px-2.5 shadow-[0_3px_6px_-2px_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)] transition-colors group-hover/card:border-accent group-hover/card:bg-accent group-data-[popup-open]/card:border-accent group-data-[popup-open]/card:bg-accent">
@@ -154,54 +211,38 @@ export const BoardCardContent = memo(function BoardCardContent({
         );
       })()}
 
-      {/* Row 3: Assignee, priority badge, start date, due date */}
-      {(showAssignee || showPriority || showStartDate || showDueDate) && (
-        <div className="mt-3 flex items-center gap-2">
-          {showAssignee &&
-            (editable ? (
-              <PickerWrapper>
-                <AssigneePicker
-                  assigneeType={issue.assignee_type}
-                  assigneeId={issue.assignee_id}
-                  onUpdate={handleUpdate}
-                  trigger={
-                    <ActorAvatar
-                      actorType={issue.assignee_type!}
-                      actorId={issue.assignee_id!}
-                      size={22}
-                      enableHoverCard
-                    />
-                  }
-                />
-              </PickerWrapper>
-            ) : (
-              <ActorAvatar
-                actorType={issue.assignee_type!}
-                actorId={issue.assignee_id!}
-                size={22}
-                enableHoverCard
-              />
-            ))}
+      {/* Row 3: priority badge, people, start date, due date */}
+      {(showPeople || showPriority || showStartDate || showDueDate) && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           {showPriority &&
             (editable ? (
               <PickerWrapper>
                 <PriorityPicker
                   priority={issue.priority}
                   onUpdate={handleUpdate}
-                  trigger={
-                    <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium ${priorityCfg.badgeBg} ${priorityCfg.badgeText}`}>
-                      <PriorityIcon priority={issue.priority} className="h-3 w-3" inheritColor />
-                      {t(($) => $.priority[issue.priority])}
-                    </span>
-                  }
+                  trigger={priorityTrigger}
                 />
               </PickerWrapper>
             ) : (
-              <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium ${priorityCfg.badgeBg} ${priorityCfg.badgeText}`}>
-                <PriorityIcon priority={issue.priority} className="h-3 w-3" inheritColor />
-                {priorityCfg.label}
-              </span>
+              priorityTrigger
             ))}
+          {showPeople && (
+            <IssuePeopleBadges
+              issue={issue}
+              responsibleLabel={t(($) => $.card.responsible)}
+              assigneeLabel={t(($) => $.card.assignee)}
+              actorTypeLabels={{
+                member: t(($) => $.card.actor_types.member),
+                agent: t(($) => $.card.actor_types.agent),
+                squad: t(($) => $.card.actor_types.squad),
+                workflow: t(($) => $.card.actor_types.workflow),
+              }}
+              editableResponsible={editable}
+              editableAssignee={editable}
+              onResponsibleUpdate={handleUpdate}
+              onAssigneeUpdate={handleUpdate}
+            />
+          )}
           {showStartDate && (
             <div className={showDueDate ? undefined : "ml-auto"}>
               {editable ? (

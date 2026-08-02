@@ -10,6 +10,7 @@ import {
 } from "./canvas/workflow-canvas-model";
 import { panoramaEdgeTypes } from "./overview/reactflow-edges";
 import { panoramaNodeTypes } from "./overview/reactflow-nodes";
+import { computeLaneAutoLayout } from "./layout";
 
 interface WorkflowTemplatePreviewCanvasProps {
   nodes: WorkflowNode[];
@@ -23,6 +24,7 @@ const TEMPLATE_PREVIEW_FIT_VIEW = {
 } as const;
 
 const TEMPLATE_PREVIEW_DEFAULT_VIEWPORT: Viewport = { x: 0, y: 24, zoom: 0.85 };
+
 
 interface TemplatePreviewSize {
   width: number;
@@ -87,9 +89,22 @@ function WorkflowTemplatePreviewCanvasInner({
 }: WorkflowTemplatePreviewCanvasProps & { canvasSize: TemplatePreviewSize | null }) {
   const [viewport, setViewport] = useState<Viewport>(TEMPLATE_PREVIEW_DEFAULT_VIEWPORT);
 
+  // Apply the same lane-based auto-layout the workflow editor's auto-layout
+  // button uses (computeLaneAutoLayout): dagre within each stage lane, keeping
+  // the swimlane structure. Y comes from stage sort_order at render time.
+  const layoutX = useMemo(
+    () => computeLaneAutoLayout(nodes, edges),
+    [nodes, edges],
+  );
+
+  const nodesWithLayout = useMemo(
+    () => nodes.map((n) => ({ ...n, position_x: layoutX.get(n.id) ?? n.position_x })),
+    [nodes, layoutX],
+  );
+
   const rfNodes = useMemo(
     () => workflowNodesToReactFlowNodes({
-      nodes,
+      nodes: nodesWithLayout,
       stages,
       nodeType: "compactWorker",
       makeNodeData: (node, context) => ({
@@ -105,7 +120,7 @@ function WorkflowTemplatePreviewCanvasInner({
         isAnnotation: isAnnotationNode(node),
       }),
     }),
-    [nodes, stages],
+    [nodesWithLayout, stages],
   );
 
   const rfEdges = useMemo(

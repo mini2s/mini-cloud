@@ -21,8 +21,8 @@ import type {
   IssueStatus,
   IssuePriority,
   IssueAssigneeType,
+  CreateIssueRequest,
   UpdateIssueRequest,
-  WorkflowRuntimeSelectionPolicy,
 } from "@multica/core/types";
 import {
   DialogContent,
@@ -40,6 +40,7 @@ import { Button } from "@multica/ui/components/ui/button";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { ContentEditor, type ContentEditorRef, TitleEditor, useFileDropZone, FileDropOverlay } from "../editor";
 import { StatusIcon, StatusPicker, PriorityPicker, AssigneePicker, StartDatePicker, DueDatePicker } from "../issues/components";
+import { useRuntimeStartDialogs } from "../issues/hooks/use-runtime-start-dialogs";
 import { BacklogAgentHintContent } from "../issues/components/backlog-agent-hint-dialog";
 import { ProjectPicker } from "../projects/components/project-picker";
 import { useCurrentWorkspace, useWorkspacePaths } from "@multica/core/paths";
@@ -126,12 +127,6 @@ export function ManualCreatePanel({
   );
   const [responsibleRequiredVisible, setResponsibleRequiredVisible] = useState(false);
   const [responsiblePickerOpen, setResponsiblePickerOpen] = useState(false);
-  const [runtimeSelectionPolicy, setRuntimeSelectionPolicy] = useState<WorkflowRuntimeSelectionPolicy | undefined>(
-    data?.runtime_selection_policy as WorkflowRuntimeSelectionPolicy | undefined,
-  );
-  const [runtimeId, setRuntimeId] = useState<string | undefined>(
-    (data?.runtime_id as string | null | undefined) ?? undefined,
-  );
   const [startDate, setStartDate] = useState<string | null>(draft.startDate);
   const [dueDate, setDueDate] = useState<string | null>(draft.dueDate);
   const [projectId, setProjectId] = useState<string | undefined>(
@@ -150,6 +145,7 @@ export function ManualCreatePanel({
   // Fetch parent issue details for the chip (status/identifier/title).
   // List cache usually has it already, so this resolves synchronously.
   const wsId = useWorkspaceId();
+  const { maybeSelectRuntimeThen, dialogs: runtimeDialogs } = useRuntimeStartDialogs(wsId);
   const { data: parentIssue } = useQuery({
     ...issueDetailOptions(wsId, parentIssueId ?? ""),
     enabled: !!parentIssueId,
@@ -174,8 +170,6 @@ export function ManualCreatePanel({
     const type = updates.assignee_type ?? undefined;
     const id = updates.assignee_id ?? undefined;
     setAssigneeType(type); setAssigneeId(id);
-    setRuntimeSelectionPolicy(type === "workflow" ? updates.runtime_selection_policy : undefined);
-    setRuntimeId(type === "workflow" || type === "agent" ? updates.runtime_id ?? undefined : undefined);
     setDraft({ assigneeType: type, assigneeId: id });
   };
   const updateResponsibleUser = (updates: Partial<UpdateIssueRequest>) => {
@@ -216,37 +210,25 @@ export function ManualCreatePanel({
     setFormResetKey((key) => key + 1);
   };
 
-  const handleSubmit = async () => {
-    if (!title.trim() || submitting) return;
-    if (!projectId) {
-      setProjectRequiredVisible(true);
-      setProjectPickerOpen(true);
-      return;
-    }
-    if (!responsibleUserId) {
-      setResponsibleRequiredVisible(true);
-      setResponsiblePickerOpen(true);
-      return;
-    }
+  const buildCreatePayload = (status: IssueStatus): CreateIssueRequest => ({
+    title: title.trim(),
+    description: descEditorRef.current?.getMarkdown()?.trim() || undefined,
+    status,
+    priority,
+    assignee_type: assigneeType,
+    assignee_id: assigneeId,
+    responsible_user_id: responsibleUserId!,
+    start_date: startDate || undefined,
+    due_date: dueDate || undefined,
+    attachment_ids: attachmentIds.length > 0 ? attachmentIds : undefined,
+    parent_issue_id: parentIssueId,
+    project_id: projectId,
+  });
+
+  const performCreate = async (payload: CreateIssueRequest) => {
     setSubmitting(true);
     try {
-      const submitStatus: IssueStatus = assigneeType && assigneeId ? "todo" : "backlog";
-      const issue = await createIssueMutation.mutateAsync({
-        title: title.trim(),
-        description: descEditorRef.current?.getMarkdown()?.trim() || undefined,
-        status: submitStatus,
-        priority,
-        assignee_type: assigneeType,
-        assignee_id: assigneeId,
-        responsible_user_id: responsibleUserId,
-        runtime_selection_policy: assigneeType === "workflow" ? runtimeSelectionPolicy : undefined,
-        runtime_id: assigneeType === "workflow" || assigneeType === "agent" ? runtimeId : undefined,
-        start_date: startDate || undefined,
-        due_date: dueDate || undefined,
-        attachment_ids: attachmentIds.length > 0 ? attachmentIds : undefined,
-        parent_issue_id: parentIssueId,
-        project_id: projectId,
-      });
+      const issue = await createIssueMutation.mutateAsync(payload);
 
       // Link queued children to the new parent. Deferred to after create
       // because the new issue's ID doesn't exist yet. Partial failures don't
@@ -377,8 +359,41 @@ export function ManualCreatePanel({
     }
   };
 
+  const validateBeforeCreate = (): boolean => {
+    if (!title.trim() || submitting) return false;
+    if (!projectId) {
+      setProjectRequiredVisible(true);
+      setProjectPickerOpen(true);
+      return false;
+    }
+    if (!responsibleUserId) {
+      setResponsibleRequiredVisible(true);
+      setResponsiblePickerOpen(true);
+      return false;
+    }
+    return true;
+  };
+
+  const handleSubmit = async () => {
+    if (!validateBeforeCreate()) return;
+    const submitStatus: IssueStatus = assigneeType && assigneeId ? "todo" : "backlog";
+    await performCreate(buildCreatePayload(submitStatus));
+  };
+
+  // 运行任务: create the issue already in_progress, asking for a runtime first
+  // when the assignee is a workflow / built-in agent that needs one. Runtime is
+  // chosen here (at run time), never at assignee-selection time.
+  const handleSubmitRun = async () => {
+    if (!validateBeforeCreate()) return;
+    const basePayload = buildCreatePayload("in_progress");
+    maybeSelectRuntimeThen(assigneeType ?? null, assigneeId ?? null, basePayload, (p) => {
+      void performCreate(p);
+    });
+  };
+
   return (
     <>
+        {runtimeDialogs}
         {backlogHintIssueId ? (
           <BacklogAgentHintContent
             onKeepInBacklog={() => {
@@ -544,6 +559,9 @@ export function ManualCreatePanel({
                 onUpdate={updateAssignee}
                 triggerRender={<PillButton />}
                 align="start"
+                skipRuntimeSelection
+                ariaLabel={t(($) => $.create_issue.assignee_aria)}
+                emptyTriggerLabel={t(($) => $.create_issue.assignee_empty_label)}
               />
 
               {/* Start date */}
@@ -726,6 +744,9 @@ export function ManualCreatePanel({
                     {submitting ? t(($) => $.create_issue.submitting) : t(($) => $.create_issue.submit)}
                   </Button>
                 )}
+                <Button size="sm" variant="destructive" onClick={handleSubmitRun} disabled={!title.trim() || !assigneeType || !assigneeId || submitting}>
+                  {t(($) => $.create_issue.run_task)}
+                </Button>
               </div>
             </div>
           </>

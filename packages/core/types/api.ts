@@ -32,6 +32,8 @@ export interface UpdateIssueRequest {
   priority?: IssuePriority;
   assignee_type?: IssueAssigneeType | null;
   assignee_id?: string | null;
+  /** Responsible owner (accountable member) of the issue. */
+  responsible_user_id?: string | null;
   position?: number;
   start_date?: string | null;
   due_date?: string | null;

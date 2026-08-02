@@ -107,6 +107,7 @@ UPDATE multica_issue SET
     priority = COALESCE(sqlc.narg('priority'), priority),
     assignee_type = sqlc.narg('assignee_type'),
     assignee_id = sqlc.narg('assignee_id'),
+    responsible_user_id = sqlc.narg('responsible_user_id'),
     position = COALESCE(sqlc.narg('position'), position),
     start_date = sqlc.narg('start_date'),
     due_date = sqlc.narg('due_date'),

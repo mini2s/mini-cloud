@@ -1402,35 +1402,37 @@ UPDATE multica_issue SET
     priority = COALESCE($5, priority),
     assignee_type = $6,
     assignee_id = $7,
-    position = COALESCE($8, position),
-    start_date = $9,
-    due_date = $10,
-    parent_issue_id = $11,
-    project_id = $12,
-    workflow_id = $13,
-    workflow_run_id = $14,
-    stage_id = $15,
+    responsible_user_id = $8,
+    position = COALESCE($9, position),
+    start_date = $10,
+    due_date = $11,
+    parent_issue_id = $12,
+    project_id = $13,
+    workflow_id = $14,
+    workflow_run_id = $15,
+    stage_id = $16,
     updated_at = now()
 WHERE id = $1
 RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id, responsible_user_id
 `
 
 type UpdateIssueParams struct {
-	ID            pgtype.UUID        `json:"id"`
-	Title         pgtype.Text        `json:"title"`
-	Description   pgtype.Text        `json:"description"`
-	Status        pgtype.Text        `json:"status"`
-	Priority      pgtype.Text        `json:"priority"`
-	AssigneeType  pgtype.Text        `json:"assignee_type"`
-	AssigneeID    pgtype.UUID        `json:"assignee_id"`
-	Position      pgtype.Float8      `json:"position"`
-	StartDate     pgtype.Timestamptz `json:"start_date"`
-	DueDate       pgtype.Timestamptz `json:"due_date"`
-	ParentIssueID pgtype.UUID        `json:"parent_issue_id"`
-	ProjectID     pgtype.UUID        `json:"project_id"`
-	WorkflowID    pgtype.UUID        `json:"workflow_id"`
-	WorkflowRunID pgtype.UUID        `json:"workflow_run_id"`
-	StageID       pgtype.UUID        `json:"stage_id"`
+	ID                pgtype.UUID        `json:"id"`
+	Title             pgtype.Text        `json:"title"`
+	Description       pgtype.Text        `json:"description"`
+	Status            pgtype.Text        `json:"status"`
+	Priority          pgtype.Text        `json:"priority"`
+	AssigneeType      pgtype.Text        `json:"assignee_type"`
+	AssigneeID        pgtype.UUID        `json:"assignee_id"`
+	ResponsibleUserID pgtype.UUID        `json:"responsible_user_id"`
+	Position          pgtype.Float8      `json:"position"`
+	StartDate         pgtype.Timestamptz `json:"start_date"`
+	DueDate           pgtype.Timestamptz `json:"due_date"`
+	ParentIssueID     pgtype.UUID        `json:"parent_issue_id"`
+	ProjectID         pgtype.UUID        `json:"project_id"`
+	WorkflowID        pgtype.UUID        `json:"workflow_id"`
+	WorkflowRunID     pgtype.UUID        `json:"workflow_run_id"`
+	StageID           pgtype.UUID        `json:"stage_id"`
 }
 
 func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (MulticaIssue, error) {
@@ -1442,6 +1444,7 @@ func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Multi
 		arg.Priority,
 		arg.AssigneeType,
 		arg.AssigneeID,
+		arg.ResponsibleUserID,
 		arg.Position,
 		arg.StartDate,
 		arg.DueDate,
