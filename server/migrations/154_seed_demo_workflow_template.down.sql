@@ -1,5 +1,5 @@
--- 152_seed_demo_workflow_template.down.sql
--- Reverse 152: remove the demo template (cascade drops its node deliverables),
+-- 154_seed_demo_workflow_template.down.sql
+-- Reverse 154: remove the demo template (cascade drops its node deliverables),
 -- the three instruction-driven builtin agents, and the builtin roles this
 -- migration seeded into __system_templates__. The __system_templates__ workspace
 -- itself is owned by migration 145 and is left intact.

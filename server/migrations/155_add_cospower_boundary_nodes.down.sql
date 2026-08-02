@@ -1,5 +1,5 @@
--- 153_add_cospower_boundary_nodes.down.sql
--- Remove the start/end boundary nodes added by 153, plus any edges that touch
+-- 155_add_cospower_boundary_nodes.down.sql
+-- Remove the start/end boundary nodes added by 155, plus any edges that touch
 -- them (edges are deleted explicitly so this is safe whether or not the edge FK
 -- cascades on node deletion).
 

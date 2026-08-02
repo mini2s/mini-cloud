@@ -1,4 +1,4 @@
--- 152_seed_demo_workflow_template.up.sql
+-- 154_seed_demo_workflow_template.up.sql
 -- Seed a streamlined 3-stage demo workflow template ("精简研发演示") and the
 -- instruction-driven builtin agents it depends on. None of the agents bind a
 -- plugin or skill; each is constrained only by its `instructions`.

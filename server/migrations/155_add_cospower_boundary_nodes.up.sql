@@ -1,4 +1,4 @@
--- 153_add_cospower_boundary_nodes.up.sql
+-- 155_add_cospower_boundary_nodes.up.sql
 -- The CosPower template (migration 145) was seeded without start/end boundary
 -- nodes. Add them so the template satisfies the boundary topology preflight
 -- (start must have an outgoing edge, end must have an incoming edge) the same
