@@ -8,6 +8,8 @@ vi.mock("@multica/core/workspace/hooks", () => ({
     getActorName: (type: string, id: string) => {
       if (type === "member" && id === "user-1") return "Alice Owner";
       if (type === "agent" && id === "agent-1") return "Claude Worker";
+      if (type === "squad" && id === "squad-1") return "Review Squad";
+      if (type === "workflow" && id === "workflow-1") return "Release Workflow";
       return "Unknown";
     },
   }),
@@ -78,8 +80,41 @@ describe("IssuePeopleBadges", () => {
     expect(screen.getByText("Claude Worker")).toBeInTheDocument();
     expect(screen.getByTestId("avatar-agent-agent-1")).toHaveClass(
       "rounded-[4px]",
-      "bg-muted",
+      "bg-info/15",
     );
+    expect(screen.getByLabelText("agent")).toBeInTheDocument();
     expect(screen.queryByText("A")).not.toBeInTheDocument();
+  });
+
+  it("marks member, squad, agent, and workflow avatars with distinct type styling", () => {
+    const cases = [
+      { type: "member", id: "user-1", label: "member", bg: "bg-primary/10" },
+      { type: "agent", id: "agent-1", label: "agent", bg: "bg-info/15" },
+      { type: "squad", id: "squad-1", label: "squad", bg: "bg-warning/15" },
+      { type: "workflow", id: "workflow-1", label: "workflow", bg: "bg-success/15" },
+    ];
+
+    for (const item of cases) {
+      const issue = {
+        ...baseIssue,
+        responsible_user_id: null,
+        assignee_type: item.type,
+        assignee_id: item.id,
+      } as Issue;
+      const { unmount } = render(
+        <IssuePeopleBadges
+          issue={issue}
+          responsibleLabel="Owner"
+          assigneeLabel="Assignee"
+        />,
+      );
+
+      expect(screen.getByTestId(`avatar-${item.type}-${item.id}`)).toHaveClass(
+        item.bg,
+      );
+      expect(screen.getByLabelText(item.label)).toBeInTheDocument();
+
+      unmount();
+    }
   });
 });
