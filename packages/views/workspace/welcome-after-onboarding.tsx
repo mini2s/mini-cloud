@@ -426,6 +426,7 @@ function RuntimeWelcome({
 
   const handleAssign = async () => {
     if (submitInFlightRef.current || selected.size === 0) return;
+    if (!me) return;
     submitInFlightRef.current = true;
     setSubmitError(null);
     setSubmitting(true);
@@ -454,6 +455,7 @@ function RuntimeWelcome({
             priority: "high",
             assignee_type: "agent",
             assignee_id: agent.id,
+            responsible_user_id: me.id,
           });
         }),
       );
@@ -733,6 +735,7 @@ function SkipWelcome({ workspaceId, onDismiss }: SkipWelcomeProps) {
             priority: "high",
             assignee_type: "member",
             assignee_id: me.id,
+            responsible_user_id: me.id,
           },
         );
         // 2. agent-guide. Body is composed at call-time so it can embed
@@ -752,6 +755,7 @@ function SkipWelcome({ workspaceId, onDismiss }: SkipWelcomeProps) {
             priority: "medium",
             assignee_type: "member",
             assignee_id: me.id,
+            responsible_user_id: me.id,
           },
         );
         // 3. follow-up comment on install-runtime pointing at agent-guide

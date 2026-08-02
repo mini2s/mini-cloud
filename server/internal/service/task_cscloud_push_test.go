@@ -209,7 +209,7 @@ func scanAgent(a *db.MulticaAgent, dest []any) error {
 func scanIssue(i *db.MulticaIssue, dest []any) error {
 	vals := []any{
 		&i.ID, &i.WorkspaceID, &i.Title, &i.Description, &i.Status,
-		&i.Priority, &i.AssigneeType, &i.AssigneeID, &i.CreatorType,
+		&i.Priority, &i.AssigneeType, &i.AssigneeID, &i.ResponsibleUserID, &i.CreatorType,
 		&i.CreatorID, &i.ParentIssueID, &i.AcceptanceCriteria,
 		&i.ContextRefs, &i.Position, &i.DueDate, &i.CreatedAt,
 		&i.UpdatedAt,
@@ -636,12 +636,12 @@ func scanWorkspaceFull(w *db.MulticaWorkspace, dest []any) error {
 
 // scanIssueFull scans all MulticaIssue fields (SELECT *).
 // The existing scanIssue only goes up to UpdatedAt; this one includes
-// Number, ProjectID, OriginType, OriginID, FirstExecutedAt, StartDate,
-// Metadata, WorkflowID, WorkflowRunID, StageID.
+// ResponsibleUserID, Number, ProjectID, OriginType, OriginID,
+// FirstExecutedAt, StartDate, Metadata, WorkflowID, WorkflowRunID, StageID.
 func scanIssueFull(i *db.MulticaIssue, dest []any) error {
 	vals := []any{
 		&i.ID, &i.WorkspaceID, &i.Title, &i.Description, &i.Status,
-		&i.Priority, &i.AssigneeType, &i.AssigneeID, &i.CreatorType,
+		&i.Priority, &i.AssigneeType, &i.AssigneeID, &i.ResponsibleUserID, &i.CreatorType,
 		&i.CreatorID, &i.ParentIssueID, &i.AcceptanceCriteria,
 		&i.ContextRefs, &i.Position, &i.DueDate, &i.CreatedAt,
 		&i.UpdatedAt, &i.Number, &i.ProjectID, &i.OriginType,

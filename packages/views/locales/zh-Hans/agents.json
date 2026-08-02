@@ -1,8 +1,6 @@
 {
   "page": {
     "title": "数智人",
-    "tagline": "能领取 issue、留下评论、推进状态的 AI 队友。",
-    "learn_more": "了解更多 →",
     "new_agent": "新建数智人",
     "search_placeholder": "搜索数智人...",
     "show_archived": "显示已归档（{{count}}）→",
@@ -164,7 +162,7 @@
     "empty_title": "没有可用的运行时",
     "empty_description": "请先连接一个运行时设备后再执行内置数智人。",
     "auto_title": "自动选择（推荐）",
-    "auto_description": "内置数智人 按节点选择：空闲运行时优先，其次为 Issue 创建人的运行时；普通 Agent 保持自身绑定。",
+    "auto_description": "内置数智人按节点选择：空闲运行时优先，其次为 Issue 负责人的运行时；普通 Agent 保持自身绑定。",
     "cancel": "取消",
     "confirm": "确认执行"
   },
@@ -194,16 +192,6 @@
     "thinking_tooltip": "思考 · {{value}}",
     "thinking_clear": "跟随 CLI 配置",
     "thinking_clear_title": "清除覆盖，让本地 CLI（claude/codex）的配置决定推理级别"
-  },
-  "model_dropdown": {
-    "label": "模型",
-    "select_runtime_first": "请先选择运行时",
-    "default_provider": "默认（提供方）",
-    "runtime_offline_manual": "运行时离线 —— 请手动输入",
-    "managed_by_runtime_title": "模型选择由该运行时管理。",
-    "managed_by_runtime_hint": "请在运行时主机上配置模型（例如 Hermes 会从自身配置文件读取）。",
-    "discovery_failed": "发现失败",
-    "clear_full": "清除选择（使用提供方默认）"
   },
   "tabs": {
     "activity": "动态",

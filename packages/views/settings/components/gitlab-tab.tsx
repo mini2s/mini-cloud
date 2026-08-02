@@ -3,7 +3,7 @@
 import { useState, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Copy, Eye, EyeOff, GitBranch, PanelRight, Link2, RefreshCw } from "lucide-react";
+import { Copy, Eye, EyeOff, GitBranch, RefreshCw } from "lucide-react";
 import { Button } from "@multica/ui/components/ui/button";
 import { Card, CardContent } from "@multica/ui/components/ui/card";
 import { Input } from "@multica/ui/components/ui/input";
@@ -20,12 +20,8 @@ import {
 import { api } from "@multica/core/api";
 import type { Workspace } from "@multica/core/types";
 import { useT } from "../../i18n";
-import { FeatureRow } from "./feature-row";
 
-type SettingsKey =
-  | "gitlab_enabled"
-  | "gitlab_mr_sidebar_enabled"
-  | "gitlab_auto_link_enabled";
+type SettingsKey = "gitlab_enabled";
 
 export function GitlabTab() {
   const { t } = useT("settings");
@@ -336,41 +332,6 @@ export function GitlabTab() {
                 {t(($) => $.gitlab.contact_admin_to_connect)}
               </p>
             )}
-          </CardContent>
-        </Card>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold">{t(($) => $.gitlab.section_features)}</h2>
-        <Card>
-          <CardContent className="space-y-4">
-            <FeatureRow
-              id="gitlab-mr-sidebar"
-              icon={<PanelRight className="h-4 w-4" />}
-              label={t(($) => $.gitlab.feature_mr_sidebar_label)}
-              description={
-                <p className="text-sm text-muted-foreground">
-                  {t(($) => $.gitlab.feature_mr_sidebar_description)}
-                </p>
-              }
-              checked={flags.mrSidebar}
-              disabled={!canManage || !flags.enabled || savingKey === "gitlab_mr_sidebar_enabled"}
-              onCheckedChange={(v) => persistSetting("gitlab_mr_sidebar_enabled", v)}
-            />
-
-            <FeatureRow
-              id="gitlab-auto-link"
-              icon={<Link2 className="h-4 w-4" />}
-              label={t(($) => $.gitlab.feature_auto_link_label)}
-              description={
-                <p className="text-sm text-muted-foreground">
-                  {t(($) => $.gitlab.feature_auto_link_description)}
-                </p>
-              }
-              checked={flags.autoLinkMRs}
-              disabled={!canManage || !flags.enabled || savingKey === "gitlab_auto_link_enabled"}
-              onCheckedChange={(v) => persistSetting("gitlab_auto_link_enabled", v)}
-            />
           </CardContent>
         </Card>
       </section>

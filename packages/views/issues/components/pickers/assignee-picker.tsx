@@ -78,6 +78,7 @@ export function AssigneePicker({
   agentFilter,
   allowUnassigned = true,
   ariaLabel,
+  emptyTriggerLabel,
 }: {
   assigneeType: IssueAssigneeType | null;
   assigneeId: string | null;
@@ -111,6 +112,8 @@ export function AssigneePicker({
   allowUnassigned?: boolean;
   /** Accessible label for an embedded picker trigger. */
   ariaLabel?: string;
+  /** Optional trigger label shown when no assignee is selected. */
+  emptyTriggerLabel?: string;
 }) {
   const { t } = useT("issues");
   const [internalOpen, setInternalOpen] = useState(false);
@@ -285,12 +288,13 @@ export function AssigneePicker({
   const isSelected = (type: string, id: string) =>
     assigneeType === type && assigneeId === id;
 
+  const emptyLabel = emptyTriggerLabel ?? t(($) => $.pickers.assignee.trigger_unassigned);
   const triggerLabel =
     role && roleLabels
       ? (roleLabels[role] ?? role)
       : assigneeType && assigneeId
         ? getActorName(assigneeType, assigneeId)
-        : t(($) => $.pickers.assignee.trigger_unassigned);
+        : emptyLabel;
 
   // Handle clicking a built-in agent: show runtime dialog if >1 runtimes,
   // auto-select if exactly 1, fall through without runtime if 0.
@@ -385,7 +389,7 @@ export function AssigneePicker({
             <span className="truncate">{triggerLabel}</span>
           </>
         ) : (
-          <span className="text-muted-foreground">{t(($) => $.pickers.assignee.trigger_unassigned)}</span>
+          <span className="text-muted-foreground">{emptyLabel}</span>
         )}
         </span>
       }

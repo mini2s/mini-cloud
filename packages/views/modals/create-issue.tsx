@@ -6,7 +6,6 @@ import { useNavigation } from "../navigation";
 import {
   AlertTriangle,
   ArrowDown,
-  ArrowLeftRight,
   ArrowUp,
   Check,
   ChevronRight,
@@ -67,13 +66,11 @@ import { useT } from "../i18n";
 // ManualCreatePanel — manual-mode body of the create-issue dialog. Renders
 // DialogContent + everything inside; the surrounding `<Dialog>` is owned by
 // CreateIssueDialog so mode switching swaps only the inner panel without
-// remounting the Dialog Root (no overlay flash). `onSwitchMode` flips the
-// shell's local mode state.
+// remounting the Dialog Root (no overlay flash).
 // ---------------------------------------------------------------------------
 
 export function ManualCreatePanel({
   onClose,
-  onSwitchMode,
   data,
   isExpanded,
   setIsExpanded,
@@ -81,8 +78,6 @@ export function ManualCreatePanel({
   setBacklogHintIssueId,
 }: {
   onClose: () => void;
-  /** Called with the carry payload to seed the agent panel after switch. */
-  onSwitchMode?: (carry?: Record<string, unknown> | null) => void;
   data?: Record<string, unknown> | null;
   /** Lifted to the shell so DialogContent's mode-aware className can react
    *  without the body itself having to live inside DialogContent (which would
@@ -126,6 +121,11 @@ export function ManualCreatePanel({
     }
     return draft.assigneeId;
   });
+  const [responsibleUserId, setResponsibleUserId] = useState<string | undefined>(() =>
+    (data?.responsible_user_id as string | null | undefined) ?? undefined,
+  );
+  const [responsibleRequiredVisible, setResponsibleRequiredVisible] = useState(false);
+  const [responsiblePickerOpen, setResponsiblePickerOpen] = useState(false);
   const [runtimeSelectionPolicy, setRuntimeSelectionPolicy] = useState<WorkflowRuntimeSelectionPolicy | undefined>(
     data?.runtime_selection_policy as WorkflowRuntimeSelectionPolicy | undefined,
   );
@@ -178,6 +178,11 @@ export function ManualCreatePanel({
     setRuntimeId(type === "workflow" || type === "agent" ? updates.runtime_id ?? undefined : undefined);
     setDraft({ assigneeType: type, assigneeId: id });
   };
+  const updateResponsibleUser = (updates: Partial<UpdateIssueRequest>) => {
+    if (updates.assignee_type !== "member" || !updates.assignee_id) return;
+    setResponsibleUserId(updates.assignee_id);
+    setResponsibleRequiredVisible(false);
+  };
   const updateStartDate = (v: string | null) => { setStartDate(v); setDraft({ startDate: v }); };
   const updateDueDate = (v: string | null) => { setDueDate(v); setDraft({ dueDate: v }); };
 
@@ -192,6 +197,8 @@ export function ManualCreatePanel({
     setProjectId(undefined);
     setProjectRequiredVisible(false);
     setProjectPickerOpen(false);
+    setResponsibleRequiredVisible(false);
+    setResponsiblePickerOpen(false);
     setParentIssueId(undefined);
     setChildIssues([]);
     setAttachmentIds([]);
@@ -216,6 +223,11 @@ export function ManualCreatePanel({
       setProjectPickerOpen(true);
       return;
     }
+    if (!responsibleUserId) {
+      setResponsibleRequiredVisible(true);
+      setResponsiblePickerOpen(true);
+      return;
+    }
     setSubmitting(true);
     try {
       const issue = await createIssueMutation.mutateAsync({
@@ -225,6 +237,7 @@ export function ManualCreatePanel({
         priority,
         assignee_type: assigneeType,
         assignee_id: assigneeId,
+        responsible_user_id: responsibleUserId,
         runtime_selection_policy: assigneeType === "workflow" ? runtimeSelectionPolicy : undefined,
         runtime_id: assigneeType === "workflow" || assigneeType === "agent" ? runtimeId : undefined,
         start_date: startDate || undefined,
@@ -363,37 +376,6 @@ export function ManualCreatePanel({
     }
   };
 
-  // Switch to agent mode. Hand the typed text up to the shell as the carry
-  // payload; the shell stores it as the next panel's `data` so the agent
-  // panel reads `data.prompt` on mount. Concatenate title + description so
-  // nothing the user typed is lost — the agent derives a fresh title from
-  // the combined text. Persist the mode flip so the next `c` lands in agent.
-  // Also forward the picked project so the agent panel pins the new issue
-  // to it; without this the agent panel would fall back to its persisted
-  // `lastProjectId`, silently routing the issue to the wrong project.
-  // Forward squad picks alongside agent picks so the agent panel honors
-  // the actor the user already chose — otherwise a squad selection silently
-  // falls back to the persisted actor / first visible agent on flip.
-  const switchToAgent = () => {
-    const desc = descEditorRef.current?.getMarkdown()?.trim() ?? "";
-    const prompt = [title.trim(), desc].filter(Boolean).join("\n\n");
-    // Title + description have been packed into the agent prompt — clear them
-    // from the shared draft so a later agent→manual switch doesn't surface
-    // stale manual state on top of the prompt-as-description, which would
-    // duplicate content on every round-trip.
-    setDraft({ title: "", description: "" });
-    setLastMode("agent");
-    onSwitchMode?.({
-      prompt,
-      ...(assigneeId && assigneeType === "agent"
-        ? { agent_id: assigneeId }
-        : assigneeId && assigneeType === "squad"
-          ? { squad_id: assigneeId }
-          : {}),
-      ...(projectId ? { project_id: projectId } : {}),
-    });
-  };
-
   return (
     <>
         {backlogHintIssueId ? (
@@ -514,6 +496,28 @@ export function ManualCreatePanel({
                 align="start"
                 open={projectPickerOpen}
                 onOpenChange={setProjectPickerOpen}
+              />
+
+              {/* Responsible member */}
+              <AssigneePicker
+                assigneeType={responsibleUserId ? "member" : null}
+                assigneeId={responsibleUserId ?? null}
+                onUpdate={updateResponsibleUser}
+                triggerRender={
+                  <PillButton
+                    className={cn(
+                      !responsibleUserId && "ring-1 ring-brand/30 bg-brand/5",
+                      responsibleRequiredVisible && "border-destructive/60 bg-destructive/10 text-destructive ring-2 ring-destructive/25",
+                    )}
+                  />
+                }
+                align="start"
+                open={responsiblePickerOpen}
+                onOpenChange={setResponsiblePickerOpen}
+                allowedTypes={["member"]}
+                allowUnassigned={false}
+                ariaLabel={t(($) => $.create_issue.responsible_aria)}
+                emptyTriggerLabel={t(($) => $.create_issue.responsible_empty_label)}
               />
 
               {/* Status */}
@@ -656,6 +660,11 @@ export function ManualCreatePanel({
                 {t(($) => $.create_issue.project_required_detail)}
               </div>
             )}
+            {responsibleRequiredVisible && !responsibleUserId && (
+              <div className="px-5 pb-2 text-xs font-medium text-destructive">
+                {t(($) => $.create_issue.responsible_required_detail)}
+              </div>
+            )}
 
             <IssuePickerModal
               open={parentPickerOpen}
@@ -694,15 +703,6 @@ export function ManualCreatePanel({
                 />
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={switchToAgent}
-                  title={t(($) => $.create_issue.switch_to_agent_tooltip)}
-                  className="border-beam group flex shrink-0 items-center gap-1.5 text-xs px-2 py-1 rounded-sm text-muted-foreground bg-brand/5 hover:bg-brand/10 hover:text-foreground transition-colors cursor-pointer"
-                >
-                  <ArrowLeftRight className="size-3.5 text-brand/80 transition-transform duration-300 group-hover:rotate-180" />
-                  {t(($) => $.create_issue.switch_to_agent)}
-                </button>
                 <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
                   <Switch
                     size="sm"

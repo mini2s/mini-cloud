@@ -49,12 +49,11 @@ func registerIntegrationListener(bus *events.Bus, queries *db.Queries, notifier 
 			Queries:     queries,
 			WorkspaceID: e.WorkspaceID,
 		}, integration.ResolveInput{
-			IssueID:     issue.ID,
-			Description: description,
-			CreatorType: issue.CreatorType,
-			CreatorID:   issue.CreatorID,
-			ActorType:   e.ActorType,
-			ActorID:     e.ActorID,
+			IssueID:           issue.ID,
+			Description:       description,
+			ResponsibleUserID: ptrStringValue(issue.ResponsibleUserID),
+			ActorType:         e.ActorType,
+			ActorID:           e.ActorID,
 		})
 		if err != nil {
 			slog.Error("integration: recipient resolution failed", "issue_id", issue.ID, "error", err)
@@ -117,6 +116,13 @@ func actorNameFor(ctx context.Context, queries *db.Queries, e events.Event) stri
 		return ""
 	}
 	return user.Name
+}
+
+func ptrStringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 // issueURL builds the deep link opened from the external notification. Empty

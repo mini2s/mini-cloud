@@ -158,6 +158,13 @@ func cleanupHandlerTestFixture(ctx context.Context, pool *pgxpool.Pool) error {
 func newRequest(method, path string, body any) *http.Request {
 	var buf bytes.Buffer
 	if body != nil {
+		if method == "POST" && strings.Contains(path, "/api/issues") {
+			if m, ok := body.(map[string]any); ok {
+				if _, exists := m["responsible_user_id"]; !exists && !strings.Contains(path, "/quick-create") {
+					m["responsible_user_id"] = testUserID
+				}
+			}
+		}
 		json.NewEncoder(&buf).Encode(body)
 	}
 	req := httptest.NewRequest(method, path, &buf)
@@ -1317,6 +1324,22 @@ func TestCreateIssueRejectsNonexistentAgentAssignee(t *testing.T) {
 	}
 }
 
+// TestCreateIssueRejectsMissingResponsibleUser locks the API contract for
+// manual issue creation: every issue must have a member responsible for it.
+func TestCreateIssueRejectsMissingResponsibleUser(t *testing.T) {
+	w := httptest.NewRecorder()
+	var buf bytes.Buffer
+	json.NewEncoder(&buf).Encode(map[string]any{"title": "Missing responsible user"})
+	req := httptest.NewRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, &buf)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-ID", testUserID)
+	req.Header.Set("X-Workspace-ID", testWorkspaceID)
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("CreateIssue: expected 400 when responsible_user_id is missing, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 // TestCreateIssueRejectsAssigneeTypeWithoutID rejects requests where only one
 // of the two fields was supplied — historically this would create an issue
 // with an inconsistent state.
@@ -1360,25 +1383,43 @@ func TestCreateIssueRejectsUnknownAssigneeType(t *testing.T) {
 	}
 }
 
-// TestCreateIssueAcceptsValidMemberAssignee is the positive control — the
-// validator must not block legitimate workspace members.
-func TestCreateIssueAcceptsValidMemberAssignee(t *testing.T) {
+// TestCreateIssueAcceptsValidResponsibleUserAndOptionalAssignee is the positive
+// control: responsible_user_id is required, while assignee remains optional and
+// semantically separate from responsibility.
+func TestCreateIssueAcceptsValidResponsibleUserAndOptionalAssignee(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
-		"title":         "Valid member assignee",
-		"assignee_type": "member",
-		"assignee_id":   testUserID,
+		"title":               "Valid responsible user",
+		"responsible_user_id": testUserID,
 	})
 	testHandler.CreateIssue(w, req)
 	if w.Code != http.StatusCreated {
-		t.Fatalf("CreateIssue: expected 201 for valid member assignee, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("CreateIssue: expected 201 for valid responsible user, got %d: %s", w.Code, w.Body.String())
 	}
 
 	var created IssueResponse
 	json.NewDecoder(w.Body).Decode(&created)
+	if created.ResponsibleUserID == nil || *created.ResponsibleUserID != testUserID {
+		t.Fatalf("CreateIssue: responsible_user_id = %v, want %s", created.ResponsibleUserID, testUserID)
+	}
+	if created.AssigneeType != nil || created.AssigneeID != nil {
+		t.Fatalf("CreateIssue: assignee should remain optional, got type=%v id=%v", created.AssigneeType, created.AssigneeID)
+	}
 	cleanupReq := newRequest("DELETE", "/api/issues/"+created.ID, nil)
 	cleanupReq = withURLParam(cleanupReq, "id", created.ID)
 	testHandler.DeleteIssue(httptest.NewRecorder(), cleanupReq)
+}
+
+func TestCreateIssueRejectsNonMemberResponsibleUser(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":               "Ghost responsible user",
+		"responsible_user_id": "00000000-0000-0000-0000-000000000000",
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("CreateIssue: expected 400 for nonexistent responsible user, got %d: %s", w.Code, w.Body.String())
+	}
 }
 
 // TestCreateIssueRejectsMalformedAssigneeID covers the case where parseUUID

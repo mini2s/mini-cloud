@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Globe, Lock } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ModelDropdown } from "./model-dropdown";
 import { RuntimePicker, isRuntimeUsableForUser } from "./runtime-picker";
 import { InstructionsEditor } from "./instructions-editor";
 import { SkillMultiSelect } from "./skill-multi-select";
@@ -90,7 +89,6 @@ export function CreateAgentDialog({
   const [visibility, setVisibility] = useState<AgentVisibility>(
     template?.visibility ?? "workspace",
   );
-  const [model, setModel] = useState(template?.model ?? "");
   const [instructions, setInstructions] = useState(template?.instructions ?? "");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(template?.avatar_url ?? null);
   const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(
@@ -166,7 +164,6 @@ export function CreateAgentDialog({
         description: description.trim(),
         runtime_id: selectedRuntime.id,
         visibility,
-        model: model.trim() || undefined,
         instructions: trimmedInstructions || undefined,
         avatar_url: avatarUrl ?? undefined,
         plugin_id: pluginId.trim() || undefined,
@@ -361,14 +358,6 @@ export function CreateAgentDialog({
               currentUserId={currentUserId}
               selectedRuntimeId={selectedRuntimeId}
               onSelect={setSelectedRuntimeId}
-            />
-
-            <ModelDropdown
-              runtimeId={selectedRuntime?.id ?? null}
-              runtimeOnline={selectedRuntime?.status === "online"}
-              value={model}
-              onChange={setModel}
-              disabled={!selectedRuntime}
             />
 
             {/* --- Optional sections (instructions / skills) ---

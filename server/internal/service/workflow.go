@@ -309,6 +309,10 @@ func (s *WorkflowService) resolveWorkflowUser(
 	return pgtype.UUID{}
 }
 
+func (s *WorkflowService) issueResponsibleUser(ctx context.Context, issue db.MulticaIssue) pgtype.UUID {
+	return issue.ResponsibleUserID
+}
+
 // StartRun creates a workflow_run and node_runs for every node, then
 // kicks off root nodes (nodes with no incoming edges).
 func (s *WorkflowService) StartRun(ctx context.Context, workflow db.MulticaWorkflow, triggeredByType, triggeredByID string, input json.RawMessage, runtimeID pgtype.UUID) (*db.MulticaWorkflowRun, error) {
@@ -419,7 +423,7 @@ func (s *WorkflowService) StartRunForIssueWithRuntimeSelection(
 	}
 	run, err := s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, runtimeSelectionPolicy, runtimeID, "", workflowRunRuntimeContext{
 		SourceIssueID:       issue.ID,
-		ResponsibleUserID:   s.resolveWorkflowUser(ctx, issue.CreatorType, issue.CreatorID),
+		ResponsibleUserID:   s.issueResponsibleUser(ctx, issue),
 		RuntimeAuthorizerID: s.resolveWorkflowUser(ctx, triggeredByType, triggeredByUUID),
 	})
 	if err != nil {
@@ -515,10 +519,10 @@ func (s *WorkflowService) StartDefaultRunForIssue(ctx context.Context, issue db.
 	}
 	prepared, err := s.PrepareWorkflowRunSnapshot(ctx, wf.ID, PrepareWorkflowRunParams{
 		TriggeredByType: issue.CreatorType, TriggeredByID: issue.CreatorID, Input: input,
-		SourceIssueID: issue.ID, ResponsibleUserID: s.resolveWorkflowUser(ctx, issue.CreatorType, issue.CreatorID),
-		RuntimeAuthorizerID: s.resolveWorkflowUser(ctx, issue.CreatorType, issue.CreatorID),
+		SourceIssueID: issue.ID, ResponsibleUserID: s.issueResponsibleUser(ctx, issue),
+		RuntimeAuthorizerID: s.issueResponsibleUser(ctx, issue),
 		defaultWorkerType:   defaultRunWorkerType(issue), defaultWorkerID: issue.AssigneeID,
-		defaultCriticType: defaultRunCriticType(issue), defaultCriticID: issue.CreatorID,
+		defaultCriticType: defaultRunCriticType(issue), defaultCriticID: issue.AssigneeID,
 	})
 	if err != nil {
 		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("start default run: %w", err)
@@ -547,14 +551,14 @@ func defaultRunWorkerType(issue db.MulticaIssue) string {
 	return issue.AssigneeType.String // "agent" | "squad"
 }
 
-// defaultRunCriticType maps an issue's creator to a node-run critic type. The
+// defaultRunCriticType maps an issue's assignee to a node-run critic type. The
 // critic type drives dispatchCritic's switch (human/agent/squad/api/role), so a
-// member creator — who reviews via the multica UI — maps to "human".
+// member assignee — who reviews via the multica UI — maps to "human".
 func defaultRunCriticType(issue db.MulticaIssue) string {
-	if issue.CreatorType == "member" {
+	if issue.AssigneeType.Valid && issue.AssigneeType.String == "member" {
 		return "human"
 	}
-	return issue.CreatorType // "agent"
+	return issue.AssigneeType.String // "agent" | "squad"
 }
 func (s *WorkflowService) StartRunForIssueWithDispatchKey(
 	ctx context.Context,
@@ -579,7 +583,7 @@ func (s *WorkflowService) StartRunForIssueWithDispatchKey(
 	}
 	run, err := s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, "", runtimeID, dispatchKey, workflowRunRuntimeContext{
 		SourceIssueID:       issue.ID,
-		ResponsibleUserID:   s.resolveWorkflowUser(ctx, issue.CreatorType, issue.CreatorID),
+		ResponsibleUserID:   s.issueResponsibleUser(ctx, issue),
 		RuntimeAuthorizerID: s.resolveWorkflowUser(ctx, triggeredByType, triggeredByUUID),
 	})
 	if err != nil {
