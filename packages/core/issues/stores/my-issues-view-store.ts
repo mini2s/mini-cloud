@@ -23,7 +23,7 @@ const _myIssuesViewStore = createStore<MyIssuesViewState>()(
   persist(
     (set) => ({
       ...viewStoreSlice(set as unknown as StoreApi<IssueViewState>["setState"]),
-      scope: "assigned" as MyIssuesScope,
+      scope: "responsible" as MyIssuesScope,
       setScope: (scope: MyIssuesScope) => set({ scope }),
     }),
     {
