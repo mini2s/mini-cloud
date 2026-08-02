@@ -68,7 +68,7 @@ const baseIssue: Issue = {
 };
 
 describe("IssuePeopleBadges", () => {
-  it("renders two avatars and keeps responsible and assignee names in the hover tooltip", () => {
+  it("renders two actor tiles and keeps responsible and assignee names in the hover tooltip", () => {
     render(
       <IssuePeopleBadges
         issue={baseIssue}
@@ -84,40 +84,36 @@ describe("IssuePeopleBadges", () => {
     );
 
     expect(screen.getByText("Owner")).toBeInTheDocument();
-    expect(screen.getByText("Member")).toBeInTheDocument();
     expect(screen.getByText("Alice Owner")).toBeInTheDocument();
     expect(screen.getByTestId("actor-tile-member-user-1")).toHaveClass(
       "rounded-[4px]",
       "bg-primary/10",
     );
-    expect(screen.getByTestId("actor-tile-member-user-1-detail")).toHaveClass(
-      "rounded-[4px]",
-      "bg-primary/10",
-    );
-    expect(screen.getAllByLabelText("member icon")).toHaveLength(2);
-    expect(screen.getAllByText("A")).toHaveLength(2);
+    expect(
+      screen.queryByTestId("actor-tile-member-user-1-detail"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("member icon")).toBeInTheDocument();
+    expect(screen.getByText("A")).toBeInTheDocument();
     expect(screen.queryByText("O")).not.toBeInTheDocument();
     expect(screen.getByText("Assignee")).toBeInTheDocument();
-    expect(screen.getByText("Digital Human")).toBeInTheDocument();
     expect(screen.getByText("Claude Worker")).toBeInTheDocument();
     expect(screen.getByTestId("actor-tile-agent-agent-1")).toHaveClass(
       "rounded-[4px]",
       "bg-info/10",
     );
-    expect(screen.getByTestId("actor-tile-agent-agent-1-detail")).toHaveClass(
-      "rounded-[4px]",
-      "bg-info/10",
-    );
-    expect(screen.getAllByLabelText("agent icon")).toHaveLength(2);
-    expect(screen.getAllByText("C")).toHaveLength(2);
+    expect(
+      screen.queryByTestId("actor-tile-agent-agent-1-detail"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("agent icon")).toBeInTheDocument();
+    expect(screen.getByText("C")).toBeInTheDocument();
   });
 
-  it("distinguishes member, squad, agent, and workflow types in the hover tooltip", () => {
+  it("keeps member, squad, agent, and workflow type icons on the card tile only", () => {
     const cases = [
-      { type: "member", id: "user-1", label: "Member" },
-      { type: "agent", id: "agent-1", label: "Digital Human" },
-      { type: "squad", id: "squad-1", label: "Squad" },
-      { type: "workflow", id: "workflow-1", label: "Workflow" },
+      { type: "member", id: "user-1", name: "Alice Owner" },
+      { type: "agent", id: "agent-1", name: "Claude Worker" },
+      { type: "squad", id: "squad-1", name: "Review Squad" },
+      { type: "workflow", id: "workflow-1", name: "Release Workflow" },
     ];
 
     for (const item of cases) {
@@ -144,11 +140,11 @@ describe("IssuePeopleBadges", () => {
       expect(screen.getByTestId(`actor-tile-${item.type}-${item.id}`)).toHaveClass(
         "rounded-[4px]",
       );
-      expect(screen.getByTestId(`actor-tile-${item.type}-${item.id}-detail`)).toHaveClass(
-        "rounded-[4px]",
-      );
-      expect(screen.getAllByLabelText(`${item.type} icon`)).toHaveLength(2);
-      expect(screen.getByText(item.label)).toBeInTheDocument();
+      expect(
+        screen.queryByTestId(`actor-tile-${item.type}-${item.id}-detail`),
+      ).not.toBeInTheDocument();
+      expect(screen.getByLabelText(`${item.type} icon`)).toBeInTheDocument();
+      expect(screen.getByText(item.name)).toBeInTheDocument();
 
       unmount();
     }
@@ -167,18 +163,20 @@ describe("IssuePeopleBadges", () => {
       />,
     );
 
-    const responsible = screen.getByLabelText("Member: Alice Owner");
-    const assignee = screen.getByLabelText("Digital Human: Claude Worker");
+    const responsible = screen.getByLabelText("Alice Owner");
+    const assignee = screen.getByLabelText("Claude Worker");
 
     expect(responsible).toHaveTextContent("Owner");
-    expect(responsible).toHaveTextContent("Member");
     expect(responsible).toHaveTextContent("Alice Owner");
+    expect(responsible).not.toHaveTextContent("Member");
     expect(responsible).not.toHaveTextContent("Assignee");
+    expect(responsible).not.toHaveTextContent("Digital Human");
     expect(responsible).not.toHaveTextContent("Claude Worker");
     expect(assignee).toHaveTextContent("Assignee");
-    expect(assignee).toHaveTextContent("Digital Human");
     expect(assignee).toHaveTextContent("Claude Worker");
+    expect(assignee).not.toHaveTextContent("Digital Human");
     expect(assignee).not.toHaveTextContent("Owner");
+    expect(assignee).not.toHaveTextContent("Member");
     expect(assignee).not.toHaveTextContent("Alice Owner");
   });
 
@@ -202,7 +200,7 @@ describe("IssuePeopleBadges", () => {
       expect.stringContaining("overflow-visible"),
     );
     expect(
-      screen.getByLabelText("Digital Human: Claude Worker"),
+      screen.getByLabelText("Claude Worker"),
     ).not.toHaveAttribute("title");
   });
 });

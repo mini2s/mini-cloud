@@ -21,37 +21,14 @@ function PickerWrapper({ children }: { children: ReactNode }) {
 }
 
 interface PeopleTooltipRowProps {
-  actorType: string;
-  actorId: string;
-  actorTypeLabel: string;
   actorName: string;
-  initials: string;
 }
 
-function PeopleTooltipRow({
-  actorType,
-  actorId,
-  actorTypeLabel,
-  actorName,
-  initials,
-}: PeopleTooltipRowProps) {
+function PeopleTooltipRow({ actorName }: PeopleTooltipRowProps) {
   return (
-    <span className="flex min-w-0 items-center gap-2">
-      <ActorTypeTile
-        actorType={actorType}
-        actorId={actorId}
-        initials={initials}
-        compact
-        variant="assignee"
-        testIdSuffix="detail"
-      />
-      <span className="flex min-w-0 flex-col">
-        <span className="text-[10px] font-medium leading-none text-muted-foreground">
-          {actorTypeLabel}
-        </span>
-        <span className="min-w-0 truncate text-xs font-medium leading-snug text-foreground">
-          {actorName}
-        </span>
+    <span className="block min-w-0">
+      <span className="block max-w-64 whitespace-normal break-words text-xs font-medium leading-snug text-foreground">
+        {actorName}
       </span>
     </span>
   );
@@ -61,7 +38,6 @@ interface RolePersonProps {
   label: string;
   actorType: string;
   actorId: string;
-  actorTypeLabel: string;
   actorName: string;
   initials: string;
   compact: boolean;
@@ -142,13 +118,12 @@ function RolePerson({
   label,
   actorType,
   actorId,
-  actorTypeLabel,
   actorName,
   initials,
   compact,
   variant,
 }: RolePersonProps) {
-  const tooltipTitle = `${actorTypeLabel}: ${actorName}`;
+  const tooltipTitle = actorName;
 
   return (
     <span
@@ -163,14 +138,8 @@ function RolePerson({
         compact={compact}
         variant={variant}
       />
-      <span className="pointer-events-none absolute bottom-full left-0 z-20 mb-2 hidden w-max max-w-48 rounded-md border border-border bg-popover px-2.5 py-2 text-popover-foreground shadow-md group-hover/person:block group-focus-within/person:block">
-        <PeopleTooltipRow
-          actorType={actorType}
-          actorId={actorId}
-          actorTypeLabel={actorTypeLabel}
-          actorName={actorName}
-          initials={initials}
-        />
+      <span className="pointer-events-none absolute bottom-full left-0 z-20 mb-2 hidden w-max max-w-64 rounded-md border border-border bg-popover px-2.5 py-1.5 text-popover-foreground shadow-md group-hover/person:block group-focus-within/person:block">
+        <PeopleTooltipRow actorName={actorName} />
       </span>
     </span>
   );
@@ -190,7 +159,6 @@ export function IssuePeopleBadges({
   issue,
   responsibleLabel,
   assigneeLabel,
-  actorTypeLabels,
   compact = false,
   editableAssignee = false,
   onAssigneeUpdate,
@@ -213,7 +181,6 @@ export function IssuePeopleBadges({
   const assigneeInitials = hasAssignee
     ? getActorInitials(issue.assignee_type!, issue.assignee_id!)
     : null;
-  const getActorTypeLabel = (actorType: string) => actorTypeLabels?.[actorType] ?? actorType;
   const rolePeople = (
     <span className="inline-flex shrink-0 items-center gap-2">
       {hasResponsible && (
@@ -221,7 +188,6 @@ export function IssuePeopleBadges({
           label={responsibleLabel}
           actorType="member"
           actorId={issue.responsible_user_id!}
-          actorTypeLabel={getActorTypeLabel("member")}
           actorName={responsibleName!}
           initials={responsibleInitials!}
           compact={compact}
@@ -233,7 +199,6 @@ export function IssuePeopleBadges({
           label={assigneeLabel}
           actorType={issue.assignee_type!}
           actorId={issue.assignee_id!}
-          actorTypeLabel={getActorTypeLabel(issue.assignee_type!)}
           actorName={assigneeName!}
           initials={assigneeInitials!}
           compact={compact}
