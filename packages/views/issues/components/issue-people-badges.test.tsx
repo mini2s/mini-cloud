@@ -72,8 +72,12 @@ describe("IssuePeopleBadges", () => {
       "rounded-[4px]",
       "bg-primary/10",
     );
-    expect(screen.getByLabelText("member icon")).toBeInTheDocument();
-    expect(screen.getByText("A")).toBeInTheDocument();
+    expect(screen.getByTestId("actor-tile-member-user-1-detail")).toHaveClass(
+      "rounded-[4px]",
+      "bg-primary/10",
+    );
+    expect(screen.getAllByLabelText("member icon")).toHaveLength(2);
+    expect(screen.getAllByText("A")).toHaveLength(2);
     expect(screen.queryByText("O")).not.toBeInTheDocument();
     expect(screen.getAllByText("Assignee")).toHaveLength(2);
     expect(screen.getByText("Digital Human")).toBeInTheDocument();
@@ -82,8 +86,12 @@ describe("IssuePeopleBadges", () => {
       "rounded-[4px]",
       "bg-info/10",
     );
-    expect(screen.getByLabelText("agent icon")).toBeInTheDocument();
-    expect(screen.getByText("C")).toBeInTheDocument();
+    expect(screen.getByTestId("actor-tile-agent-agent-1-detail")).toHaveClass(
+      "rounded-[4px]",
+      "bg-info/10",
+    );
+    expect(screen.getAllByLabelText("agent icon")).toHaveLength(2);
+    expect(screen.getAllByText("C")).toHaveLength(2);
   });
 
   it("distinguishes member, squad, agent, and workflow types in the hover tooltip", () => {
@@ -118,7 +126,10 @@ describe("IssuePeopleBadges", () => {
       expect(screen.getByTestId(`actor-tile-${item.type}-${item.id}`)).toHaveClass(
         "rounded-[4px]",
       );
-      expect(screen.getByLabelText(`${item.type} icon`)).toBeInTheDocument();
+      expect(screen.getByTestId(`actor-tile-${item.type}-${item.id}-detail`)).toHaveClass(
+        "rounded-[4px]",
+      );
+      expect(screen.getAllByLabelText(`${item.type} icon`)).toHaveLength(2);
       expect(screen.getByText(item.label)).toBeInTheDocument();
 
       unmount();

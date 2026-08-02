@@ -22,21 +22,41 @@ function PickerWrapper({ children }: { children: ReactNode }) {
 
 interface PeopleTooltipRowProps {
   label: string;
+  actorType: string;
+  actorId: string;
   actorTypeLabel: string;
   actorName: string;
+  initials: string;
 }
 
-function PeopleTooltipRow({ label, actorTypeLabel, actorName }: PeopleTooltipRowProps) {
+function PeopleTooltipRow({
+  label,
+  actorType,
+  actorId,
+  actorTypeLabel,
+  actorName,
+  initials,
+}: PeopleTooltipRowProps) {
   return (
-    <span className="flex min-w-0 items-center gap-2.5">
+    <span className="flex min-w-0 items-center gap-2">
       <span className="w-10 shrink-0 text-[10px] font-medium text-muted-foreground">
         {label}
       </span>
-      <span className="shrink-0 rounded-[4px] bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border">
-        {actorTypeLabel}
-      </span>
-      <span className="min-w-0 truncate text-xs font-medium text-foreground">
-        {actorName}
+      <ActorTypeTile
+        actorType={actorType}
+        actorId={actorId}
+        initials={initials}
+        compact
+        variant="assignee"
+        testIdSuffix="detail"
+      />
+      <span className="flex min-w-0 flex-col">
+        <span className="text-[10px] font-medium leading-none text-muted-foreground">
+          {actorTypeLabel}
+        </span>
+        <span className="min-w-0 truncate text-xs font-medium leading-snug text-foreground">
+          {actorName}
+        </span>
       </span>
     </span>
   );
@@ -81,6 +101,46 @@ const DEFAULT_ACTOR_TILE_VISUAL = {
   className: "bg-muted text-muted-foreground ring-border",
 };
 
+interface ActorTypeTileProps {
+  actorType: string;
+  actorId: string;
+  initials: string;
+  compact: boolean;
+  variant: "responsible" | "assignee";
+  testIdSuffix?: string;
+}
+
+function ActorTypeTile({
+  actorType,
+  actorId,
+  initials,
+  compact,
+  variant,
+  testIdSuffix,
+}: ActorTypeTileProps) {
+  const visual = ACTOR_TILE_VISUALS[actorType] ?? DEFAULT_ACTOR_TILE_VISUAL;
+  const TypeIcon = visual.icon;
+  const initial = initials.trim().charAt(0).toUpperCase() || "?";
+
+  return (
+    <span
+      data-testid={`actor-tile-${actorType}-${actorId}${testIdSuffix ? `-${testIdSuffix}` : ""}`}
+      className={`inline-flex shrink-0 items-center justify-center gap-0.5 rounded-[4px] font-semibold leading-none ring-1 ${
+        compact ? "h-[18px] min-w-7 px-0.5 text-[9px]" : "h-5 min-w-8 px-1 text-[10px]"
+      } ${visual.className} ${
+        variant === "responsible" ? "shadow-[0_0_0_1px_hsl(var(--primary)/0.16)]" : ""
+      }`}
+    >
+      <TypeIcon
+        aria-label={`${actorType} icon`}
+        className={compact ? "size-2.5" : "size-3"}
+        strokeWidth={2.3}
+      />
+      <span className="min-w-2 text-center tabular-nums">{initial}</span>
+    </span>
+  );
+}
+
 function RolePerson({
   label,
   actorType,
@@ -89,31 +149,19 @@ function RolePerson({
   compact,
   variant,
 }: RolePersonProps) {
-  const visual = ACTOR_TILE_VISUALS[actorType] ?? DEFAULT_ACTOR_TILE_VISUAL;
-  const TypeIcon = visual.icon;
-  const initial = initials.trim().charAt(0).toUpperCase() || "?";
-
   return (
     <span
       className="inline-flex min-w-0 items-center gap-1 rounded-sm text-[11px] font-medium leading-none text-muted-foreground"
       title={label}
     >
       <span className="shrink-0">{label}</span>
-      <span
-        data-testid={`actor-tile-${actorType}-${actorId}`}
-        className={`inline-flex shrink-0 items-center justify-center gap-0.5 rounded-[4px] font-semibold leading-none ring-1 ${
-          compact ? "h-[18px] min-w-7 px-0.5 text-[9px]" : "h-5 min-w-8 px-1 text-[10px]"
-        } ${visual.className} ${
-          variant === "responsible" ? "shadow-[0_0_0_1px_hsl(var(--primary)/0.16)]" : ""
-        }`}
-      >
-        <TypeIcon
-          aria-label={`${actorType} icon`}
-          className={compact ? "size-2.5" : "size-3"}
-          strokeWidth={2.3}
-        />
-        <span className="min-w-2 text-center tabular-nums">{initial}</span>
-      </span>
+      <ActorTypeTile
+        actorType={actorType}
+        actorId={actorId}
+        initials={initials}
+        compact={compact}
+        variant={variant}
+      />
     </span>
   );
 }
@@ -146,8 +194,14 @@ export function IssuePeopleBadges({
   const responsibleName = hasResponsible
     ? getActorName("member", issue.responsible_user_id!)
     : null;
+  const responsibleInitials = hasResponsible
+    ? getActorInitials("member", issue.responsible_user_id!)
+    : null;
   const assigneeName = hasAssignee
     ? getActorName(issue.assignee_type!, issue.assignee_id!)
+    : null;
+  const assigneeInitials = hasAssignee
+    ? getActorInitials(issue.assignee_type!, issue.assignee_id!)
     : null;
   const getActorTypeLabel = (actorType: string) => actorTypeLabels?.[actorType] ?? actorType;
   const tooltipTitle = [
@@ -166,7 +220,7 @@ export function IssuePeopleBadges({
           label={responsibleLabel}
           actorType="member"
           actorId={issue.responsible_user_id!}
-          initials={getActorInitials("member", issue.responsible_user_id!)}
+          initials={responsibleInitials!}
           compact={compact}
           variant="responsible"
         />
@@ -176,7 +230,7 @@ export function IssuePeopleBadges({
           label={assigneeLabel}
           actorType={issue.assignee_type!}
           actorId={issue.assignee_id!}
-          initials={getActorInitials(issue.assignee_type!, issue.assignee_id!)}
+          initials={assigneeInitials!}
           compact={compact}
           variant="assignee"
         />
@@ -190,15 +244,21 @@ export function IssuePeopleBadges({
         {hasResponsible && (
           <PeopleTooltipRow
             label={responsibleLabel}
+            actorType="member"
+            actorId={issue.responsible_user_id!}
             actorTypeLabel={getActorTypeLabel("member")}
             actorName={responsibleName!}
+            initials={responsibleInitials!}
           />
         )}
         {hasAssignee && (
           <PeopleTooltipRow
             label={assigneeLabel}
+            actorType={issue.assignee_type!}
+            actorId={issue.assignee_id!}
             actorTypeLabel={getActorTypeLabel(issue.assignee_type!)}
             actorName={assigneeName!}
+            initials={assigneeInitials!}
           />
         )}
       </span>
