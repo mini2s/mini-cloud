@@ -28,6 +28,23 @@ func inboxItemsForRecipient(t *testing.T, queries *db.Queries, recipientID strin
 	return items
 }
 
+func inboxItemCountForRecipientAndIssue(t *testing.T, recipientID, issueID string) int {
+	t.Helper()
+	var count int
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT count(*)
+		FROM multica_inbox_item
+		WHERE workspace_id = $1
+		  AND recipient_type = 'member'
+		  AND recipient_id = $2
+		  AND issue_id = $3
+		  AND archived = false
+	`, testWorkspaceID, recipientID, issueID).Scan(&count); err != nil {
+		t.Fatalf("count inbox items: %v", err)
+	}
+	return count
+}
+
 // cleanupInboxForIssue deletes all inbox items related to a given issue.
 func cleanupInboxForIssue(t *testing.T, issueID string) {
 	t.Helper()
@@ -38,7 +55,7 @@ func cleanupInboxForIssue(t *testing.T, issueID string) {
 func addTestSubscriber(t *testing.T, issueID, userType, userID, reason string) {
 	t.Helper()
 	_, err := testPool.Exec(context.Background(), `
-		INSERT INTO issue_subscriber (issue_id, user_type, user_id, reason)
+		INSERT INTO multica_issue_subscriber (issue_id, user_type, user_id, reason)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (issue_id, user_type, user_id) DO NOTHING
 	`, issueID, userType, userID, reason)
@@ -76,16 +93,16 @@ func newNotificationBus(t *testing.T, queries *db.Queries) *events.Bus {
 	return bus
 }
 
-// TestNotification_IssueCreated_AssigneeNotified verifies that when an issue is
-// created with an assignee different from the creator, the assignee receives an
+// TestNotification_IssueCreated_ResponsibleUserNotified verifies that when an issue is
+// created with a responsible user different from the creator, the responsible user receives an
 // "issue_assigned" inbox notification and the creator receives nothing.
-func TestNotification_IssueCreated_AssigneeNotified(t *testing.T) {
+func TestNotification_IssueCreated_ResponsibleUserNotified(t *testing.T) {
 	queries := db.New(testPool)
 	bus := newNotificationBus(t, queries)
 
-	assigneeEmail := "notif-assignee-created@multica.ai"
-	assigneeID := createTestUser(t, assigneeEmail)
-	t.Cleanup(func() { cleanupTestUser(t, assigneeEmail) })
+	responsibleEmail := "notif-responsible-created-struct@multica.ai"
+	responsibleID := createTestUser(t, responsibleEmail)
+	t.Cleanup(func() { cleanupTestUser(t, responsibleEmail) })
 
 	issueID := createTestIssue(t, testWorkspaceID, testUserID)
 	t.Cleanup(func() {
@@ -99,7 +116,6 @@ func TestNotification_IssueCreated_AssigneeNotified(t *testing.T) {
 		inboxEvents = append(inboxEvents, e)
 	})
 
-	assigneeType := "member"
 	bus.Publish(events.Event{
 		Type:        protocol.EventIssueCreated,
 		WorkspaceID: testWorkspaceID,
@@ -107,23 +123,22 @@ func TestNotification_IssueCreated_AssigneeNotified(t *testing.T) {
 		ActorID:     testUserID,
 		Payload: map[string]any{
 			"issue": handler.IssueResponse{
-				ID:           issueID,
-				WorkspaceID:  testWorkspaceID,
-				Title:        "notif test issue",
-				Status:       "todo",
-				Priority:     "medium",
-				CreatorType:  "member",
-				CreatorID:    testUserID,
-				AssigneeType: &assigneeType,
-				AssigneeID:   &assigneeID,
+				ID:                issueID,
+				WorkspaceID:       testWorkspaceID,
+				Title:             "notif test issue",
+				Status:            "todo",
+				Priority:          "medium",
+				CreatorType:       "member",
+				CreatorID:         testUserID,
+				ResponsibleUserID: &responsibleID,
 			},
 		},
 	})
 
-	// Assignee should have an inbox item
-	items := inboxItemsForRecipient(t, queries, assigneeID)
+	// Responsible user should have an inbox item
+	items := inboxItemsForRecipient(t, queries, responsibleID)
 	if len(items) != 1 {
-		t.Fatalf("expected 1 inbox item for assignee, got %d", len(items))
+		t.Fatalf("expected 1 inbox item for responsible user, got %d", len(items))
 	}
 	if items[0].Type != "issue_assigned" {
 		t.Fatalf("expected type 'issue_assigned', got %q", items[0].Type)
@@ -144,9 +159,58 @@ func TestNotification_IssueCreated_AssigneeNotified(t *testing.T) {
 	}
 }
 
-// TestNotification_IssueCreated_SelfAssign verifies that when the creator
-// assigns the issue to themselves, no notification is generated.
-func TestNotification_IssueCreated_SelfAssign(t *testing.T) {
+func TestNotification_IssueCreated_MapPayloadResponsibleUserNotifiedWithoutAssignee(t *testing.T) {
+	queries := db.New(testPool)
+	bus := newNotificationBus(t, queries)
+
+	responsibleEmail := "notif-responsible-created@multica.ai"
+	responsibleID := createTestUser(t, responsibleEmail)
+	t.Cleanup(func() { cleanupTestUser(t, responsibleEmail) })
+
+	issueID := createTestIssue(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() {
+		cleanupInboxForIssue(t, issueID)
+		cleanupTestIssue(t, issueID)
+	})
+	if got := inboxItemCountForRecipientAndIssue(t, responsibleID, issueID); got != 0 {
+		t.Fatalf("expected no pre-existing inbox items for responsible user on issue, got %d", got)
+	}
+
+	var inboxEvents []events.Event
+	bus.Subscribe(protocol.EventInboxNew, func(e events.Event) {
+		inboxEvents = append(inboxEvents, e)
+	})
+
+	bus.Publish(events.Event{
+		Type:        protocol.EventIssueCreated,
+		WorkspaceID: testWorkspaceID,
+		ActorType:   "member",
+		ActorID:     testUserID,
+		Payload: map[string]any{
+			"issue": map[string]any{
+				"id":                  issueID,
+				"workspace_id":        testWorkspaceID,
+				"title":               "responsible notification issue",
+				"status":              "backlog",
+				"priority":            "medium",
+				"creator_type":        "member",
+				"creator_id":          testUserID,
+				"responsible_user_id": &responsibleID,
+			},
+		},
+	})
+
+	if got := inboxItemCountForRecipientAndIssue(t, responsibleID, issueID); got != 1 {
+		t.Fatalf("expected 1 inbox item for responsible user on issue, got %d", got)
+	}
+	if len(inboxEvents) != 1 {
+		t.Fatalf("expected 1 inbox:new event for responsible user, got %d", len(inboxEvents))
+	}
+}
+
+// TestNotification_IssueCreated_SelfResponsible verifies that when the creator
+// is the responsible user, no notification is generated.
+func TestNotification_IssueCreated_SelfResponsible(t *testing.T) {
 	queries := db.New(testPool)
 	bus := newNotificationBus(t, queries)
 
@@ -161,8 +225,7 @@ func TestNotification_IssueCreated_SelfAssign(t *testing.T) {
 		inboxEvents = append(inboxEvents, e)
 	})
 
-	assigneeType := "member"
-	assigneeID := testUserID // self-assign
+	responsibleID := testUserID
 	bus.Publish(events.Event{
 		Type:        protocol.EventIssueCreated,
 		WorkspaceID: testWorkspaceID,
@@ -170,25 +233,24 @@ func TestNotification_IssueCreated_SelfAssign(t *testing.T) {
 		ActorID:     testUserID,
 		Payload: map[string]any{
 			"issue": handler.IssueResponse{
-				ID:           issueID,
-				WorkspaceID:  testWorkspaceID,
-				Title:        "self-assign issue",
-				Status:       "todo",
-				Priority:     "medium",
-				CreatorType:  "member",
-				CreatorID:    testUserID,
-				AssigneeType: &assigneeType,
-				AssigneeID:   &assigneeID,
+				ID:                issueID,
+				WorkspaceID:       testWorkspaceID,
+				Title:             "self-responsible issue",
+				Status:            "todo",
+				Priority:          "medium",
+				CreatorType:       "member",
+				CreatorID:         testUserID,
+				ResponsibleUserID: &responsibleID,
 			},
 		},
 	})
 
 	items := inboxItemsForRecipient(t, queries, testUserID)
 	if len(items) != 0 {
-		t.Fatalf("expected 0 inbox items for self-assign, got %d", len(items))
+		t.Fatalf("expected 0 inbox items for self-responsible issue, got %d", len(items))
 	}
 	if len(inboxEvents) != 0 {
-		t.Fatalf("expected 0 inbox:new events for self-assign, got %d", len(inboxEvents))
+		t.Fatalf("expected 0 inbox:new events for self-responsible issue, got %d", len(inboxEvents))
 	}
 }
 
@@ -538,8 +600,8 @@ func TestNotification_AssigneeChanged(t *testing.T) {
 				AssigneeType: &newAssigneeType,
 				AssigneeID:   &newAssigneeID,
 			},
-			"assignee_changed":  true,
-			"status_changed":    false,
+			"assignee_changed":   true,
+			"status_changed":     false,
 			"prev_assignee_type": &oldAssigneeType,
 			"prev_assignee_id":   &oldAssigneeID,
 		},

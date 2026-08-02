@@ -101,3 +101,27 @@ func TestNotifyTaskAvailable_InvalidWithoutRuntimeIsNoOp(t *testing.T) {
 		t.Fatalf("expected 0 wakeup calls when RuntimeID is invalid, got %d", got)
 	}
 }
+
+func TestIssueToMapIncludesResponsibleUserID(t *testing.T) {
+	responsibleUserID := testUUID(10)
+
+	payload := issueToMap(db.MulticaIssue{
+		ID:                testUUID(11),
+		WorkspaceID:       testUUID(12),
+		Title:             "responsible map issue",
+		Status:            "todo",
+		Priority:          "medium",
+		CreatorType:       "member",
+		CreatorID:         testUUID(13),
+		ResponsibleUserID: responsibleUserID,
+		Number:            1,
+	}, "MUL")
+
+	got, ok := payload["responsible_user_id"].(*string)
+	if !ok || got == nil {
+		t.Fatalf("responsible_user_id missing from issue map: %#v", payload["responsible_user_id"])
+	}
+	if *got != util.UUIDToString(responsibleUserID) {
+		t.Fatalf("responsible_user_id = %q, want %q", *got, util.UUIDToString(responsibleUserID))
+	}
+}

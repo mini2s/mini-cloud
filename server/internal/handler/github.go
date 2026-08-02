@@ -992,30 +992,32 @@ func extractIdentifiers(parts ...string) []string {
 
 // lookupIssueByIdentifier looks up an issue in the given workspace by its
 // "PREFIX-NUMBER" identifier. Returns the row + true if the prefix matches
-// workspaceAutoLinkPRsEnabled reports whether the workspace allows the
-// GitHub webhook to create issue ↔ PR link rows. Defaults to true so that
-// workspaces predating RFC MUL-2414 keep the historical "auto-link on"
-// behavior, and short-circuits to false whenever the master GitHub switch
-// is explicitly off — mirroring the precedence used on the client side.
-func (h *Handler) workspaceAutoLinkPRsEnabled(ctx context.Context, workspaceID pgtype.UUID) bool {
-	ws, err := h.Queries.GetWorkspace(ctx, workspaceID)
-	if err != nil || len(ws.Settings) == 0 {
+// githubAutoLinkFromSettings reports whether the workspace allows GitHub
+// webhook auto-linking, based purely on the settings JSONB. The master
+// `github_enabled` switch is intentionally NOT consulted — the feature is
+// always on; auto-link defaults to on unless explicitly disabled.
+func githubAutoLinkFromSettings(raw []byte) bool {
+	if len(raw) == 0 {
 		return true
 	}
 	var s struct {
-		GitHubEnabled            *bool `json:"github_enabled"`
 		GitHubAutoLinkPRsEnabled *bool `json:"github_auto_link_prs_enabled"`
 	}
-	if err := json.Unmarshal(ws.Settings, &s); err != nil {
+	if err := json.Unmarshal(raw, &s); err != nil {
 		return true
-	}
-	if s.GitHubEnabled != nil && !*s.GitHubEnabled {
-		return false
 	}
 	if s.GitHubAutoLinkPRsEnabled == nil {
 		return true
 	}
 	return *s.GitHubAutoLinkPRsEnabled
+}
+
+func (h *Handler) workspaceAutoLinkPRsEnabled(ctx context.Context, workspaceID pgtype.UUID) bool {
+	ws, err := h.Queries.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return true
+	}
+	return githubAutoLinkFromSettings(ws.Settings)
 }
 
 // the workspace's configured prefix and the number resolves to a real issue.

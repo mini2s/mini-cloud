@@ -130,14 +130,28 @@ func extractIssueFields(v any) (handler.IssueResponse, bool) {
 	issue.WorkspaceID, _ = m["workspace_id"].(string)
 	issue.CreatorType, _ = m["creator_type"].(string)
 	issue.CreatorID, _ = m["creator_id"].(string)
-	issue.AssigneeType, _ = m["assignee_type"].(*string)
-	issue.AssigneeID, _ = m["assignee_id"].(*string)
-	issue.ResponsibleUserID, _ = m["responsible_user_id"].(*string)
-	issue.Description, _ = m["description"].(*string)
+	issue.AssigneeType = optionalString(m["assignee_type"])
+	issue.AssigneeID = optionalString(m["assignee_id"])
+	issue.ResponsibleUserID = optionalString(m["responsible_user_id"])
+	issue.Description = optionalString(m["description"])
 	if issue.ID == "" || issue.CreatorID == "" {
 		return handler.IssueResponse{}, false
 	}
 	return issue, true
+}
+
+func optionalString(v any) *string {
+	switch value := v.(type) {
+	case *string:
+		return value
+	case string:
+		if value == "" {
+			return nil
+		}
+		return &value
+	default:
+		return nil
+	}
 }
 
 // addSubscriber adds a user as an issue subscriber and publishes a
