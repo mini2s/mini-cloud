@@ -97,6 +97,9 @@ const (
 	RunStatusCompleted             = "completed"
 	RunStatusFailed                = "failed"
 	RunStatusCancelled             = "cancelled"
+
+	ManualTerminationReason = "manual_terminated"
+	ManualCompletionReason  = "manual_completed"
 )
 
 // validTransitions defines the allowed status transitions for a node run.
@@ -145,6 +148,24 @@ func isTerminalNodeRunStatus(s string) bool {
 	switch s {
 	case NodeRunStatusCompleted, NodeRunStatusFailed, NodeRunStatusSkipped,
 		NodeRunStatusFormatFailed, NodeRunStatusCancelled:
+		return true
+	}
+	return false
+}
+
+func isManuallyStoppableNodeRunStatus(s string) bool {
+	if isTerminalNodeRunStatus(s) || s == NodeRunStatusBlocked {
+		return false
+	}
+	return true
+}
+
+func isExecutingNodeRunStatus(s string) bool {
+	switch s {
+	case NodeRunStatusFormatChecking, NodeRunStatusFormatOk, NodeRunStatusWorkerAssigned,
+		NodeRunStatusWorking, NodeRunStatusAwaitingInput, NodeRunStatusAwaitingCritic,
+		NodeRunStatusCriticReviewing, NodeRunStatusCriticApproved, NodeRunStatusCriticRework,
+		NodeRunStatusSplitting, NodeRunStatusAwaitingSplitReview, NodeRunStatusSplitActive:
 		return true
 	}
 	return false
@@ -676,6 +697,138 @@ func (s *WorkflowService) CancelRun(ctx context.Context, runID pgtype.UUID) erro
 }
 
 // ── State machine ────────────────────────────────────────────────────────────
+
+// BlockRunManually stops a workflow because the parent issue was moved to
+// blocked. Nodes already doing work become blocked; unstarted nodes are
+// cancelled so the run cannot continue in the background.
+func (s *WorkflowService) BlockRunManually(ctx context.Context, runID pgtype.UUID) error {
+	changedNodeRuns := make([]db.MulticaWorkflowNodeRun, 0)
+	var terminalRun db.MulticaWorkflowRun
+	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		run, err := qtx.GetWorkflowRun(ctx, runID)
+		if err != nil {
+			return fmt.Errorf("get workflow run: %w", err)
+		}
+		terminalRun = run
+
+		if _, err := qtx.CancelWorkflowTasksByRun(ctx, runID); err != nil {
+			return fmt.Errorf("cancel workflow tasks: %w", err)
+		}
+		if err := qtx.CancelWorkflowRoleResolutionJobs(ctx, runID); err != nil {
+			return fmt.Errorf("cancel role resolution jobs: %w", err)
+		}
+
+		nodeRuns, err := qtx.ListWorkflowNodeRunsByRun(ctx, runID)
+		if err != nil {
+			return fmt.Errorf("list node runs: %w", err)
+		}
+		for _, nr := range nodeRuns {
+			if !isManuallyStoppableNodeRunStatus(nr.Status) {
+				continue
+			}
+			nextStatus := NodeRunStatusCancelled
+			reason := "workflow_cancelled"
+			if isExecutingNodeRunStatus(nr.Status) {
+				nextStatus = NodeRunStatusBlocked
+				reason = ManualTerminationReason
+			}
+			updated, err := qtx.FailWorkflowNodeRun(ctx, db.FailWorkflowNodeRunParams{
+				ID:            nr.ID,
+				Status:        nextStatus,
+				FailureReason: pgtype.Text{String: reason, Valid: true},
+			})
+			if err != nil {
+				return fmt.Errorf("stop node run: %w", err)
+			}
+			changedNodeRuns = append(changedNodeRuns, updated)
+		}
+
+		updatedRun, err := qtx.UpdateWorkflowRunStatus(ctx, db.UpdateWorkflowRunStatusParams{
+			ID:     runID,
+			Status: RunStatusCancelled,
+		})
+		if err != nil {
+			return fmt.Errorf("cancel workflow run: %w", err)
+		}
+		terminalRun = updatedRun
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	for _, nodeRun := range changedNodeRuns {
+		if s.OnNodeStatusChanged != nil {
+			s.OnNodeStatusChanged(ctx, nodeRun)
+		}
+	}
+	if s.OnRunTerminal != nil {
+		s.OnRunTerminal(ctx, terminalRun, RunStatusCancelled)
+	}
+	return nil
+}
+
+// CompleteRunManually stops a workflow because the parent issue was moved to
+// done. Every node run is marked completed so the workflow mirrors the manual
+// completion decision.
+func (s *WorkflowService) CompleteRunManually(ctx context.Context, runID pgtype.UUID) error {
+	changedNodeRuns := make([]db.MulticaWorkflowNodeRun, 0)
+	var terminalRun db.MulticaWorkflowRun
+	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		run, err := qtx.GetWorkflowRun(ctx, runID)
+		if err != nil {
+			return fmt.Errorf("get workflow run: %w", err)
+		}
+		terminalRun = run
+
+		if _, err := qtx.CancelWorkflowTasksByRun(ctx, runID); err != nil {
+			return fmt.Errorf("cancel workflow tasks: %w", err)
+		}
+		if err := qtx.CancelWorkflowRoleResolutionJobs(ctx, runID); err != nil {
+			return fmt.Errorf("cancel role resolution jobs: %w", err)
+		}
+
+		nodeRuns, err := qtx.ListWorkflowNodeRunsByRun(ctx, runID)
+		if err != nil {
+			return fmt.Errorf("list node runs: %w", err)
+		}
+		for _, nr := range nodeRuns {
+			if nr.Status == NodeRunStatusCompleted {
+				continue
+			}
+			updated, err := qtx.FailWorkflowNodeRun(ctx, db.FailWorkflowNodeRunParams{
+				ID:            nr.ID,
+				Status:        NodeRunStatusCompleted,
+				FailureReason: pgtype.Text{String: ManualCompletionReason, Valid: true},
+			})
+			if err != nil {
+				return fmt.Errorf("complete node run: %w", err)
+			}
+			changedNodeRuns = append(changedNodeRuns, updated)
+		}
+
+		updatedRun, err := qtx.UpdateWorkflowRunStatus(ctx, db.UpdateWorkflowRunStatusParams{
+			ID:     runID,
+			Status: RunStatusCompleted,
+		})
+		if err != nil {
+			return fmt.Errorf("complete workflow run: %w", err)
+		}
+		terminalRun = updatedRun
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	for _, nodeRun := range changedNodeRuns {
+		if s.OnNodeStatusChanged != nil {
+			s.OnNodeStatusChanged(ctx, nodeRun)
+		}
+	}
+	if s.OnRunTerminal != nil {
+		s.OnRunTerminal(ctx, terminalRun, RunStatusCompleted)
+	}
+	return nil
+}
 
 // TransitionNodeRun validates the transition and updates the node run status.
 func (s *WorkflowService) TransitionNodeRun(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, newStatus string) (*db.MulticaWorkflowNodeRun, error) {
