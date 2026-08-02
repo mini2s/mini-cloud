@@ -5,7 +5,7 @@ const RESET_STATE = {
   draft: {
     title: "",
     description: "",
-    status: "todo" as const,
+    status: "backlog" as const,
     priority: "none" as const,
     assigneeType: undefined,
     assigneeId: undefined,
@@ -19,6 +19,11 @@ const RESET_STATE = {
 describe("issue draft store — last assignee", () => {
   beforeEach(() => {
     useIssueDraftStore.setState(RESET_STATE);
+  });
+
+  it("starts new manual issue drafts in backlog", () => {
+    const { draft } = useIssueDraftStore.getState();
+    expect(draft.status).toBe("backlog");
   });
 
   it("clearDraft prefills the next draft with the remembered assignee", () => {

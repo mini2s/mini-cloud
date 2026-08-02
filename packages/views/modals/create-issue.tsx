@@ -190,7 +190,7 @@ export function ManualCreatePanel({
   const updateIssueMutation = useUpdateIssue();
   const resetForNextIssue = () => {
     setTitle("");
-    setStatus("todo");
+    setStatus("backlog");
     setPriority("none");
     setStartDate(null);
     setDueDate(null);
@@ -205,7 +205,7 @@ export function ManualCreatePanel({
     setDraft({
       title: "",
       description: "",
-      status: "todo",
+      status: "backlog",
       priority: "none",
       assigneeType,
       assigneeId,

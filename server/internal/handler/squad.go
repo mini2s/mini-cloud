@@ -841,6 +841,9 @@ func (h *Handler) RecordSquadLeaderEvaluation(w http.ResponseWriter, r *http.Req
 // leader. Agent-authored comments always go through the leader (subject to
 // the leader self-trigger guard) so agent updates still drive coordination.
 func (h *Handler) shouldEnqueueSquadLeaderOnComment(ctx context.Context, issue db.MulticaIssue, commentContent, authorType, authorID string) bool {
+	if !service.IssueStatusStartsWork(issue.Status) {
+		return false
+	}
 	if !issue.AssigneeType.Valid || issue.AssigneeType.String != "squad" || !issue.AssigneeID.Valid {
 		return false
 	}
@@ -922,7 +925,7 @@ func commentMentionsAnyone(content string) bool {
 // are skipped (parking lot), and the leader agent must have a runtime and
 // not be archived.
 func (h *Handler) shouldEnqueueSquadLeaderOnAssign(ctx context.Context, issue db.MulticaIssue) bool {
-	if issue.Status == "backlog" {
+	if !service.IssueStatusStartsWork(issue.Status) {
 		return false
 	}
 	return h.isSquadLeaderReady(ctx, issue)

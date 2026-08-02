@@ -1,4 +1,5 @@
 import type { MemberRole, WorkflowNodeRun } from "@multica/core/types";
+export { isEditableWorkflowNodeRunStatus } from "@multica/core/workflows/node-run-status";
 
 export interface HumanActionMember {
   role: MemberRole;

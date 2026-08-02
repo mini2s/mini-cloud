@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { WorkflowNodeRun } from "@multica/core/types";
 import {
   getHumanNodeRunActionAccess,
+  isEditableWorkflowNodeRunStatus,
   isSkippableNodeRunStatus,
 } from "./node-run-action-access";
 
@@ -59,4 +60,14 @@ it.each(["pending", "format_ok", "worker_assigned", "awaiting_input", "awaiting_
 it.each(["working", "critic_reviewing", "failed", "format_failed", "completed", "cancelled"])(
   "marks %s as not skippable",
   (status) => expect(isSkippableNodeRunStatus(status as WorkflowNodeRun["status"])).toBe(false),
+);
+
+it.each(["pending", "failed", "format_failed", "blocked"])(
+  "allows editing node config while %s",
+  (status) => expect(isEditableWorkflowNodeRunStatus(status as WorkflowNodeRun["status"])).toBe(true),
+);
+
+it.each(["worker_assigned", "working", "awaiting_input", "awaiting_critic", "critic_reviewing", "completed"])(
+  "prevents editing node config while %s",
+  (status) => expect(isEditableWorkflowNodeRunStatus(status as WorkflowNodeRun["status"])).toBe(false),
 );
