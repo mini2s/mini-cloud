@@ -152,7 +152,6 @@ function RolePerson({
   return (
     <span
       className="inline-flex min-w-0 items-center gap-1 rounded-sm text-[11px] font-medium leading-none text-muted-foreground"
-      title={label}
     >
       <span className="shrink-0">{label}</span>
       <ActorTypeTile
@@ -268,7 +267,7 @@ export function IssuePeopleBadges({
   const trigger = (
     <span
       className="group/people relative inline-flex shrink-0 items-center transition-transform hover:-translate-y-px focus-within:-translate-y-px"
-      title={tooltipTitle}
+      aria-label={tooltipTitle}
     >
       {rolePeople}
       {hoverTooltip}
@@ -283,6 +282,9 @@ export function IssuePeopleBadges({
           assigneeId={issue.assignee_id}
           onUpdate={onAssigneeUpdate}
           trigger={trigger}
+          triggerRender={
+            <span className="inline-flex cursor-pointer overflow-visible rounded px-1 -mx-1 transition-colors hover:bg-accent/30" />
+          }
         />
       </PickerWrapper>
     );

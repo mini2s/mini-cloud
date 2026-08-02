@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { ReactElement, ReactNode } from "react";
 import type { Issue } from "@multica/core/types";
 import { IssuePeopleBadges } from "./issue-people-badges";
 
@@ -20,6 +21,23 @@ vi.mock("@multica/core/workspace/hooks", () => ({
       return "?";
     },
   }),
+}));
+
+vi.mock("./pickers", () => ({
+  AssigneePicker: ({
+    trigger,
+    triggerRender,
+  }: {
+    trigger: ReactNode;
+    triggerRender?: ReactElement<{ className?: string }>;
+  }) => (
+    <span
+      data-testid="assignee-picker"
+      data-trigger-class={triggerRender?.props.className ?? ""}
+    >
+      {trigger}
+    </span>
+  ),
 }));
 
 const baseIssue: Issue = {
@@ -134,5 +152,29 @@ describe("IssuePeopleBadges", () => {
 
       unmount();
     }
+  });
+
+  it("keeps the editable picker trigger from clipping the hover details", () => {
+    render(
+      <IssuePeopleBadges
+        issue={baseIssue}
+        responsibleLabel="Owner"
+        assigneeLabel="Assignee"
+        actorTypeLabels={{
+          member: "Member",
+          agent: "Digital Human",
+        }}
+        editableAssignee
+        onAssigneeUpdate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("assignee-picker")).toHaveAttribute(
+      "data-trigger-class",
+      expect.stringContaining("overflow-visible"),
+    );
+    expect(
+      screen.getByLabelText("Owner / Member: Alice Owner / Assignee / Digital Human: Claude Worker"),
+    ).not.toHaveAttribute("title");
   });
 });
