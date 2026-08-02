@@ -1,29 +1,30 @@
 import type { Workspace } from "../types";
 
 export interface GitHubSettings {
-  /** Master switch. When false, every UI affordance and side-effect is gated off. */
+  /** Always true — the master switch has been removed; the GitHub integration is always on. */
   enabled: boolean;
-  /** Issue-detail PR sidebar visibility. Implies `enabled`. */
+  /** Issue-detail PR sidebar visibility. */
   prSidebar: boolean;
-  /** Co-authored-by trailer in agent commits. Implies `enabled`. */
+  /** Co-authored-by trailer in agent commits. */
   coAuthor: boolean;
-  /** Auto-link issues ↔ PRs from webhook payloads. Implies `enabled`. */
+  /** Auto-link issues ↔ PRs from webhook payloads. */
   autoLinkPRs: boolean;
 }
 
 /**
- * Pure derivation from a workspace's settings JSONB. Defaults every flag to
- * true so workspaces predating MUL-2414 keep the historical "all on" behavior.
+ * Pure derivation from a workspace's settings JSONB. The integration is always
+ * on; sub-flags default to on and only turn off when explicitly set to false.
  */
 export function deriveGitHubSettings(
   workspace: Pick<Workspace, "settings"> | null | undefined,
 ): GitHubSettings {
   const s = (workspace?.settings ?? {}) as Record<string, unknown>;
-  const enabled = s.github_enabled !== false;
+  // The master `github_enabled` switch has been removed — the feature is
+  // always on. Historical github_enabled values are ignored.
   return {
-    enabled,
-    prSidebar: enabled && s.github_pr_sidebar_enabled !== false,
-    coAuthor: enabled && s.co_authored_by_enabled !== false,
-    autoLinkPRs: enabled && s.github_auto_link_prs_enabled !== false,
+    enabled: true,
+    prSidebar: s.github_pr_sidebar_enabled !== false,
+    coAuthor: s.co_authored_by_enabled !== false,
+    autoLinkPRs: s.github_auto_link_prs_enabled !== false,
   };
 }

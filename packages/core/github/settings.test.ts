@@ -7,60 +7,20 @@ function ws(settings: Record<string, unknown>): Pick<Workspace, "settings"> {
 }
 
 describe("deriveGitHubSettings", () => {
-  it("defaults every flag to true when workspace is null", () => {
-    expect(deriveGitHubSettings(null)).toEqual({
-      enabled: true,
-      prSidebar: true,
-      coAuthor: true,
-      autoLinkPRs: true,
-    });
+  it("enabled is always true (master switch removed)", () => {
+    expect(deriveGitHubSettings(null).enabled).toBe(true);
+    expect(deriveGitHubSettings(ws({})).enabled).toBe(true);
+    expect(deriveGitHubSettings(ws({ github_enabled: false })).enabled).toBe(true);
   });
 
-  it("defaults every flag to true on empty settings", () => {
-    expect(deriveGitHubSettings(ws({}))).toEqual({
-      enabled: true,
-      prSidebar: true,
-      coAuthor: true,
-      autoLinkPRs: true,
-    });
-  });
-
-  it("master switch off forces every dependent flag off", () => {
-    const got = deriveGitHubSettings(
-      ws({
-        github_enabled: false,
-        github_pr_sidebar_enabled: true,
-        co_authored_by_enabled: true,
-        github_auto_link_prs_enabled: true,
-      }),
-    );
-    expect(got).toEqual({
-      enabled: false,
-      prSidebar: false,
-      coAuthor: false,
-      autoLinkPRs: false,
-    });
-  });
-
-  it("each sub-flag can be flipped independently when master is on", () => {
+  it("sub-flags keep their default-on semantics independently of master", () => {
+    expect(deriveGitHubSettings(null)).toMatchObject({ prSidebar: true, coAuthor: true, autoLinkPRs: true });
+    expect(deriveGitHubSettings(ws({ github_pr_sidebar_enabled: false })).prSidebar).toBe(false);
+    expect(deriveGitHubSettings(ws({ co_authored_by_enabled: false })).coAuthor).toBe(false);
+    expect(deriveGitHubSettings(ws({ github_auto_link_prs_enabled: false })).autoLinkPRs).toBe(false);
+    // master off no longer forces sub-flags off
     expect(
-      deriveGitHubSettings(ws({ github_pr_sidebar_enabled: false })),
-    ).toMatchObject({ enabled: true, prSidebar: false, coAuthor: true, autoLinkPRs: true });
-
-    expect(
-      deriveGitHubSettings(ws({ co_authored_by_enabled: false })),
-    ).toMatchObject({ enabled: true, prSidebar: true, coAuthor: false, autoLinkPRs: true });
-
-    expect(
-      deriveGitHubSettings(ws({ github_auto_link_prs_enabled: false })),
-    ).toMatchObject({ enabled: true, prSidebar: true, coAuthor: true, autoLinkPRs: false });
-  });
-
-  it("treats non-false values (true, null, missing) as enabled", () => {
-    expect(
-      deriveGitHubSettings(
-        ws({ github_enabled: true, github_pr_sidebar_enabled: null }),
-      ),
-    ).toMatchObject({ enabled: true, prSidebar: true });
+      deriveGitHubSettings(ws({ github_enabled: false, github_pr_sidebar_enabled: true })).prSidebar,
+    ).toBe(true);
   });
 });
