@@ -167,7 +167,7 @@ export function IssuesPage() {
         updates.status !== "backlog"
       ) {
         toast.error(t(($) => $.page.assign_first));
-        return;
+        return false;
       }
       const normalizedUpdates =
         updates.status === "backlog"
@@ -184,6 +184,7 @@ export function IssuesPage() {
             ),
         },
       );
+      return true;
     },
     [allIssues, assigneeIssues, updateIssueMutation, t, usesAssigneeBoard],
   );

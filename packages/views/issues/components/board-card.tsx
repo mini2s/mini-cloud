@@ -292,6 +292,7 @@ export const DraggableBoardCard = memo(function DraggableBoardCard({ issue, chil
     <IssueActionsContextMenu issue={issue}>
       <div
         ref={setNodeRef}
+        data-testid={`board-card-${issue.id}`}
         style={style}
         {...attributes}
         {...listeners}
