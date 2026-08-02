@@ -897,8 +897,8 @@ func TestAppendCodeRepoPrompt_MultiRepo(t *testing.T) {
 	if !strings.Contains(got, "cs-cloud workflow deliverable submit --repo") {
 		t.Fatalf("prompt missing CLI submit instruction:\n%s", got)
 	}
-	if !strings.Contains(got, "--mr") {
-		t.Fatalf("prompt missing --mr flag:\n%s", got)
+	if strings.Contains(got, "--mr") {
+		t.Fatalf("prompt must not hardcode --mr (cs-cloud reads CS_CLOUD_CODE_PROVIDER):\n%s", got)
 	}
 	if strings.Contains(got, "平台会自动") || strings.Contains(got, "平台自动提交") {
 		t.Fatalf("prompt must NOT say platform auto-MR (old wording):\n%s", got)
@@ -912,6 +912,39 @@ func TestAppendCodeRepoPrompt_NoAliasFallsBackToURL(t *testing.T) {
 	got := appendCodeRepoPrompt("", repos)
 	if !strings.Contains(got, "https://gitlab.example.com/a/r.git") {
 		t.Fatalf("prompt missing URL when no alias:\n%s", got)
+	}
+}
+
+func TestAppendCodeRepoPrompt_GitlabAuth(t *testing.T) {
+	repos := []csCloudRepoSpec{
+		{URL: "https://gitlab.example.com/a/backend.git", Provider: "gitlab", Role: "code"},
+	}
+	got := appendCodeRepoPrompt("", repos)
+	if !strings.Contains(got, "oauth2:${CS_CLOUD_GITLAB_TOKEN}@") {
+		t.Fatalf("gitlab prompt missing oauth2 auth hint:\n%s", got)
+	}
+}
+
+func TestAppendCodeRepoPrompt_GithubAuth(t *testing.T) {
+	repos := []csCloudRepoSpec{
+		{URL: "https://github.com/org/repo.git", Provider: "github", Role: "code"},
+	}
+	got := appendCodeRepoPrompt("", repos)
+	if !strings.Contains(got, "x-access-token:${CS_CLOUD_GITHUB_TOKEN}@") {
+		t.Fatalf("github prompt missing x-access-token auth hint:\n%s", got)
+	}
+}
+
+func TestAppendCodeRepoPrompt_NoHardcodedMrFlag(t *testing.T) {
+	repos := []csCloudRepoSpec{
+		{URL: "https://github.com/org/repo.git", Provider: "github", Role: "code"},
+	}
+	got := appendCodeRepoPrompt("", repos)
+	if strings.Contains(got, "--mr") {
+		t.Fatalf("prompt must not hardcode --mr (cs-cloud reads CS_CLOUD_CODE_PROVIDER):\n%s", got)
+	}
+	if !strings.Contains(got, "cs-cloud workflow deliverable submit") {
+		t.Fatalf("prompt missing submit instruction:\n%s", got)
 	}
 }
 

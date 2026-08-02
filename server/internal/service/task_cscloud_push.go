@@ -676,7 +676,10 @@ func (s *TaskService) deliverableSpecsForTask(ctx context.Context, task db.Multi
 }
 
 // appendCodeRepoPrompt tells the worker agent which code repos are available
-// and instructs it to open MRs via CLI (not via platform auto-MR).
+// and instructs it to open MRs/PRs via CLI. The clone auth hint is per-provider:
+// gitlab uses oauth2:<token>@, github uses x-access-token:<token>@. The submit
+// command does NOT pass --mr; cs-cloud reads CS_CLOUD_CODE_PROVIDER env to route
+// to the correct platform API.
 func appendCodeRepoPrompt(prompt string, repos []csCloudRepoSpec) string {
 	var b strings.Builder
 	b.WriteString(prompt)
@@ -684,7 +687,21 @@ func appendCodeRepoPrompt(prompt string, repos []csCloudRepoSpec) string {
 		b.WriteByte('\n')
 	}
 	b.WriteString("\n---\n## 代码仓库开发\n\n")
-	b.WriteString("你的任务根目录是 $CS_CLOUD_WORKTREE。用原生 git clone 把要改的代码仓库拉到任务根目录下：clone 时把仓库 URL 的 `https://` 换成 `https://oauth2:${CS_CLOUD_GITLAB_TOKEN}@` 来鉴权（token 在环境变量里），然后 cd 进去建分支开发。例如：`git clone https://oauth2:${CS_CLOUD_GITLAB_TOKEN}@<host>/<group>/<repo>.git $CS_CLOUD_WORKTREE/<repo> && cd $CS_CLOUD_WORKTREE/<repo>`。\n")
+
+	primaryProvider := "gitlab"
+	if len(repos) > 0 && repos[0].Provider == "github" {
+		primaryProvider = "github"
+	}
+
+	switch primaryProvider {
+	case "github":
+		b.WriteString("你的任务根目录是 $CS_CLOUD_WORKTREE。用原生 git clone 把要改的代码仓库拉到任务根目录下：clone 时把仓库 URL 的 `https://` 换成 `https://x-access-token:${CS_CLOUD_GITHUB_TOKEN}@` 来鉴权（token 在环境变量里），然后 cd 进去建分支开发。例如：`git clone https://x-access-token:${CS_CLOUD_GITHUB_TOKEN}@github.com/<owner>/<repo>.git $CS_CLOUD_WORKTREE/<repo> && cd $CS_CLOUD_WORKTREE/<repo>`。\n")
+		b.WriteString("Token 从环境变量 `$CS_CLOUD_GITHUB_TOKEN` 读取，无需自己找。**不要**等平台自动开 PR——你自己用 CLI 开。\n")
+	default: // gitlab
+		b.WriteString("你的任务根目录是 $CS_CLOUD_WORKTREE。用原生 git clone 把要改的代码仓库拉到任务根目录下：clone 时把仓库 URL 的 `https://` 换成 `https://oauth2:${CS_CLOUD_GITLAB_TOKEN}@` 来鉴权（token 在环境变量里），然后 cd 进去建分支开发。例如：`git clone https://oauth2:${CS_CLOUD_GITLAB_TOKEN}@<host>/<group>/<repo>.git $CS_CLOUD_WORKTREE/<repo> && cd $CS_CLOUD_WORKTREE/<repo>`。\n")
+		b.WriteString("Token 从环境变量 `$CS_CLOUD_GITLAB_TOKEN` 读取，无需自己找。**不要**等平台自动开 MR——你自己用 CLI 开。\n")
+	}
+
 	b.WriteString("可选的代码仓库：\n")
 	for _, r := range repos {
 		label := r.Alias
@@ -693,8 +710,7 @@ func appendCodeRepoPrompt(prompt string, repos []csCloudRepoSpec) string {
 		}
 		fmt.Fprintf(&b, "- %s (`%s`)\n", label, r.URL)
 	}
-	b.WriteString("\n完成编码后，在仓库目录内 `git add/commit`，然后运行 `cs-cloud workflow deliverable submit --repo <url> --deliverable <id> --mr` 开 Merge Request 并自动上报 MR 链接（务必在仓库目录内运行该命令）。\n")
-	b.WriteString("Token 从环境变量 `$CS_CLOUD_GITLAB_TOKEN` 读取，无需自己找。**不要**等平台自动开 MR——你自己用 CLI 开。\n")
+	b.WriteString("\n完成编码后，在仓库目录内 `git add/commit`，然后运行 `cs-cloud workflow deliverable submit --repo <url> --deliverable <id>` 开 Merge Request / Pull Request 并自动上报链接（务必在仓库目录内运行该命令）。\n")
 	b.WriteString("\n---\n\n")
 	return b.String()
 }
