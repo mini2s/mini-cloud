@@ -36,6 +36,38 @@ function PeopleTooltipRow({ label, actorName }: PeopleTooltipRowProps) {
   );
 }
 
+interface RoleAvatarProps {
+  label: string;
+  actorType: string;
+  actorId: string;
+  size: number;
+  variant: "responsible" | "assignee";
+}
+
+function RoleAvatar({ label, actorType, actorId, size, variant }: RoleAvatarProps) {
+  return (
+    <span className="relative inline-flex" title={label}>
+      <ActorAvatar
+        actorType={actorType}
+        actorId={actorId}
+        size={size}
+        className="ring-2 ring-card"
+        enableHoverCard
+        showStatusDot={actorType === "agent"}
+      />
+      <span
+        className={`absolute -bottom-1 -right-1 flex size-3 items-center justify-center rounded-full border border-card text-[8px] font-semibold leading-none ${
+          variant === "responsible"
+            ? "bg-primary text-primary-foreground"
+            : "bg-muted text-muted-foreground"
+        }`}
+      >
+        {label.trim().slice(0, 1)}
+      </span>
+    </span>
+  );
+}
+
 interface IssuePeopleBadgesProps {
   issue: Issue;
   responsibleLabel: string;
@@ -73,22 +105,21 @@ export function IssuePeopleBadges({
   const avatarStack = (
     <span className="flex shrink-0 -space-x-1">
       {hasResponsible && (
-        <ActorAvatar
+        <RoleAvatar
+          label={responsibleLabel}
           actorType="member"
           actorId={issue.responsible_user_id!}
           size={compact ? 18 : 20}
-          className="ring-2 ring-card"
-          enableHoverCard
+          variant="responsible"
         />
       )}
       {hasAssignee && (
-        <ActorAvatar
+        <RoleAvatar
+          label={assigneeLabel}
           actorType={issue.assignee_type!}
           actorId={issue.assignee_id!}
           size={compact ? 18 : 20}
-          className="ring-2 ring-card"
-          enableHoverCard
-          showStatusDot={issue.assignee_type === "agent"}
+          variant="assignee"
         />
       )}
     </span>
