@@ -2491,7 +2491,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 
 	// Stop execution when the issue leaves an active work status.
 	if statusChanged && !service.IssueStatusStartsWork(issue.Status) {
-		h.stopIssueExecution(r.Context(), issue)
+		h.stopIssueExecutionForStatus(r.Context(), prevIssue, issue)
 	}
 
 	// Platform-driven parent notification: when this issue transitions into
@@ -2537,7 +2537,7 @@ func applyIssueStateMachine(prevIssue db.MulticaIssue, params *db.UpdateIssuePar
 		return ""
 	}
 
-	if nextStatus == "backlog" {
+	if statusTouched && nextStatus == "backlog" {
 		params.AssigneeType = pgtype.Text{}
 		params.AssigneeID = pgtype.UUID{}
 		params.WorkflowID = pgtype.UUID{}
@@ -2546,11 +2546,16 @@ func applyIssueStateMachine(prevIssue db.MulticaIssue, params *db.UpdateIssuePar
 		return ""
 	}
 
-	if prevIssue.Status == "backlog" && !issueHasAssignee(params.AssigneeType, params.AssigneeID) {
+	if statusTouched && nextStatus == "in_progress" {
+		params.WorkflowRunID = pgtype.UUID{}
+		params.StageID = pgtype.UUID{}
+	}
+
+	if statusTouched && prevIssue.Status == "backlog" && nextStatus != "backlog" && !issueHasAssignee(params.AssigneeType, params.AssigneeID) {
 		return "please assign the task first"
 	}
 
-	if nextStatus == "todo" && !issueHasAssignee(params.AssigneeType, params.AssigneeID) {
+	if statusTouched && nextStatus == "todo" && !issueHasAssignee(params.AssigneeType, params.AssigneeID) {
 		return "please assign the task first"
 	}
 
@@ -2643,12 +2648,30 @@ func (h *Handler) startDefaultWorkflowRunForIssue(ctx context.Context, issue db.
 	return run.ID, true
 }
 
-func (h *Handler) stopIssueExecution(ctx context.Context, issue db.MulticaIssue) {
+func (h *Handler) stopIssueExecutionForStatus(ctx context.Context, prevIssue, issue db.MulticaIssue) {
 	h.TaskService.CancelTasksForIssue(ctx, issue.ID)
-	if issue.WorkflowRunID.Valid {
-		if err := h.WorkflowService.CancelRun(ctx, issue.WorkflowRunID); err != nil {
+	runID := issue.WorkflowRunID
+	if !runID.Valid {
+		runID = prevIssue.WorkflowRunID
+	}
+	if !runID.Valid {
+		return
+	}
+	switch issue.Status {
+	case "blocked":
+		if err := h.WorkflowService.BlockRunManually(ctx, runID); err != nil {
+			slog.Warn("failed to block workflow run after issue moved to blocked",
+				"issue_id", uuidToString(issue.ID), "workflow_run_id", uuidToString(runID), "error", err)
+		}
+	case "done":
+		if err := h.WorkflowService.CompleteRunManually(ctx, runID); err != nil {
+			slog.Warn("failed to complete workflow run after issue moved to done",
+				"issue_id", uuidToString(issue.ID), "workflow_run_id", uuidToString(runID), "error", err)
+		}
+	default:
+		if err := h.WorkflowService.CancelRun(ctx, runID); err != nil {
 			slog.Warn("failed to cancel workflow run after issue left in_progress",
-				"issue_id", uuidToString(issue.ID), "workflow_run_id", uuidToString(issue.WorkflowRunID), "error", err)
+				"issue_id", uuidToString(issue.ID), "workflow_run_id", uuidToString(runID), "error", err)
 		}
 	}
 }
@@ -3083,7 +3106,7 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if statusChanged && !service.IssueStatusStartsWork(issue.Status) {
-			h.stopIssueExecution(r.Context(), issue)
+			h.stopIssueExecutionForStatus(r.Context(), prevIssue, issue)
 		}
 
 		// Platform-driven parent notification, mirrored from UpdateIssue

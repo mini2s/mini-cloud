@@ -143,9 +143,6 @@ func (s *IssueAssignmentService) AfterIssueAssigned(
 		if err != nil || agent.ArchivedAt.Valid || (!agent.RuntimeID.Valid && !agent.IsBuiltin) {
 			return nil
 		}
-		if s.startDefaultWorkflow(ctx, issue) {
-			return nil
-		}
 		_, err = s.Tasks.EnqueueTaskForIssue(ctx, issue, pgtype.UUID{}, runtimeSelection.RuntimeID)
 		return err
 	case "squad":
@@ -159,9 +156,6 @@ func (s *IssueAssignmentService) AfterIssueAssigned(
 		}
 		ready, _, err := AgentReadiness(ctx, s.Queries, leader)
 		if err != nil || !ready {
-			return nil
-		}
-		if s.startDefaultWorkflow(ctx, issue) {
 			return nil
 		}
 		hasPending, err := s.Queries.HasPendingTaskForIssueAndAgent(ctx, db.HasPendingTaskForIssueAndAgentParams{IssueID: issue.ID, AgentID: squad.LeaderID})
