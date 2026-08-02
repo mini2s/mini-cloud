@@ -89,17 +89,17 @@ export function NodeRunDeliveryForm({
     mutationFn: async () => {
       const note = summary.trim();
       const targetId = selectedDeliverableIDResolved;
-      let uploaded = false;
-      if (stagedFiles.length > 0) {
-        const filesData = await Promise.all(stagedFiles.map(readFileAsBase64));
-        await api.uploadIssueDeliverable(issueId, filesData, note || undefined, targetId);
-        uploaded = true;
+      // Submit files and PR links in a single server call. Two separate calls
+      // race: the file upload can satisfy the required set and advance the
+      // node-run out of the worker phase, after which the link upload is
+      // rejected (409) and the link submission is lost.
+      if (stagedFiles.length > 0 || links.length > 0) {
+        const filesData =
+          stagedFiles.length > 0 ? await Promise.all(stagedFiles.map(readFileAsBase64)) : [];
+        await api.uploadIssueDeliverable(issueId, filesData, note || undefined, targetId, links);
+        return;
       }
-      if (links.length > 0) {
-        await api.uploadIssueDeliverablePR(issueId, links, note || undefined, targetId);
-        uploaded = true;
-      }
-      if (!uploaded && note) {
+      if (note) {
         await api.submitNodeRun(nodeRunId, { summary: note });
       }
     },

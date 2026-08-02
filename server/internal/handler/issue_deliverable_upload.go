@@ -17,12 +17,34 @@ import (
 // UploadIssueDeliverableRequest is the body of POST /api/issues/{id}/deliverables/upload.
 type UploadIssueDeliverableRequest struct {
 	Files []service.MemberDeliverableFile `json:"files"`
+	// PullRequestURLs optionally submits code PR/MR links in the SAME call as
+	// files. Submitting files and links together is the supported way to upload
+	// both at once: two separate calls race, because the file upload can
+	// advance the node-run out of the worker phase and the link upload is then
+	// rejected (losing the link submission).
+	PullRequestURLs []string `json:"pull_request_urls"`
 	// DeliverableID optionally targets a specific document deliverable when the
 	// node defines several; empty uploads to the first document deliverable.
 	DeliverableID string `json:"deliverable_id,omitempty"`
 	// Summary is an optional execution note merged into the worker output when
 	// this upload advances the node-run into review.
 	Summary string `json:"summary"`
+}
+
+// normalizeDeliverablePRURLs trims blanks and drops exact duplicates
+// (order-preserving) from a list of PR/MR URLs.
+func normalizeDeliverablePRURLs(raw []string) []string {
+	seen := make(map[string]bool, len(raw))
+	out := make([]string, 0, len(raw))
+	for _, r := range raw {
+		link := strings.TrimSpace(r)
+		if link == "" || seen[link] {
+			continue
+		}
+		seen[link] = true
+		out = append(out, link)
+	}
+	return out
 }
 
 // UploadIssueDeliverable (POST /api/issues/{id}/deliverables/upload) lets a
@@ -40,10 +62,6 @@ func (h *Handler) UploadIssueDeliverable(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	if !isGiteaConfigured() {
-		writeError(w, http.StatusServiceUnavailable, "deliverable upload requires Gitea to be configured")
-		return
-	}
 	userID, ok := h.requireDeliverableUploadWorker(w, r, issue)
 	if !ok {
 		return
@@ -53,8 +71,9 @@ func (h *Handler) UploadIssueDeliverable(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if len(req.Files) == 0 {
-		writeError(w, http.StatusBadRequest, "files are required")
+	links := normalizeDeliverablePRURLs(req.PullRequestURLs)
+	if len(req.Files) == 0 && len(links) == 0 {
+		writeError(w, http.StatusBadRequest, "files or pull_request_urls are required")
 		return
 	}
 	if req.DeliverableID != "" {
@@ -62,7 +81,12 @@ func (h *Handler) UploadIssueDeliverable(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
-	if err := h.WorkflowService.UploadMemberDeliverable(r.Context(), issue, req.Files, req.DeliverableID, userID, req.Summary); err != nil {
+	// Gitea is only required when archiving files; PR-link-only submissions do not touch it.
+	if len(req.Files) > 0 && !isGiteaConfigured() {
+		writeError(w, http.StatusServiceUnavailable, "deliverable upload requires Gitea to be configured")
+		return
+	}
+	if err := h.WorkflowService.UploadMemberDeliverableAll(r.Context(), issue, req.Files, links, req.DeliverableID, userID, req.Summary); err != nil {
 		if errors.Is(err, service.ErrNodeRunNotInWorkerPhase) {
 			writeError(w, http.StatusConflict, "node run is no longer accepting deliverable uploads")
 			return
