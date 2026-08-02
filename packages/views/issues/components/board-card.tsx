@@ -44,6 +44,53 @@ function descriptionPreview(markdown: string): string {
     .trim();
 }
 
+function PriorityTile({
+  priority,
+  label,
+  compact = false,
+}: {
+  priority: Issue["priority"];
+  label: string;
+  compact?: boolean;
+}) {
+  const cfg = PRIORITY_CONFIG[priority];
+  const initial = label.trim().charAt(0).toUpperCase() || "?";
+
+  return (
+    <span
+      data-testid={`priority-tile-${priority}`}
+      className={`inline-flex shrink-0 items-center justify-center gap-0.5 rounded-[4px] font-semibold leading-none ring-1 ring-current/25 ${
+        compact ? "h-[18px] min-w-7 px-0.5 text-[9px]" : "h-5 min-w-8 px-1 text-[10px]"
+      } ${cfg.badgeBg} ${cfg.badgeText}`}
+      aria-label={label}
+    >
+      <PriorityIcon
+        priority={priority}
+        className={compact ? "size-2.5" : "size-3"}
+        inheritColor
+      />
+      <span className="min-w-2 text-center tabular-nums">{initial}</span>
+    </span>
+  );
+}
+
+function PriorityCardBadge({
+  issue,
+  label,
+  valueLabel,
+}: {
+  issue: Issue;
+  label: string;
+  valueLabel: string;
+}) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1 rounded-sm text-[11px] font-medium leading-none text-muted-foreground">
+      <span className="shrink-0">{label}</span>
+      <PriorityTile priority={issue.priority} label={valueLabel} />
+    </span>
+  );
+}
+
 /** Stops event from bubbling to Link/drag handlers */
 function PickerWrapper({ children }: { children: React.ReactNode }) {
   const stop = (e: React.SyntheticEvent) => {
@@ -68,7 +115,6 @@ export const BoardCardContent = memo(function BoardCardContent({
 }) {
   const { t } = useT("issues");
   const storeProperties = useViewStore((s) => s.cardProperties);
-  const priorityCfg = PRIORITY_CONFIG[issue.priority];
   const wsId = useWorkspaceId();
   const { data: projects = [] } = useQuery({
     ...projectListOptions(wsId),
@@ -105,6 +151,15 @@ export const BoardCardContent = memo(function BoardCardContent({
   const showProject = storeProperties.project && project;
   const showChildProgress = storeProperties.childProgress && childProgress;
   const showLabels = storeProperties.labels && labels.length > 0;
+  const priorityLabel = t(($) => $.display.card_priority);
+  const priorityValueLabel = t(($) => $.priority[issue.priority]);
+  const priorityTrigger = (
+    <PriorityCardBadge
+      issue={issue}
+      label={priorityLabel}
+      valueLabel={priorityValueLabel}
+    />
+  );
 
   return (
     <div className="rounded-lg border-[0.5px] border-border bg-card py-3 px-2.5 shadow-[0_3px_6px_-2px_rgba(0,0,0,0.02),0_1px_1px_0_rgba(0,0,0,0.04)] transition-colors group-hover/card:border-accent group-hover/card:bg-accent group-data-[popup-open]/card:border-accent group-data-[popup-open]/card:bg-accent">
@@ -165,19 +220,11 @@ export const BoardCardContent = memo(function BoardCardContent({
                 <PriorityPicker
                   priority={issue.priority}
                   onUpdate={handleUpdate}
-                  trigger={
-                    <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium ${priorityCfg.badgeBg} ${priorityCfg.badgeText}`}>
-                      <PriorityIcon priority={issue.priority} className="h-3 w-3" inheritColor />
-                      {t(($) => $.priority[issue.priority])}
-                    </span>
-                  }
+                  trigger={priorityTrigger}
                 />
               </PickerWrapper>
             ) : (
-              <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium ${priorityCfg.badgeBg} ${priorityCfg.badgeText}`}>
-                <PriorityIcon priority={issue.priority} className="h-3 w-3" inheritColor />
-                {priorityCfg.label}
-              </span>
+              priorityTrigger
             ))}
           {showPeople && (
             <IssuePeopleBadges

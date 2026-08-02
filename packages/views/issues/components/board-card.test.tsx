@@ -61,6 +61,9 @@ vi.mock("../../i18n", () => ({
         priority: {
           medium: "Medium",
         },
+        display: {
+          card_priority: "Priority",
+        },
       }),
   }),
 }));
@@ -107,12 +110,16 @@ const issue: Issue = {
 };
 
 describe("BoardCardContent", () => {
-  it("renders people roles to the right of the priority badge", () => {
+  it("renders priority in the same label-and-tile style as people roles", () => {
     render(<BoardCardContent issue={issue} />);
 
-    const priority = screen.getByText("Medium");
+    const priority = screen.getByText("Priority");
+    const priorityTile = screen.getByTestId("priority-tile-medium");
     const people = screen.getByText("People roles");
 
+    expect(priorityTile).toHaveClass("rounded-[4px]", "bg-warning/10");
+    expect(priorityTile).toHaveTextContent("M");
+    expect(priorityTile).not.toHaveTextContent("Medium");
     expect(
       priority.compareDocumentPosition(people) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
