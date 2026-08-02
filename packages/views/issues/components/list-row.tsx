@@ -133,6 +133,12 @@ export const ListRow = memo(function ListRow({
               issue={issue}
               responsibleLabel={t(($) => $.card.responsible)}
               assigneeLabel={t(($) => $.card.assignee)}
+              actorTypeLabels={{
+                member: t(($) => $.card.actor_types.member),
+                agent: t(($) => $.card.actor_types.agent),
+                squad: t(($) => $.card.actor_types.squad),
+                workflow: t(($) => $.card.actor_types.workflow),
+              }}
               compact
             />
           )}

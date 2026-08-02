@@ -402,7 +402,13 @@
   "card": {
     "update_failed": "更新任务失败",
     "responsible": "负责人",
-    "assignee": "处理人"
+    "assignee": "处理人",
+    "actor_types": {
+      "member": "成员",
+      "agent": "数智人",
+      "squad": "小队",
+      "workflow": "工作流"
+    }
   },
   "actions": {
     "status": "状态",

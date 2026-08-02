@@ -413,7 +413,13 @@
   "card": {
     "update_failed": "Failed to update issue",
     "responsible": "Owner",
-    "assignee": "Assignee"
+    "assignee": "Assignee",
+    "actor_types": {
+      "member": "Member",
+      "agent": "Digital Human",
+      "squad": "Squad",
+      "workflow": "Workflow"
+    }
   },
   "actions": {
     "status": "Status",

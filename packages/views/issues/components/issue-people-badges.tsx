@@ -2,10 +2,11 @@
 
 import type { ReactNode, SyntheticEvent } from "react";
 import type { Issue, UpdateIssueRequest } from "@multica/core/types";
-import { Bot, GitBranch, UserRound, Users } from "lucide-react";
 import { useActorName } from "@multica/core/workspace/hooks";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { AssigneePicker } from "./pickers";
+
+type ActorTypeLabels = Partial<Record<string, string>>;
 
 function PickerWrapper({ children }: { children: ReactNode }) {
   const stop = (e: SyntheticEvent) => {
@@ -21,14 +22,18 @@ function PickerWrapper({ children }: { children: ReactNode }) {
 
 interface PeopleTooltipRowProps {
   label: string;
+  actorTypeLabel: string;
   actorName: string;
 }
 
-function PeopleTooltipRow({ label, actorName }: PeopleTooltipRowProps) {
+function PeopleTooltipRow({ label, actorTypeLabel, actorName }: PeopleTooltipRowProps) {
   return (
-    <span className="flex min-w-0 items-center gap-2">
+    <span className="flex min-w-0 items-center gap-2.5">
       <span className="w-10 shrink-0 text-[10px] font-medium text-muted-foreground">
         {label}
+      </span>
+      <span className="shrink-0 rounded-[4px] bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border">
+        {actorTypeLabel}
       </span>
       <span className="min-w-0 truncate text-xs font-medium text-foreground">
         {actorName}
@@ -45,52 +50,7 @@ interface RolePersonProps {
   variant: "responsible" | "assignee";
 }
 
-const ACTOR_TYPE_VISUALS: Record<
-  string,
-  {
-    icon: typeof UserRound;
-    avatarClassName: string;
-    badgeClassName: string;
-    ariaLabel: string;
-  }
-> = {
-  member: {
-    icon: UserRound,
-    avatarClassName: "bg-primary/10 text-primary ring-primary/35",
-    badgeClassName: "bg-primary/15 text-primary ring-primary/35",
-    ariaLabel: "member",
-  },
-  agent: {
-    icon: Bot,
-    avatarClassName: "bg-info/15 text-info ring-info/35",
-    badgeClassName: "bg-info/15 text-info ring-info/35",
-    ariaLabel: "agent",
-  },
-  squad: {
-    icon: Users,
-    avatarClassName: "bg-warning/15 text-warning ring-warning/35",
-    badgeClassName: "bg-warning/15 text-warning ring-warning/35",
-    ariaLabel: "squad",
-  },
-  workflow: {
-    icon: GitBranch,
-    avatarClassName: "bg-success/15 text-success ring-success/35",
-    badgeClassName: "bg-success/15 text-success ring-success/35",
-    ariaLabel: "workflow",
-  },
-};
-
-const DEFAULT_ACTOR_TYPE_VISUAL = {
-  icon: UserRound,
-  avatarClassName: "bg-muted text-muted-foreground ring-border",
-  badgeClassName: "bg-muted text-muted-foreground",
-  ariaLabel: "actor",
-};
-
 function RolePerson({ label, actorType, actorId, size, variant }: RolePersonProps) {
-  const visual = ACTOR_TYPE_VISUALS[actorType] ?? DEFAULT_ACTOR_TYPE_VISUAL;
-  const TypeIcon = visual.icon;
-
   return (
     <span
       className="inline-flex min-w-0 items-center gap-1 rounded-sm text-[11px] font-medium leading-none text-muted-foreground"
@@ -102,18 +62,14 @@ function RolePerson({ label, actorType, actorId, size, variant }: RolePersonProp
           actorType={actorType}
           actorId={actorId}
           size={size}
-          className={`rounded-[4px] ring-1 ${visual.avatarClassName} ${
-            variant === "responsible" ? "shadow-[0_0_0_1px_hsl(var(--primary)/0.16)]" : ""
-          }`}
+          className={
+            variant === "responsible"
+              ? "rounded-[4px] bg-primary/10 text-primary ring-1 ring-primary/35 shadow-[0_0_0_1px_hsl(var(--primary)/0.16)]"
+              : "rounded-[4px] bg-muted text-muted-foreground ring-1 ring-border"
+          }
           enableHoverCard
           showStatusDot={actorType === "agent"}
         />
-        <span
-          aria-label={visual.ariaLabel}
-          className={`absolute -right-1 -top-1 inline-flex size-3.5 items-center justify-center rounded-[3px] bg-background ring-1 shadow-sm ${visual.badgeClassName}`}
-        >
-          <TypeIcon className="size-2.5" strokeWidth={2.4} />
-        </span>
       </span>
     </span>
   );
@@ -123,6 +79,7 @@ interface IssuePeopleBadgesProps {
   issue: Issue;
   responsibleLabel: string;
   assigneeLabel: string;
+  actorTypeLabels?: ActorTypeLabels;
   compact?: boolean;
   editableAssignee?: boolean;
   onAssigneeUpdate?: (updates: Partial<UpdateIssueRequest>) => void;
@@ -132,6 +89,7 @@ export function IssuePeopleBadges({
   issue,
   responsibleLabel,
   assigneeLabel,
+  actorTypeLabels,
   compact = false,
   editableAssignee = false,
   onAssigneeUpdate,
@@ -148,9 +106,14 @@ export function IssuePeopleBadges({
   const assigneeName = hasAssignee
     ? getActorName(issue.assignee_type!, issue.assignee_id!)
     : null;
+  const getActorTypeLabel = (actorType: string) => actorTypeLabels?.[actorType] ?? actorType;
   const tooltipTitle = [
-    hasResponsible ? `${responsibleLabel}: ${responsibleName}` : null,
-    hasAssignee ? `${assigneeLabel}: ${assigneeName}` : null,
+    hasResponsible
+      ? `${responsibleLabel} · ${getActorTypeLabel("member")}: ${responsibleName}`
+      : null,
+    hasAssignee
+      ? `${assigneeLabel} · ${getActorTypeLabel(issue.assignee_type!)}: ${assigneeName}`
+      : null,
   ].filter(Boolean).join(" / ");
 
   const rolePeople = (
@@ -180,10 +143,18 @@ export function IssuePeopleBadges({
     <span className="pointer-events-none absolute bottom-full left-0 z-20 mb-2 hidden w-max max-w-56 rounded-md border border-border bg-popover px-2.5 py-2 text-popover-foreground shadow-md group-hover/people:block group-focus-within/people:block">
       <span className="flex flex-col gap-1">
         {hasResponsible && (
-          <PeopleTooltipRow label={responsibleLabel} actorName={responsibleName!} />
+          <PeopleTooltipRow
+            label={responsibleLabel}
+            actorTypeLabel={getActorTypeLabel("member")}
+            actorName={responsibleName!}
+          />
         )}
         {hasAssignee && (
-          <PeopleTooltipRow label={assigneeLabel} actorName={assigneeName!} />
+          <PeopleTooltipRow
+            label={assigneeLabel}
+            actorTypeLabel={getActorTypeLabel(issue.assignee_type!)}
+            actorName={assigneeName!}
+          />
         )}
       </span>
     </span>

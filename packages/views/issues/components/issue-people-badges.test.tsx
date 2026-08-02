@@ -66,10 +66,17 @@ describe("IssuePeopleBadges", () => {
         issue={baseIssue}
         responsibleLabel="Owner"
         assigneeLabel="Assignee"
+        actorTypeLabels={{
+          member: "Member",
+          agent: "Digital Human",
+          squad: "Squad",
+          workflow: "Workflow",
+        }}
       />,
     );
 
     expect(screen.getAllByText("Owner")).toHaveLength(2);
+    expect(screen.getByText("Member")).toBeInTheDocument();
     expect(screen.getByText("Alice Owner")).toBeInTheDocument();
     expect(screen.getByTestId("avatar-member-user-1")).toHaveClass(
       "rounded-[4px]",
@@ -77,21 +84,21 @@ describe("IssuePeopleBadges", () => {
     );
     expect(screen.queryByText("O")).not.toBeInTheDocument();
     expect(screen.getAllByText("Assignee")).toHaveLength(2);
+    expect(screen.getByText("Digital Human")).toBeInTheDocument();
     expect(screen.getByText("Claude Worker")).toBeInTheDocument();
     expect(screen.getByTestId("avatar-agent-agent-1")).toHaveClass(
       "rounded-[4px]",
-      "bg-info/15",
+      "bg-muted",
     );
-    expect(screen.getByLabelText("agent")).toBeInTheDocument();
     expect(screen.queryByText("A")).not.toBeInTheDocument();
   });
 
-  it("marks member, squad, agent, and workflow avatars with distinct type styling", () => {
+  it("distinguishes member, squad, agent, and workflow types in the hover tooltip", () => {
     const cases = [
-      { type: "member", id: "user-1", label: "member", bg: "bg-primary/10" },
-      { type: "agent", id: "agent-1", label: "agent", bg: "bg-info/15" },
-      { type: "squad", id: "squad-1", label: "squad", bg: "bg-warning/15" },
-      { type: "workflow", id: "workflow-1", label: "workflow", bg: "bg-success/15" },
+      { type: "member", id: "user-1", label: "Member" },
+      { type: "agent", id: "agent-1", label: "Digital Human" },
+      { type: "squad", id: "squad-1", label: "Squad" },
+      { type: "workflow", id: "workflow-1", label: "Workflow" },
     ];
 
     for (const item of cases) {
@@ -106,13 +113,19 @@ describe("IssuePeopleBadges", () => {
           issue={issue}
           responsibleLabel="Owner"
           assigneeLabel="Assignee"
+          actorTypeLabels={{
+            member: "Member",
+            agent: "Digital Human",
+            squad: "Squad",
+            workflow: "Workflow",
+          }}
         />,
       );
 
       expect(screen.getByTestId(`avatar-${item.type}-${item.id}`)).toHaveClass(
-        item.bg,
+        "rounded-[4px]",
       );
-      expect(screen.getByLabelText(item.label)).toBeInTheDocument();
+      expect(screen.getByText(item.label)).toBeInTheDocument();
 
       unmount();
     }

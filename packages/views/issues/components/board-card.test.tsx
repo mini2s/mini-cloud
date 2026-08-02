@@ -51,6 +51,12 @@ vi.mock("../../i18n", () => ({
           responsible: "Owner",
           assignee: "Assignee",
           update_failed: "Update failed",
+          actor_types: {
+            member: "Member",
+            agent: "Digital Human",
+            squad: "Squad",
+            workflow: "Workflow",
+          },
         },
         priority: {
           medium: "Medium",
