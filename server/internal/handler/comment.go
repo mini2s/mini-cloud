@@ -915,9 +915,11 @@ func shouldInheritParentMentions(parentComment *db.MulticaComment, replyMentions
 // a child-issue run notifying the parent issue whose assignee is the same
 // agent); runaway loops are prevented by HasPendingTaskForIssueAndAgent
 // dedupe and the natural queued/dispatched coalescing of the task queue.
-// Note: no status gate here — @mention is an explicit action and should work
-// even on done/cancelled issues (the agent can reopen the issue if needed).
+// Mentions only wake agents once the issue is actively in progress.
 func (h *Handler) enqueueMentionedAgentTasks(ctx context.Context, issue db.MulticaIssue, comment db.MulticaComment, parentComment *db.MulticaComment, authorType, authorID string) {
+	if !service.IssueStatusStartsWork(issue.Status) {
+		return
+	}
 	wsID := uuidToString(issue.WorkspaceID)
 	mentions := util.ParseMentions(comment.Content)
 	if shouldInheritParentMentions(parentComment, mentions, authorType) {

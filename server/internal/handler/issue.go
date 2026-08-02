@@ -768,6 +768,14 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		}
 		creatorFilter = id
 	}
+	var responsibleUserFilter pgtype.UUID
+	if ru := r.URL.Query().Get("responsible_user_id"); ru != "" {
+		id, ok := parseUUIDOrBadRequest(w, ru, "responsible_user_id")
+		if !ok {
+			return
+		}
+		responsibleUserFilter = id
+	}
 	var projectFilter pgtype.UUID
 	if p := r.URL.Query().Get("project_id"); p != "" {
 		id, ok := parseUUIDOrBadRequest(w, p, "project_id")
@@ -812,6 +820,7 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 			AssigneeID:            assigneeFilter,
 			AssigneeIds:           assigneeIdsFilter,
 			CreatorID:             creatorFilter,
+			ResponsibleUserID:     responsibleUserFilter,
 			ProjectID:             projectFilter,
 			InvolvesUserID:        involvesUserFilter,
 			MetadataFilter:        metadataFilter,
@@ -880,6 +889,7 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		AssigneeID:            assigneeFilter,
 		AssigneeIds:           assigneeIdsFilter,
 		CreatorID:             creatorFilter,
+		ResponsibleUserID:     responsibleUserFilter,
 		ProjectID:             projectFilter,
 		InvolvesUserID:        involvesUserFilter,
 		Scheduled:             scheduledFilter,
@@ -899,6 +909,7 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		AssigneeID:            assigneeFilter,
 		AssigneeIds:           assigneeIdsFilter,
 		CreatorID:             creatorFilter,
+		ResponsibleUserID:     responsibleUserFilter,
 		ProjectID:             projectFilter,
 		InvolvesUserID:        involvesUserFilter,
 		Scheduled:             scheduledFilter,
@@ -1092,6 +1103,13 @@ func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 		}
 		where = append(where, fmt.Sprintf("i.creator_id = %s::uuid", addArg(id)))
 	}
+	if raw := r.URL.Query().Get("responsible_user_id"); raw != "" {
+		id, ok := parseUUIDOrBadRequest(w, raw, "responsible_user_id")
+		if !ok {
+			return
+		}
+		where = append(where, fmt.Sprintf("i.responsible_user_id = %s::uuid", addArg(id)))
+	}
 	if raw := r.URL.Query().Get("project_id"); raw != "" {
 		id, ok := parseUUIDOrBadRequest(w, raw, "project_id")
 		if !ok {
@@ -1257,7 +1275,7 @@ WITH ranked AS (
 )
 SELECT
 	id, workspace_id, title, description, status, priority,
-	assignee_type, assignee_id, creator_type, creator_id,
+	assignee_type, assignee_id, responsible_user_id, creator_type, creator_id,
 	parent_issue_id, position, start_date, due_date, created_at, updated_at,
 	number, project_id, workflow_id, workflow_run_id, stage_id, metadata,
 	origin_type, origin_id, group_total
@@ -1796,10 +1814,6 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status := req.Status
-	if status == "" {
-		status = "todo"
-	}
 	priority := req.Priority
 	if priority == "" {
 		priority = "none"
@@ -1817,6 +1831,7 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		}
 		assigneeID = id
 	}
+	status := issueCreateStatusForAssignee(assigneeType, assigneeID)
 	if req.ResponsibleUserID == nil || *req.ResponsibleUserID == "" {
 		writeError(w, http.StatusBadRequest, "responsible_user_id is required")
 		return
@@ -2386,6 +2401,11 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		params.StageID = stageID
 	}
 
+	if msg := applyIssueStateMachine(prevIssue, &params, req.Status != nil, touchedAssigneeType || touchedAssigneeID); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+
 	// Validate the resulting (assignee_type, assignee_id) pair when the caller
 	// touches either field. Existing data on the issue is left alone if the
 	// caller is not changing it.
@@ -2418,9 +2438,8 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	resp := issueToResponse(issue, prefix)
 	slog.Info("issue updated", append(logger.RequestAttrs(r), "issue_id", id, "workspace_id", workspaceID)...)
 
-	assigneeChanged := (req.AssigneeType != nil || req.AssigneeID != nil) &&
-		(prevIssue.AssigneeType.String != issue.AssigneeType.String || uuidToString(prevIssue.AssigneeID) != uuidToString(issue.AssigneeID))
-	statusChanged := req.Status != nil && prevIssue.Status != issue.Status
+	assigneeChanged := prevIssue.AssigneeType.String != issue.AssigneeType.String || uuidToString(prevIssue.AssigneeID) != uuidToString(issue.AssigneeID)
+	statusChanged := prevIssue.Status != issue.Status
 	priorityChanged := req.Priority != nil && prevIssue.Priority != issue.Priority
 	descriptionChanged := req.Description != nil && textToPtr(prevIssue.Description) != resp.Description
 	titleChanged := req.Title != nil && prevIssue.Title != issue.Title
@@ -2455,8 +2474,9 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		"creator_id":          uuidToString(prevIssue.CreatorID),
 	})
 
-	// Reconcile task queue when assignee changes.
-	if assigneeChanged {
+	// Reconcile execution side effects when assignee changes or a member starts
+	// the issue by moving it to in_progress.
+	if assigneeChanged || (statusChanged && actorType == "member" && service.IssueStatusStartsWork(issue.Status)) {
 		if err := h.IssueAssignmentService.AfterIssueAssigned(ctx, prevIssue, issue,
 			service.AssignmentActor{Type: actorType, ID: parseUUID(actorID)},
 			service.RuntimeSelection{Policy: runtimeSelectionPolicy, RuntimeID: runtimePreference},
@@ -2469,25 +2489,9 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Trigger the assigned agent when a member moves an issue out of backlog.
-	// Backlog acts as a parking lot — moving to an active status signals the
-	// issue is ready for work.
-	if statusChanged && !assigneeChanged && actorType == "member" &&
-		prevIssue.Status == "backlog" && issue.Status != "done" && issue.Status != "cancelled" {
-		if h.isAgentAssigneeReady(r.Context(), issue) {
-			runtimeIDOverride := runtimePreference
-			h.TaskService.EnqueueTaskForIssue(r.Context(), issue, pgtype.UUID{}, runtimeIDOverride)
-		}
-		if h.isSquadLeaderReady(r.Context(), issue) {
-			h.enqueueSquadLeaderTask(r.Context(), issue, pgtype.UUID{}, actorType, actorID)
-		}
-	}
-
-	// Cancel active tasks when the issue is cancelled by a user.
-	// This is distinct from agent-managed status transitions — cancellation
-	// is a user-initiated terminal action that should stop execution.
-	if statusChanged && issue.Status == "cancelled" {
-		h.TaskService.CancelTasksForIssue(r.Context(), issue.ID)
+	// Stop execution when the issue leaves an active work status.
+	if statusChanged && !service.IssueStatusStartsWork(issue.Status) {
+		h.stopIssueExecution(r.Context(), issue)
 	}
 
 	// Platform-driven parent notification: when this issue transitions into
@@ -2501,6 +2505,56 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func issueCreateStatusForAssignee(assigneeType pgtype.Text, assigneeID pgtype.UUID) string {
+	if issueHasAssignee(assigneeType, assigneeID) {
+		return "todo"
+	}
+	return "backlog"
+}
+
+func issueHasAssignee(assigneeType pgtype.Text, assigneeID pgtype.UUID) bool {
+	return assigneeType.Valid && assigneeType.String != "" && assigneeID.Valid
+}
+
+func applyIssueStateMachine(prevIssue db.MulticaIssue, params *db.UpdateIssueParams, statusTouched bool, assigneeTouched bool) string {
+	nextStatus := prevIssue.Status
+	if params.Status.Valid {
+		nextStatus = params.Status.String
+	}
+
+	if assigneeTouched && prevIssue.Status == "backlog" && !statusTouched && issueHasAssignee(params.AssigneeType, params.AssigneeID) {
+		params.Status = pgtype.Text{String: "todo", Valid: true}
+		return ""
+	}
+
+	if assigneeTouched && !issueHasAssignee(params.AssigneeType, params.AssigneeID) {
+		params.Status = pgtype.Text{String: "backlog", Valid: true}
+		params.WorkflowID = pgtype.UUID{}
+		params.WorkflowRunID = pgtype.UUID{}
+		params.StageID = pgtype.UUID{}
+		return ""
+	}
+
+	if nextStatus == "backlog" {
+		params.AssigneeType = pgtype.Text{}
+		params.AssigneeID = pgtype.UUID{}
+		params.WorkflowID = pgtype.UUID{}
+		params.WorkflowRunID = pgtype.UUID{}
+		params.StageID = pgtype.UUID{}
+		return ""
+	}
+
+	if prevIssue.Status == "backlog" && !issueHasAssignee(params.AssigneeType, params.AssigneeID) {
+		return "please assign the task first"
+	}
+
+	if nextStatus == "todo" && !issueHasAssignee(params.AssigneeType, params.AssigneeID) {
+		return "please assign the task first"
+	}
+
+	return ""
 }
 
 // validateAssigneePair verifies the (assignee_type, assignee_id) pair refers
@@ -2552,11 +2606,8 @@ func (h *Handler) validateAssigneePair(ctx context.Context, r *http.Request, wor
 	return http.StatusInternalServerError, "failed to validate assignee"
 }
 
-// shouldEnqueueAgentTask returns true when an issue creation or assignment
-// should trigger the assigned agent. Backlog issues are skipped — backlog
-// acts as a parking lot where issues can be pre-assigned without immediately
-// triggering execution. Moving out of backlog is handled separately in
-// UpdateIssue.
+// shouldEnqueueAgentTask returns true when an issue is ready to trigger the
+// assigned agent.
 // startDefaultWorkflowRunForIssue starts a default-workflow run for an
 // agent/member/squad-assigned issue when Gitea is configured, stamping the run
 // onto the issue so the execution panel + WS events resolve it. For agent/squad
@@ -2592,8 +2643,18 @@ func (h *Handler) startDefaultWorkflowRunForIssue(ctx context.Context, issue db.
 	return run.ID, true
 }
 
+func (h *Handler) stopIssueExecution(ctx context.Context, issue db.MulticaIssue) {
+	h.TaskService.CancelTasksForIssue(ctx, issue.ID)
+	if issue.WorkflowRunID.Valid {
+		if err := h.WorkflowService.CancelRun(ctx, issue.WorkflowRunID); err != nil {
+			slog.Warn("failed to cancel workflow run after issue left in_progress",
+				"issue_id", uuidToString(issue.ID), "workflow_run_id", uuidToString(issue.WorkflowRunID), "error", err)
+		}
+	}
+}
+
 func (h *Handler) shouldEnqueueAgentTask(ctx context.Context, issue db.MulticaIssue) bool {
-	if issue.Status == "backlog" {
+	if !service.IssueStatusStartsWork(issue.Status) {
 		return false
 	}
 	return h.isAgentAssigneeReady(ctx, issue)
@@ -2604,6 +2665,9 @@ func (h *Handler) shouldEnqueueAgentTask(ctx context.Context, issue db.MulticaIs
 // conversational and can happen at any stage, including after completion
 // (e.g. follow-up questions on a done issue).
 func (h *Handler) shouldEnqueueOnComment(ctx context.Context, issue db.MulticaIssue) bool {
+	if !service.IssueStatusStartsWork(issue.Status) {
+		return false
+	}
 	if !h.isAgentAssigneeReady(ctx, issue) {
 		return false
 	}
@@ -2969,6 +3033,10 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 			params.StageID = stageID
 		}
 
+		if applyIssueStateMachine(prevIssue, &params, req.Updates.Status != nil, batchTouchedType || batchTouchedID) != "" {
+			continue
+		}
+
 		// Validate the resulting assignee pair when this batch update touches
 		// either assignee field. Skip the issue silently on failure.
 		if batchTouchedType || batchTouchedID {
@@ -2987,9 +3055,8 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 		resp := issueToResponse(issue, prefix)
 		actorType, actorID := h.resolveActor(r, userID, workspaceID)
 
-		assigneeChanged := (req.Updates.AssigneeType != nil || req.Updates.AssigneeID != nil) &&
-			(prevIssue.AssigneeType.String != issue.AssigneeType.String || uuidToString(prevIssue.AssigneeID) != uuidToString(issue.AssigneeID))
-		statusChanged := req.Updates.Status != nil && prevIssue.Status != issue.Status
+		assigneeChanged := prevIssue.AssigneeType.String != issue.AssigneeType.String || uuidToString(prevIssue.AssigneeID) != uuidToString(issue.AssigneeID)
+		statusChanged := prevIssue.Status != issue.Status
 		priorityChanged := req.Updates.Priority != nil && prevIssue.Priority != issue.Priority
 
 		h.publish(protocol.EventIssueUpdated, workspaceID, actorType, actorID, map[string]any{
@@ -2999,32 +3066,24 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 			"priority_changed": priorityChanged,
 		})
 
-		if assigneeChanged {
-			h.TaskService.CancelTasksForIssue(r.Context(), issue.ID)
-			if h.shouldEnqueueAgentTask(r.Context(), issue) {
-				runtimeIDOverride := parseOptionalRuntimeID(req.Updates.RuntimeID)
-				h.TaskService.EnqueueTaskForIssue(r.Context(), issue, pgtype.UUID{}, runtimeIDOverride)
+		if assigneeChanged || (statusChanged && actorType == "member" && service.IssueStatusStartsWork(issue.Status)) {
+			runtimeSelectionPolicy := ""
+			if req.Updates.RuntimeSelectionPolicy != nil {
+				runtimeSelectionPolicy = *req.Updates.RuntimeSelectionPolicy
 			}
-			if h.shouldEnqueueSquadLeaderOnAssign(r.Context(), issue) {
-				h.enqueueSquadLeaderTask(r.Context(), issue, pgtype.UUID{}, actorType, actorID)
-			}
-		}
-
-		// Trigger agent when moving out of backlog (batch).
-		if statusChanged && !assigneeChanged && actorType == "member" &&
-			prevIssue.Status == "backlog" && issue.Status != "done" && issue.Status != "cancelled" {
-			if h.isAgentAssigneeReady(r.Context(), issue) {
-				runtimeIDOverride := parseOptionalRuntimeID(req.Updates.RuntimeID)
-				h.TaskService.EnqueueTaskForIssue(r.Context(), issue, pgtype.UUID{}, runtimeIDOverride)
-			}
-			if h.isSquadLeaderReady(r.Context(), issue) {
-				h.enqueueSquadLeaderTask(r.Context(), issue, pgtype.UUID{}, actorType, actorID)
+			if err := h.IssueAssignmentService.AfterIssueAssigned(r.Context(), prevIssue, issue,
+				service.AssignmentActor{Type: actorType, ID: parseUUID(actorID)},
+				service.RuntimeSelection{
+					Policy:    runtimeSelectionPolicy,
+					RuntimeID: parseOptionalRuntimeID(req.Updates.RuntimeID),
+				},
+			); err != nil {
+				slog.Warn("issue assignment side effects failed", "issue_id", uuidToString(issue.ID), "error", err)
 			}
 		}
 
-		// Cancel active tasks when the issue is cancelled by a user.
-		if statusChanged && issue.Status == "cancelled" {
-			h.TaskService.CancelTasksForIssue(r.Context(), issue.ID)
+		if statusChanged && !service.IssueStatusStartsWork(issue.Status) {
+			h.stopIssueExecution(r.Context(), issue)
 		}
 
 		// Platform-driven parent notification, mirrored from UpdateIssue

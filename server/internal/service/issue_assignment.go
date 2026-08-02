@@ -44,6 +44,10 @@ type IssueAssignmentService struct {
 	Hooks     IssueAssignmentHooks
 }
 
+func IssueStatusStartsWork(status string) bool {
+	return status == "in_progress"
+}
+
 func (s *IssueAssignmentService) ValidateAssignee(
 	ctx context.Context,
 	q *db.Queries,
@@ -126,15 +130,15 @@ func (s *IssueAssignmentService) AfterIssueAssigned(
 			slog.Warn("failed to cancel workflow run on reassign", "error", err)
 		}
 	}
+	if !IssueStatusStartsWork(issue.Status) {
+		return nil
+	}
 	if !issue.AssigneeType.Valid || !issue.AssigneeID.Valid {
 		return nil
 	}
 
 	switch issue.AssigneeType.String {
 	case "agent":
-		if issue.Status == "backlog" {
-			return nil
-		}
 		agent, err := s.Queries.GetAgent(ctx, issue.AssigneeID)
 		if err != nil || agent.ArchivedAt.Valid || (!agent.RuntimeID.Valid && !agent.IsBuiltin) {
 			return nil
@@ -145,9 +149,6 @@ func (s *IssueAssignmentService) AfterIssueAssigned(
 		_, err = s.Tasks.EnqueueTaskForIssue(ctx, issue, pgtype.UUID{}, runtimeSelection.RuntimeID)
 		return err
 	case "squad":
-		if issue.Status == "backlog" {
-			return nil
-		}
 		squad, err := s.Queries.GetSquadInWorkspace(ctx, db.GetSquadInWorkspaceParams{ID: issue.AssigneeID, WorkspaceID: issue.WorkspaceID})
 		if err != nil {
 			return nil

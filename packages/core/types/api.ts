@@ -58,6 +58,8 @@ export interface ListIssuesParams {
   assignee_id?: string;
   assignee_ids?: string[];
   creator_id?: string;
+  /** Filter to issues whose responsible user (accountable owner) is this user. */
+  responsible_user_id?: string;
   project_id?: string;
   /**
    * Widen the assignee filter to issues where the user is the *indirect*
@@ -98,6 +100,8 @@ export interface ListGroupedIssuesParams {
   assignee_id?: string;
   assignee_ids?: string[];
   creator_id?: string;
+  /** Filter to issues whose responsible user (accountable owner) is this user. */
+  responsible_user_id?: string;
   project_id?: string;
   /** See `ListIssuesParams.involves_user_id` — same semantics. */
   involves_user_id?: string;

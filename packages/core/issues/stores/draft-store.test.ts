@@ -5,7 +5,7 @@ const RESET_STATE = {
   draft: {
     title: "",
     description: "",
-    status: "todo" as const,
+    status: "backlog" as const,
     priority: "none" as const,
     assigneeType: undefined,
     assigneeId: undefined,

@@ -4,7 +4,8 @@
     "breadcrumb_workspace_fallback": "Workspace",
     "empty_title": "No issues yet",
     "empty_hint": "Create an issue to get started.",
-    "move_failed": "Failed to move issue"
+    "move_failed": "Failed to move issue",
+    "assign_first": "Please assign the task first."
   },
   "status": {
     "backlog": "Backlog",
@@ -676,13 +677,13 @@
   },
   "backlog_hint": {
     "title": "Digital Human is paused in Backlog",
-    "description": "This issue is parked, so the assigned digital human will wait. Move it to Todo when you want the digital human to start.",
+    "description": "This issue is parked, so the assigned digital human will wait. Move it to In Progress when you want the digital human to start.",
     "row_backlog_label": "Backlog",
     "row_backlog_hint": "keeps the digital human paused",
-    "row_todo_label": "Todo",
-    "row_todo_hint": "starts the digital human",
+    "row_in_progress_label": "In Progress",
+    "row_in_progress_hint": "starts the digital human",
     "dont_show_again": "Don't show this again",
     "keep_in_backlog": "Keep in Backlog",
-    "move_to_todo": "Move to Todo"
+    "move_to_in_progress": "Move to In Progress"
   }
 }

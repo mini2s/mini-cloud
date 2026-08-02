@@ -190,7 +190,7 @@ export function ManualCreatePanel({
   const updateIssueMutation = useUpdateIssue();
   const resetForNextIssue = () => {
     setTitle("");
-    setStatus("todo");
+    setStatus("backlog");
     setPriority("none");
     setStartDate(null);
     setDueDate(null);
@@ -205,7 +205,7 @@ export function ManualCreatePanel({
     setDraft({
       title: "",
       description: "",
-      status: "todo",
+      status: "backlog",
       priority: "none",
       assigneeType,
       assigneeId,
@@ -230,10 +230,11 @@ export function ManualCreatePanel({
     }
     setSubmitting(true);
     try {
+      const submitStatus: IssueStatus = assigneeType && assigneeId ? "todo" : "backlog";
       const issue = await createIssueMutation.mutateAsync({
         title: title.trim(),
         description: descEditorRef.current?.getMarkdown()?.trim() || undefined,
-        status,
+        status: submitStatus,
         priority,
         assignee_type: assigneeType,
         assignee_id: assigneeId,
@@ -387,9 +388,9 @@ export function ManualCreatePanel({
             onDismissPermanently={() => {
               localStorage.setItem("multica:backlog-agent-hint-dismissed", "true");
             }}
-            onMoveToTodo={() => {
+            onMoveToInProgress={() => {
               updateIssueMutation.mutate(
-                { id: backlogHintIssueId, status: "todo" },
+                { id: backlogHintIssueId, status: "in_progress" },
                 {
                   onError: (err) =>
                     toast.error(

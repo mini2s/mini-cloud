@@ -8,11 +8,13 @@
   "header": {
     "scope": {
       "all_label": "All",
-      "all_description": "Assigned to me, created by me, or involving my digital humans and squads",
+      "all_description": "Assigned to me, created by me, that I'm responsible for, or involving my digital humans and squads",
       "assigned_label": "Assigned",
       "assigned_description": "Issues assigned to me",
       "created_label": "Created",
       "created_description": "Issues I created",
+      "responsible_label": "Responsible",
+      "responsible_description": "Issues I am the responsible owner of",
       "agents_label": "My Digital Humans and Squads",
       "agents_description": "Issues assigned to my digital humans"
     },

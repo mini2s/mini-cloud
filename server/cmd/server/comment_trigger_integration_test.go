@@ -118,29 +118,35 @@ func latestTriggerCommentID(t *testing.T, issueID string) string {
 // getAgentID returns the ID of the first agent in the test workspace.
 func getAgentID(t *testing.T) string {
 	t.Helper()
-	resp := authRequest(t, "GET", "/api/agents?workspace_id="+testWorkspaceID, nil)
-	var agents []map[string]any
-	readJSON(t, resp, &agents)
-	if len(agents) == 0 {
-		t.Fatal("no agents in test workspace")
+	var id string
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT id::text
+		FROM multica_agent
+		WHERE workspace_id = $1
+		  AND runtime_id IS NOT NULL
+		  AND archived_at IS NULL
+		ORDER BY created_at ASC
+		LIMIT 1
+	`, testWorkspaceID).Scan(&id); err != nil {
+		t.Fatalf("no runtime-backed agent in test workspace: %v", err)
 	}
-	return agents[0]["id"].(string)
+	return id
 }
 
 // createSecondAgent creates a second agent in the test workspace and returns its ID.
 // It reuses the same runtime as the first agent.
 func createSecondAgent(t *testing.T) string {
 	t.Helper()
-	// Fetch the first agent to get its runtime_id.
-	resp := authRequest(t, "GET", "/api/agents?workspace_id="+testWorkspaceID, nil)
-	var agents []map[string]any
-	readJSON(t, resp, &agents)
-	if len(agents) == 0 {
-		t.Fatal("no agents in test workspace")
+	var runtimeID string
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT runtime_id::text
+		FROM multica_agent
+		WHERE id = $1
+	`, getAgentID(t)).Scan(&runtimeID); err != nil {
+		t.Fatalf("load runtime for second agent fixture: %v", err)
 	}
-	runtimeID := agents[0]["runtime_id"].(string)
 
-	resp = authRequest(t, "POST", "/api/agents?workspace_id="+testWorkspaceID, map[string]any{
+	resp := authRequest(t, "POST", "/api/agents?workspace_id="+testWorkspaceID, map[string]any{
 		"name":       "Second Test Agent",
 		"runtime_id": runtimeID,
 		"visibility": "workspace",
@@ -159,7 +165,7 @@ func createSecondAgent(t *testing.T) string {
 	return id
 }
 
-// createIssueAssignedToAgent creates a todo issue assigned to the given agent.
+// createIssueAssignedToAgent creates an in-progress issue assigned to the given agent.
 func createIssueAssignedToAgent(t *testing.T, title, agentID string) string {
 	t.Helper()
 	resp := authRequest(t, "PUT", fmt.Sprintf("/api/issues/%s", createIssue(t, title)), map[string]any{
@@ -171,12 +177,13 @@ func createIssueAssignedToAgent(t *testing.T, title, agentID string) string {
 	return issue["id"].(string)
 }
 
-// createIssue creates a basic todo issue and returns its ID.
+// createIssue creates a basic in-progress issue and returns its ID.
 func createIssue(t *testing.T, title string) string {
 	t.Helper()
 	resp := authRequest(t, "POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
-		"title":  title,
-		"status": "todo",
+		"title":               title,
+		"status":              "in_progress",
+		"responsible_user_id": testUserID,
 	})
 	if resp.StatusCode != 201 {
 		body, _ := io.ReadAll(resp.Body)
@@ -397,9 +404,9 @@ func TestCommentTriggerAtAllSuppression(t *testing.T) {
 	})
 }
 
-// TestCommentTriggerOnAssignNoStatusGate verifies that assigning an agent to
-// a non-todo issue still triggers the agent (status gate was removed).
-func TestCommentTriggerOnAssignNoStatusGate(t *testing.T) {
+// TestCommentTriggerOnAssignRequiresInProgress verifies that assigning an agent
+// only triggers when the issue is already in progress.
+func TestCommentTriggerOnAssignRequiresInProgress(t *testing.T) {
 	agentID := getAgentID(t)
 
 	// Create an in_progress issue.
@@ -415,7 +422,7 @@ func TestCommentTriggerOnAssignNoStatusGate(t *testing.T) {
 		resp.Body.Close()
 	})
 
-	// Assign the agent — should trigger despite non-todo status.
+	// Assign the agent. In-progress is the only status that starts work.
 	resp = authRequest(t, "PUT", "/api/issues/"+issueID, map[string]any{
 		"assignee_type": "agent",
 		"assignee_id":   agentID,
@@ -432,9 +439,9 @@ func TestCommentTriggerOnAssignNoStatusGate(t *testing.T) {
 	}
 }
 
-// TestCommentTriggerOnMentionNoStatusGate verifies that @mentioning an agent
-// on a done issue still triggers the agent (no status gate on on_mention).
-func TestCommentTriggerOnMentionNoStatusGate(t *testing.T) {
+// TestCommentTriggerOnMentionRequiresInProgress verifies that @mentioning an
+// agent on a done issue keeps execution idle.
+func TestCommentTriggerOnMentionRequiresInProgress(t *testing.T) {
 	agentID := getAgentID(t)
 
 	// Create a done issue (not assigned to agent).
@@ -450,12 +457,12 @@ func TestCommentTriggerOnMentionNoStatusGate(t *testing.T) {
 		resp.Body.Close()
 	})
 
-	// @mention the agent on a done issue — should still trigger.
+	// @mention the agent on a done issue. It should not start execution.
 	content := fmt.Sprintf("[@Agent](mention://agent/%s) found a problem here", agentID)
 	postComment(t, issueID, content, nil)
 
-	if n := countPendingTasks(t, issueID); n != 1 {
-		t.Errorf("expected 1 pending task after @mention on done issue, got %d", n)
+	if n := countPendingTasks(t, issueID); n != 0 {
+		t.Errorf("expected 0 pending tasks after @mention on done issue, got %d", n)
 	}
 }
 
@@ -604,9 +611,7 @@ func TestCommentTriggerCoalescing(t *testing.T) {
 }
 
 // TestCommentTriggerMentionAssigneeDoneIssue verifies that @mentioning the
-// assigned agent on a done issue still triggers execution. Previously the
-// assignee was unconditionally skipped in the mention path (assuming
-// on_comment handled it), but on_comment is suppressed for terminal statuses.
+// assigned agent on a done issue keeps execution idle.
 func TestCommentTriggerMentionAssigneeDoneIssue(t *testing.T) {
 	agentID := getAgentID(t)
 
@@ -624,11 +629,11 @@ func TestCommentTriggerMentionAssigneeDoneIssue(t *testing.T) {
 		resp.Body.Close()
 	})
 
-	// @mention the assigned agent on the done issue — should trigger.
+	// @mention the assigned agent on the done issue. It should not start execution.
 	content := fmt.Sprintf("[@Agent](mention://agent/%s) reopen this please", agentID)
 	postComment(t, issueID, content, nil)
 
-	if n := countPendingTasks(t, issueID); n != 1 {
-		t.Errorf("expected 1 pending task after @mention of assignee on done issue, got %d", n)
+	if n := countPendingTasks(t, issueID); n != 0 {
+		t.Errorf("expected 0 pending tasks after @mention of assignee on done issue, got %d", n)
 	}
 }

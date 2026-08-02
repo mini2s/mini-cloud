@@ -82,8 +82,8 @@ func newSquadCommentTriggerFixture(t *testing.T) squadCommentTriggerFixture {
 
 	var issueID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO multica_issue (workspace_id, creator_type, creator_id, title, assignee_type, assignee_id)
-		VALUES ($1, 'member', $2, $3, 'squad', $4)
+		INSERT INTO multica_issue (workspace_id, creator_type, creator_id, title, status, assignee_type, assignee_id)
+		VALUES ($1, 'member', $2, $3, 'in_progress', 'squad', $4)
 		RETURNING id
 	`, testWorkspaceID, testUserID, "squad comment trigger", squadID).Scan(&issueID); err != nil {
 		t.Fatalf("create issue: %v", err)

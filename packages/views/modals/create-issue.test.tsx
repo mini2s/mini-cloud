@@ -33,7 +33,7 @@ const mockDraftStore = {
   draft: {
     title: "",
     description: "",
-    status: "todo" as const,
+    status: "backlog" as const,
     priority: "none" as const,
     assigneeType: undefined as "agent" | "squad" | "member" | undefined,
     assigneeId: undefined as string | undefined,
@@ -356,7 +356,7 @@ describe("CreateIssueModal", () => {
       id: "issue-123",
       identifier: "TES-123",
       title: "Ship create issue regression coverage",
-      status: "todo",
+      status: "backlog",
     });
   });
 
@@ -415,7 +415,7 @@ describe("CreateIssueModal", () => {
       expect(mockCreateIssue).toHaveBeenCalledWith({
         title: "Ship create issue regression coverage",
         description: undefined,
-        status: "todo",
+        status: "backlog",
         priority: "none",
         assignee_type: undefined,
         assignee_id: undefined,
@@ -465,7 +465,7 @@ describe("CreateIssueModal", () => {
       expect(mockCreateIssue).toHaveBeenCalledWith({
         title: "First follow-up issue",
         description: "Description to clear",
-        status: "todo",
+        status: "backlog",
         priority: "none",
         assignee_type: undefined,
         assignee_id: undefined,
@@ -486,7 +486,7 @@ describe("CreateIssueModal", () => {
     expect(mockSetDraft).toHaveBeenCalledWith({
       title: "",
       description: "",
-      status: "todo",
+      status: "backlog",
       priority: "none",
       assigneeType: undefined,
       assigneeId: undefined,
@@ -507,6 +507,7 @@ describe("CreateIssueModal", () => {
 
     await waitFor(() => {
       expect(mockCreateIssue).toHaveBeenCalledWith(expect.objectContaining({
+        status: "todo",
         responsible_user_id: "member-2",
         assignee_type: "workflow",
         assignee_id: "workflow-1",

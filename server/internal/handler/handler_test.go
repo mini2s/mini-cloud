@@ -285,9 +285,11 @@ func TestIssueCRUD(t *testing.T) {
 	// Create
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
-		"title":    "Test issue from Go test",
-		"status":   "todo",
-		"priority": "medium",
+		"title":         "Test issue from Go test",
+		"status":        "todo",
+		"priority":      "medium",
+		"assignee_type": "member",
+		"assignee_id":   testUserID,
 	})
 	testHandler.CreateIssue(w, req)
 	if w.Code != http.StatusCreated {
@@ -463,10 +465,9 @@ func TestDeleteIssueRejectsInvalidUUID(t *testing.T) {
 	}
 }
 
-// TestCreateIssueDefaultStatusIsTodo verifies that issues created without an
-// explicit status default to "todo" so the daemon picks them up immediately.
-// Before this fix the default was "backlog", which daemons ignore.
-func TestCreateIssueDefaultStatusIsTodo(t *testing.T) {
+// TestCreateIssueDefaultStatusIsBacklog verifies that manually-created issues
+// start in backlog unless the caller explicitly asks for another status.
+func TestCreateIssueDefaultStatusIsBacklog(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
 		"title": "Issue with no explicit status",
@@ -478,11 +479,34 @@ func TestCreateIssueDefaultStatusIsTodo(t *testing.T) {
 
 	var created IssueResponse
 	json.NewDecoder(w.Body).Decode(&created)
-	if created.Status != "todo" {
-		t.Fatalf("CreateIssue: expected default status 'todo', got '%s'", created.Status)
+	if created.Status != "backlog" {
+		t.Fatalf("CreateIssue: expected default status 'backlog', got '%s'", created.Status)
 	}
 
 	// Cleanup
+	cleanupReq := newRequest("DELETE", "/api/issues/"+created.ID, nil)
+	cleanupReq = withURLParam(cleanupReq, "id", created.ID)
+	testHandler.DeleteIssue(httptest.NewRecorder(), cleanupReq)
+}
+
+func TestCreateIssueAssignedDefaultsToTodo(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":         "Assigned issue with implicit status",
+		"assignee_type": "member",
+		"assignee_id":   testUserID,
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var created IssueResponse
+	json.NewDecoder(w.Body).Decode(&created)
+	if created.Status != "todo" {
+		t.Fatalf("CreateIssue: assigned issue should default to todo, got %q", created.Status)
+	}
+
 	cleanupReq := newRequest("DELETE", "/api/issues/"+created.ID, nil)
 	cleanupReq = withURLParam(cleanupReq, "id", created.ID)
 	testHandler.DeleteIssue(httptest.NewRecorder(), cleanupReq)
@@ -1560,6 +1584,212 @@ func TestUpdateIssueAllowsExplicitUnassign(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&updated)
 	if updated.AssigneeType != nil || updated.AssigneeID != nil {
 		t.Fatalf("UpdateIssue: expected assignee cleared, got type=%v id=%v", updated.AssigneeType, updated.AssigneeID)
+	}
+}
+
+func TestUpdateIssueRejectsUnassignedBacklogMoveOut(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title": "Unassigned backlog cannot leave",
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var created IssueResponse
+	json.NewDecoder(w.Body).Decode(&created)
+	defer func() {
+		cleanupReq := newRequest("DELETE", "/api/issues/"+created.ID, nil)
+		cleanupReq = withURLParam(cleanupReq, "id", created.ID)
+		testHandler.DeleteIssue(httptest.NewRecorder(), cleanupReq)
+	}()
+
+	w = httptest.NewRecorder()
+	req = newRequest("PUT", "/api/issues/"+created.ID, map[string]any{
+		"status": "todo",
+	})
+	req = withURLParam(req, "id", created.ID)
+	testHandler.UpdateIssue(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("UpdateIssue: expected 400 moving unassigned backlog out, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateIssueAssigningBacklogMovesToTodo(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title": "Assign backlog issue",
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var created IssueResponse
+	json.NewDecoder(w.Body).Decode(&created)
+	defer func() {
+		cleanupReq := newRequest("DELETE", "/api/issues/"+created.ID, nil)
+		cleanupReq = withURLParam(cleanupReq, "id", created.ID)
+		testHandler.DeleteIssue(httptest.NewRecorder(), cleanupReq)
+	}()
+
+	w = httptest.NewRecorder()
+	req = newRequest("PUT", "/api/issues/"+created.ID, map[string]any{
+		"assignee_type": "member",
+		"assignee_id":   testUserID,
+	})
+	req = withURLParam(req, "id", created.ID)
+	testHandler.UpdateIssue(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("UpdateIssue: expected 200 assigning backlog, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var updated IssueResponse
+	json.NewDecoder(w.Body).Decode(&updated)
+	if updated.Status != "todo" {
+		t.Fatalf("UpdateIssue: assigning backlog should move to todo, got %q", updated.Status)
+	}
+}
+
+func TestUpdateIssueMovingToBacklogClearsAssignee(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":         "Assigned issue back to backlog",
+		"assignee_type": "member",
+		"assignee_id":   testUserID,
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var created IssueResponse
+	json.NewDecoder(w.Body).Decode(&created)
+	defer func() {
+		cleanupReq := newRequest("DELETE", "/api/issues/"+created.ID, nil)
+		cleanupReq = withURLParam(cleanupReq, "id", created.ID)
+		testHandler.DeleteIssue(httptest.NewRecorder(), cleanupReq)
+	}()
+
+	w = httptest.NewRecorder()
+	req = newRequest("PUT", "/api/issues/"+created.ID, map[string]any{
+		"status": "backlog",
+	})
+	req = withURLParam(req, "id", created.ID)
+	testHandler.UpdateIssue(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("UpdateIssue: expected 200 moving to backlog, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var updated IssueResponse
+	json.NewDecoder(w.Body).Decode(&updated)
+	if updated.Status != "backlog" {
+		t.Fatalf("UpdateIssue: expected backlog, got %q", updated.Status)
+	}
+	if updated.AssigneeType != nil || updated.AssigneeID != nil {
+		t.Fatalf("UpdateIssue: moving to backlog should clear assignee, got type=%v id=%v", updated.AssigneeType, updated.AssigneeID)
+	}
+}
+
+func TestUpdateIssueMovingToTodoStopsWorkflowAndTasks(t *testing.T) {
+	ctx := context.Background()
+
+	var agentID, runtimeID string
+	if err := testPool.QueryRow(ctx,
+		`SELECT id, runtime_id FROM multica_agent WHERE workspace_id = $1 AND runtime_id IS NOT NULL LIMIT 1`,
+		testWorkspaceID,
+	).Scan(&agentID, &runtimeID); err != nil {
+		t.Fatalf("failed to find test agent with runtime: %v", err)
+	}
+
+	wfID := createTestWorkflow(t)
+	stageID := createTestWorkflowStage(t, wfID)
+	nodeID := createTestWorkflowNodeWithStage(t, wfID, stageID)
+	activateTestWorkflow(t, wfID)
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(ctx, `DELETE FROM multica_workflow WHERE id = $1`, wfID)
+	})
+
+	var runID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_run (
+			workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id, input
+		)
+		VALUES ($1, $2, 'Todo stop run', 'running', 'member', $3, '{}'::jsonb)
+		RETURNING id
+	`, wfID, testWorkspaceID, testUserID).Scan(&runID); err != nil {
+		t.Fatalf("create workflow run: %v", err)
+	}
+
+	var nodeRunID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (
+			workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, critic_type, critic_id
+		)
+		VALUES ($1, $2, 'Todo stop node', 'working', 0, 'agent', $3, 'human', $4)
+		RETURNING id
+	`, runID, nodeID, agentID, testUserID).Scan(&nodeRunID); err != nil {
+		t.Fatalf("create workflow node run: %v", err)
+	}
+
+	createResp := httptest.NewRecorder()
+	createReq := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":         "Move in-progress workflow back to todo",
+		"assignee_type": "workflow",
+		"assignee_id":   wfID,
+	})
+	testHandler.CreateIssue(createResp, createReq)
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", createResp.Code, createResp.Body.String())
+	}
+	var created IssueResponse
+	json.NewDecoder(createResp.Body).Decode(&created)
+	t.Cleanup(func() {
+		cleanupReq := newRequest("DELETE", "/api/issues/"+created.ID, nil)
+		cleanupReq = withURLParam(cleanupReq, "id", created.ID)
+		testHandler.DeleteIssue(httptest.NewRecorder(), cleanupReq)
+	})
+
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_issue
+		SET status = 'in_progress', workflow_id = $1, workflow_run_id = $2, stage_id = $3
+		WHERE id = $4
+	`, wfID, runID, stageID, created.ID); err != nil {
+		t.Fatalf("stamp issue workflow execution: %v", err)
+	}
+
+	var taskID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_agent_task_queue (agent_id, runtime_id, issue_id, workflow_node_run_id, status, priority)
+		VALUES ($1, $2, $3, $4, 'running', 0)
+		RETURNING id
+	`, agentID, runtimeID, created.ID, nodeRunID).Scan(&taskID); err != nil {
+		t.Fatalf("create running task: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	req := newRequest("PUT", "/api/issues/"+created.ID, map[string]any{
+		"status": "todo",
+	})
+	req = withURLParam(req, "id", created.ID)
+	testHandler.UpdateIssue(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("UpdateIssue: expected 200 moving to todo, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var issueStatus, runStatus, nodeStatus, taskStatus string
+	if err := testPool.QueryRow(ctx, `SELECT status FROM multica_issue WHERE id = $1`, created.ID).Scan(&issueStatus); err != nil {
+		t.Fatalf("query issue status: %v", err)
+	}
+	if err := testPool.QueryRow(ctx, `SELECT status FROM multica_workflow_run WHERE id = $1`, runID).Scan(&runStatus); err != nil {
+		t.Fatalf("query workflow run status: %v", err)
+	}
+	if err := testPool.QueryRow(ctx, `SELECT status FROM multica_workflow_node_run WHERE id = $1`, nodeRunID).Scan(&nodeStatus); err != nil {
+		t.Fatalf("query workflow node run status: %v", err)
+	}
+	if err := testPool.QueryRow(ctx, `SELECT status FROM multica_agent_task_queue WHERE id = $1`, taskID).Scan(&taskStatus); err != nil {
+		t.Fatalf("query task status: %v", err)
+	}
+	if issueStatus != "todo" || runStatus != "cancelled" || nodeStatus != service.NodeRunStatusCancelled || taskStatus != "cancelled" {
+		t.Fatalf("moving to todo should stop execution, got issue=%s run=%s node=%s task=%s", issueStatus, runStatus, nodeStatus, taskStatus)
 	}
 }
 
@@ -2750,10 +2980,9 @@ func TestBacklogNoTriggerOnCreate(t *testing.T) {
 	testHandler.DeleteIssue(httptest.NewRecorder(), cleanupReq)
 }
 
-// TestBacklogToTodoTriggersAgent verifies that moving an agent-assigned issue
-// from "backlog" to "todo" enqueues exactly one agent task (none on creation,
-// one on status transition).
-func TestBacklogToTodoTriggersAgent(t *testing.T) {
+// TestOnlyInProgressTriggersAgent verifies that moving an agent-assigned issue
+// to "todo" keeps it idle, while moving it to "in_progress" starts work.
+func TestOnlyInProgressTriggersAgent(t *testing.T) {
 	ctx := context.Background()
 
 	var agentID string
@@ -2765,7 +2994,7 @@ func TestBacklogToTodoTriggersAgent(t *testing.T) {
 		t.Fatalf("failed to find test agent: %v", err)
 	}
 
-	// Create a backlog issue assigned to the agent — should NOT trigger.
+	// Create a backlog issue assigned to the agent. It should not trigger.
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
 		"title":         "Backlog trigger test",
@@ -2781,7 +3010,7 @@ func TestBacklogToTodoTriggersAgent(t *testing.T) {
 	var created IssueResponse
 	json.NewDecoder(w.Body).Decode(&created)
 
-	// Move the issue from backlog to todo — should trigger.
+	// Move the issue from backlog to todo. It should still stay idle.
 	w = httptest.NewRecorder()
 	req = newRequest("PUT", "/api/issues/"+created.ID, map[string]any{
 		"status": "todo",
@@ -2792,7 +3021,6 @@ func TestBacklogToTodoTriggersAgent(t *testing.T) {
 		t.Fatalf("UpdateIssue: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// Verify exactly one task was enqueued (from the status transition, not creation).
 	var taskCount int
 	err = testPool.QueryRow(ctx,
 		`SELECT count(*) FROM multica_agent_task_queue WHERE issue_id = $1 AND agent_id = $2 AND status = 'queued'`,
@@ -2801,8 +3029,29 @@ func TestBacklogToTodoTriggersAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to count tasks: %v", err)
 	}
+	if taskCount != 0 {
+		t.Fatalf("expected no tasks after backlog->todo transition, got %d", taskCount)
+	}
+
+	w = httptest.NewRecorder()
+	req = newRequest("PUT", "/api/issues/"+created.ID, map[string]any{
+		"status": "in_progress",
+	})
+	req = withURLParam(req, "id", created.ID)
+	testHandler.UpdateIssue(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("UpdateIssue in_progress: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	err = testPool.QueryRow(ctx,
+		`SELECT count(*) FROM multica_agent_task_queue WHERE issue_id = $1 AND agent_id = $2 AND status = 'queued'`,
+		created.ID, agentID,
+	).Scan(&taskCount)
+	if err != nil {
+		t.Fatalf("failed to count tasks after in_progress: %v", err)
+	}
 	if taskCount != 1 {
-		t.Fatalf("expected exactly 1 task after backlog->todo transition, got %d", taskCount)
+		t.Fatalf("expected exactly 1 task after moving to in_progress, got %d", taskCount)
 	}
 
 	// Cleanup
