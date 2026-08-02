@@ -514,18 +514,6 @@ function PageHeaderBar({
             {totalCount}
           </span>
         )}
-        {/* Tagline next to the title — mirrors Runtimes / Skills. */}
-        <p className="ml-2 hidden text-xs text-muted-foreground md:block">
-          {t(($) => $.page.tagline)}{" "}
-          <a
-            href="https://multica.ai/docs/agents"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline decoration-muted-foreground/30 underline-offset-4 transition-colors hover:text-foreground"
-          >
-            {t(($) => $.page.learn_more)}
-          </a>
-        </p>
       </div>
       <Button type="button" size="sm" onClick={onCreate}>
         <Plus className="h-3 w-3" />

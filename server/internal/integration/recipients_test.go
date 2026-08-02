@@ -45,11 +45,13 @@ func TestResolveRecipients(t *testing.T) {
 		bobID     = "22222222-2222-2222-2222-222222222222"
 		agentID   = "33333333-3333-3333-3333-333333333333"
 		creatorID = "44444444-4444-4444-4444-444444444444"
+		ownerID   = "55555555-5555-5555-5555-555555555555"
 	)
 	emails := map[string]string{
 		aliceID:   "alice@corp.com",
 		bobID:     "bob@corp.com",
 		creatorID: "creator@corp.com",
+		ownerID:   "owner@corp.com",
 	}
 
 	tests := []struct {
@@ -63,8 +65,6 @@ func TestResolveRecipients(t *testing.T) {
 			in: ResolveInput{
 				IssueID:     "issue-1",
 				Description: "please review " + mentionLink(aliceID),
-				CreatorType: "member",
-				CreatorID:   creatorID,
 			},
 			store: &fakeRecipientStore{emails: emails},
 			want:  []string{"alice@corp.com"},
@@ -74,8 +74,6 @@ func TestResolveRecipients(t *testing.T) {
 			in: ResolveInput{
 				IssueID:     "issue-1",
 				Description: "no mentions here",
-				CreatorType: "member",
-				CreatorID:   creatorID,
 			},
 			store: &fakeRecipientStore{
 				commentBodies: []string{"cc " + mentionLink(bobID)},
@@ -88,41 +86,35 @@ func TestResolveRecipients(t *testing.T) {
 			in: ResolveInput{
 				IssueID:     "issue-1",
 				Description: mentionLink(aliceID) + " and " + mentionLink(bobID) + " again " + mentionLink(aliceID),
-				CreatorType: "member",
-				CreatorID:   creatorID,
 			},
 			store: &fakeRecipientStore{emails: emails},
 			want:  []string{"alice@corp.com", "bob@corp.com"},
 		},
 		{
-			name: "agent-only mention falls back to creator",
+			name: "agent-only mention falls back to responsible member",
+			in: ResolveInput{
+				IssueID:           "issue-1",
+				Description:       "[@Bot](mention://agent/" + agentID + ")",
+				ResponsibleUserID: ownerID,
+			},
+			store: &fakeRecipientStore{emails: emails},
+			want:  []string{"owner@corp.com"},
+		},
+		{
+			name: "no mentions falls back to responsible member",
+			in: ResolveInput{
+				IssueID:           "issue-1",
+				Description:       "plain text",
+				ResponsibleUserID: ownerID,
+			},
+			store: &fakeRecipientStore{emails: emails},
+			want:  []string{"owner@corp.com"},
+		},
+		{
+			name: "missing responsible member with no member mentions yields no recipients",
 			in: ResolveInput{
 				IssueID:     "issue-1",
 				Description: "[@Bot](mention://agent/" + agentID + ")",
-				CreatorType: "member",
-				CreatorID:   creatorID,
-			},
-			store: &fakeRecipientStore{emails: emails},
-			want:  []string{"creator@corp.com"},
-		},
-		{
-			name: "no mentions falls back to creator",
-			in: ResolveInput{
-				IssueID:     "issue-1",
-				Description: "plain text",
-				CreatorType: "member",
-				CreatorID:   creatorID,
-			},
-			store: &fakeRecipientStore{emails: emails},
-			want:  []string{"creator@corp.com"},
-		},
-		{
-			name: "agent creator with no member mentions yields no recipients",
-			in: ResolveInput{
-				IssueID:     "issue-1",
-				Description: "[@Bot](mention://agent/" + agentID + ")",
-				CreatorType: "agent",
-				CreatorID:   agentID,
 			},
 			store: &fakeRecipientStore{emails: emails},
 			want:  nil,
@@ -132,8 +124,6 @@ func TestResolveRecipients(t *testing.T) {
 			in: ResolveInput{
 				IssueID:     "issue-1",
 				Description: mentionLink(aliceID) + " " + mentionLink(bobID),
-				CreatorType: "member",
-				CreatorID:   creatorID,
 				ActorType:   "member",
 				ActorID:     aliceID,
 			},
@@ -141,14 +131,13 @@ func TestResolveRecipients(t *testing.T) {
 			want:  []string{"bob@corp.com"},
 		},
 		{
-			name: "actor as fallback creator is excluded",
+			name: "actor as responsible fallback is excluded",
 			in: ResolveInput{
-				IssueID:     "issue-1",
-				Description: "plain text",
-				CreatorType: "member",
-				CreatorID:   creatorID,
-				ActorType:   "member",
-				ActorID:     creatorID,
+				IssueID:           "issue-1",
+				Description:       "plain text",
+				ResponsibleUserID: ownerID,
+				ActorType:         "member",
+				ActorID:           ownerID,
 			},
 			store: &fakeRecipientStore{emails: emails},
 			want:  nil,
@@ -158,8 +147,6 @@ func TestResolveRecipients(t *testing.T) {
 			in: ResolveInput{
 				IssueID:     "issue-1",
 				Description: mentionLink(aliceID),
-				CreatorType: "member",
-				CreatorID:   creatorID,
 				ActorType:   "system",
 				ActorID:     "",
 			},
@@ -171,8 +158,6 @@ func TestResolveRecipients(t *testing.T) {
 			in: ResolveInput{
 				IssueID:     "issue-1",
 				Description: mentionLink(aliceID) + " " + mentionLink("99999999-9999-9999-9999-999999999999"),
-				CreatorType: "member",
-				CreatorID:   creatorID,
 			},
 			store: &fakeRecipientStore{emails: emails},
 			want:  []string{"alice@corp.com"},
@@ -204,8 +189,6 @@ func TestResolveRecipients_StoreError(t *testing.T) {
 	_, err := ResolveRecipients(context.Background(), store, ResolveInput{
 		IssueID:     "issue-1",
 		Description: "text",
-		CreatorType: "member",
-		CreatorID:   "44444444-4444-4444-4444-444444444444",
 	})
 	if err == nil {
 		t.Fatal("expected error to propagate")

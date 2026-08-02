@@ -10,17 +10,17 @@ export interface GitlabDerivedSettings {
 }
 
 /**
- * Pure derivation from a workspace's settings JSONB. Defaults every flag to
- * false so workspaces must explicitly opt in to GitLab features.
+ * Pure derivation from a workspace's settings JSONB. The master switch defaults
+ * to on, while hidden sub-features require an explicit true.
  */
 export function deriveGitlabSettings(
   workspace: Pick<Workspace, "settings"> | null | undefined,
 ): GitlabDerivedSettings {
   const s = (workspace?.settings ?? {}) as Record<string, unknown>;
-  const enabled = s.gitlab_enabled === true;
+  const enabled = s.gitlab_enabled !== false;
   return {
     enabled,
-    mrSidebar: enabled && s.gitlab_mr_sidebar_enabled !== false,
-    autoLinkMRs: enabled && s.gitlab_auto_link_enabled !== false,
+    mrSidebar: enabled && s.gitlab_mr_sidebar_enabled === true,
+    autoLinkMRs: enabled && s.gitlab_auto_link_enabled === true,
   };
 }

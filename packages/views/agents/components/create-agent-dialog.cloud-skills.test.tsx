@@ -27,10 +27,6 @@ vi.mock("@multica/core/hooks", () => ({
   useWorkspaceId: () => "ws-1",
 }));
 
-vi.mock("./model-dropdown", () => ({
-  ModelDropdown: () => null,
-}));
-
 vi.mock("./plugin-select", () => ({
   PluginSelect: () => null,
 }));

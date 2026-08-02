@@ -156,13 +156,14 @@ func (s *AutopilotService) dispatchCreateIssue(ctx context.Context, ap db.Multic
 	}
 
 	issue, err := qtx.CreateIssueWithOrigin(ctx, db.CreateIssueWithOriginParams{
-		WorkspaceID:  ap.WorkspaceID,
-		Title:        title,
-		Description:  description,
-		Status:       "in_progress",
-		Priority:     "none",
-		AssigneeType: pgtype.Text{String: ap.AssigneeType, Valid: true},
-		AssigneeID:   ap.AssigneeID,
+		WorkspaceID:       ap.WorkspaceID,
+		Title:             title,
+		Description:       description,
+		Status:            "in_progress",
+		Priority:          "none",
+		AssigneeType:      pgtype.Text{String: ap.AssigneeType, Valid: true},
+		AssigneeID:        ap.AssigneeID,
+		ResponsibleUserID: s.autopilotResponsibleUser(ctx, ap),
 		// The agent that the autopilot dispatches to is the issue's creator,
 		// not the human who originally configured the autopilot. The latter
 		// is captured separately via origin_type=autopilot + origin_id. For
@@ -818,6 +819,19 @@ func autopilotActorID(ap db.MulticaAutopilot) string {
 		return id
 	}
 	return "system"
+}
+
+func (s *AutopilotService) autopilotResponsibleUser(ctx context.Context, ap db.MulticaAutopilot) pgtype.UUID {
+	if ap.CreatedByType == "member" {
+		return ap.CreatedByID
+	}
+	if ap.CreatedByType == "agent" && ap.CreatedByID.Valid {
+		agent, err := s.Queries.GetAgent(ctx, ap.CreatedByID)
+		if err == nil && agent.OwnerID.Valid {
+			return agent.OwnerID
+		}
+	}
+	return pgtype.UUID{}
 }
 
 func autopilotRunDurationMS(run db.MulticaAutopilotRun) int64 {

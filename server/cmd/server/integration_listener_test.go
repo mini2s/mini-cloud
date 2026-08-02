@@ -102,6 +102,13 @@ func issueResponseFor(issueID, description string) handler.IssueResponse {
 	}
 }
 
+func issueResponseForAssignee(issueID, description, assigneeType, assigneeID string) handler.IssueResponse {
+	issue := issueResponseFor(issueID, description)
+	issue.AssigneeType = &assigneeType
+	issue.AssigneeID = &assigneeID
+	return issue
+}
+
 func TestIntegrationListenerPushesStatusChangeToMentionedMember(t *testing.T) {
 	bus, received := newIntegrationBus(t)
 
@@ -134,8 +141,12 @@ func TestIntegrationListenerPushesStatusChangeToMentionedMember(t *testing.T) {
 	}
 }
 
-func TestIntegrationListenerFallsBackToCreatorWhenOnlyAgentMentioned(t *testing.T) {
+func TestIntegrationListenerFallsBackToMemberAssigneeWhenOnlyAgentMentioned(t *testing.T) {
 	bus, received := newIntegrationBus(t)
+
+	assigneeEmail := fmt.Sprintf("owner-%d@example.com", time.Now().UnixNano())
+	assigneeID := createTestUser(t, assigneeEmail)
+	t.Cleanup(func() { cleanupTestUser(t, assigneeEmail) })
 
 	issueID := createTestIssue(t, testWorkspaceID, testUserID)
 	defer cleanupTestIssue(t, issueID)
@@ -143,11 +154,11 @@ func TestIntegrationListenerFallsBackToCreatorWhenOnlyAgentMentioned(t *testing.
 	// An agent mention is not a human recipient — fall back to the creator
 	// (testUserID, whose email is integrationTestEmail).
 	desc := "[@Bot](mention://agent/33333333-3333-3333-3333-333333333333)"
-	publishIntegrationStatusChanged(bus, issueResponseFor(issueID, desc), "todo")
+	publishIntegrationStatusChanged(bus, issueResponseForAssignee(issueID, desc, "member", assigneeID), "todo")
 
 	env := awaitEnvelope(t, received)
-	if len(env.Recipients) != 1 || env.Recipients[0] != integrationTestEmail {
-		t.Fatalf("recipients = %v, want [%s]", env.Recipients, integrationTestEmail)
+	if len(env.Recipients) != 1 || env.Recipients[0] != assigneeEmail {
+		t.Fatalf("recipients = %v, want [%s]", env.Recipients, assigneeEmail)
 	}
 }
 

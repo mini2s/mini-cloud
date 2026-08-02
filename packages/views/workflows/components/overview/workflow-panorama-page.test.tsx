@@ -404,9 +404,9 @@ vi.mock("../../../i18n", () => {
       toast_default_saved: "Saved",
       toast_default_failed: "Failed",
       policy: {
-        specified_runtime_first: { title: "Specified runtime first", description: "Specified → idle → creator" },
-        idle_first: { title: "Idle runtime first", description: "Idle → creator" },
-        issue_creator_first: { title: "Issue creator first", description: "Creator → idle" },
+        specified_runtime_first: { title: "Specified runtime first", description: "Specified → idle → owner" },
+        idle_first: { title: "Idle runtime first", description: "Idle → owner" },
+        issue_creator_first: { title: "Issue owner first", description: "Owner → idle" },
       },
     },
     preflight: {

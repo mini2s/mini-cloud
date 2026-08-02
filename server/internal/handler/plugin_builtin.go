@@ -75,10 +75,14 @@ func (h *Handler) ListBuiltinPlugins(w http.ResponseWriter, r *http.Request) {
 	params := url.Values{}
 	params.Set("page", strconv.Itoa(page))
 	params.Set("pageSize", strconv.Itoa(pageSize))
-	path := "/api/plugins/builtin"
+	// Catalog exposes plugin listings under /api/items?type=plugin. The
+	// /api/plugins/builtin path returns an empty list on cloud-api (that
+	// endpoint does not exist), which silently emptied the picker and made
+	// every bound plugin show as "removed from marketplace". Use /api/items
+	// for both the unfiltered list and the search-filtered query.
+	path := "/api/items"
+	params.Set("type", "plugin")
 	if search != "" {
-		path = "/api/items"
-		params.Set("type", "plugin")
 		params.Set("search", search)
 	}
 

@@ -180,6 +180,7 @@ const IssueSchema = z.object({
   priority: z.string(),
   assignee_type: z.string().nullable(),
   assignee_id: z.string().nullable(),
+  responsible_user_id: z.string().nullable().default(null),
   creator_type: z.string(),
   creator_id: z.string(),
   parent_issue_id: z.string().nullable(),
@@ -1439,7 +1440,7 @@ export const EMPTY_MERGE_REQUESTS_RESPONSE = { merge_requests: [] };
 
 const GitlabSettingsSchema = z.object({
   configured: z.boolean().default(false),
-  enabled: z.boolean().default(false),
+  enabled: z.boolean().default(true),
   canManage: z.boolean().default(false),
   settings: z.object({
     mrSidebarEnabled: z.boolean().default(false),
@@ -1451,7 +1452,7 @@ export const GitlabSettingsResponseSchema = GitlabSettingsSchema;
 
 export const EMPTY_GITLAB_SETTINGS_RESPONSE = {
   configured: false,
-  enabled: false,
+  enabled: true,
   canManage: false,
   settings: {
     mrSidebarEnabled: false,

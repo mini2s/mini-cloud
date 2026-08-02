@@ -143,6 +143,23 @@ describe("AssigneePicker agentFilter", () => {
     expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
   });
 
+  it("can use a context-specific empty trigger label without changing the unassigned option", () => {
+    render(
+      <AssigneePicker
+        assigneeType={null}
+        assigneeId={null}
+        allowUnassigned={false}
+        emptyTriggerLabel="Responsible member"
+        open
+        onOpenChange={vi.fn()}
+        onUpdate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Responsible member")).toBeInTheDocument();
+    expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
+  });
+
   it("filters agent picker options without changing saved assignee rendering", () => {
     render(
       <AssigneePicker

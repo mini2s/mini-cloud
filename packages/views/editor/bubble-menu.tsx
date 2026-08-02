@@ -32,8 +32,11 @@ import { useEditorState } from "@tiptap/react";
 import type { Editor } from "@tiptap/core";
 import { posToDOMRect } from "@tiptap/core";
 import { NodeSelection } from "@tiptap/pm/state";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useCreateIssue } from "@multica/core/issues/mutations";
+import { issueDetailOptions } from "@multica/core/issues/queries";
+import { useWorkspaceId } from "@multica/core/hooks";
 import { useT } from "../i18n";
 import { modKey } from "@multica/core/platform";
 import { Toggle } from "@multica/ui/components/ui/toggle";
@@ -367,8 +370,13 @@ function CreateSubIssueButton({
   parentIssueId: string;
 }) {
   const { t } = useT("editor");
+  const wsId = useWorkspaceId();
   const createIssue = useCreateIssue();
   const [pending, setPending] = useState(false);
+  const { data: parentIssue } = useQuery({
+    ...issueDetailOptions(wsId, parentIssueId),
+    enabled: !!parentIssueId,
+  });
 
   const handleClick = useCallback(async () => {
     if (pending) return;
@@ -380,12 +388,16 @@ function CreateSubIssueButton({
     const rawTitle = editor.state.doc.textBetween(from, to, " ", " ").trim();
     const title = rawTitle.replace(/\s+/g, " ").slice(0, 200);
     if (!title) return;
+    if (!parentIssue?.responsible_user_id) return;
 
     setPending(true);
     try {
       const newIssue = await createIssue.mutateAsync({
         title,
         parent_issue_id: parentIssueId,
+        assignee_type: parentIssue.assignee_type ?? undefined,
+        assignee_id: parentIssue.assignee_id ?? undefined,
+        responsible_user_id: parentIssue.responsible_user_id,
       });
       editor
         .chain()
@@ -415,7 +427,7 @@ function CreateSubIssueButton({
     } finally {
       setPending(false);
     }
-  }, [editor, parentIssueId, createIssue, pending, t]);
+  }, [editor, parentIssueId, parentIssue?.assignee_type, parentIssue?.assignee_id, createIssue, pending, t]);
 
   return (
     <Tooltip>
