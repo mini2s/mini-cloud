@@ -114,6 +114,7 @@
     "repos_url_placeholder": "https://github.com/owner/repo 或 git@github.com:owner/repo.git"
   },
   "create_issue": {
+    "run_task": "立即运行",
     "sr_manual": "新建任务",
     "sr_agent": "快速创建任务",
     "manual_breadcrumb": "手动创建",
@@ -126,6 +127,8 @@
     "project_required_detail": "请先选择项目。每个任务都必须归属到一个项目。",
     "responsible_aria": "负责人",
     "responsible_empty_label": "责任人",
+    "assignee_aria": "处理人",
+    "assignee_empty_label": "处理人",
     "responsible_required_detail": "请先选择负责人。每个任务都必须有负责人。",
     "submit": "创建任务",
     "submitting": "创建中...",

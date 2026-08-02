@@ -66,6 +66,7 @@ export function AssigneePicker({
   onOpenChange: controlledOnOpenChange,
   align,
   skipBuiltinRuntimeSelection = false,
+  skipRuntimeSelection = false,
   includeWorkflows = true,
   role,
   onRoleChange,
@@ -93,6 +94,10 @@ export function AssigneePicker({
   /** When true, selecting a built-in agent will NOT show the runtime selection dialog.
    *  Use this in contexts like workflow editor where runtime is chosen at execution time. */
   skipBuiltinRuntimeSelection?: boolean;
+  /** When true, selecting a workflow OR built-in agent will NOT show the runtime
+   *  selection dialog — runtime is chosen later, when the issue is run (moved to
+   *  in_progress or via a "run" action). Implies skipBuiltinRuntimeSelection. */
+  skipRuntimeSelection?: boolean;
   /** Workflow node actor pickers only support members, agents, squads, and role placeholders. */
   includeWorkflows?: boolean;
   /** When provided, role options appear as the first section in the dropdown. */
@@ -300,7 +305,7 @@ export function AssigneePicker({
   // auto-select if exactly 1, fall through without runtime if 0.
   // When skipBuiltinRuntimeSelection is true, just assign the agent directly.
   const handleBuiltinAgentClick = (agent: Agent) => {
-    if (skipBuiltinRuntimeSelection) {
+    if (skipBuiltinRuntimeSelection || skipRuntimeSelection) {
       guardedUpdate({
         assignee_type: "agent",
         assignee_id: agent.id,
@@ -343,6 +348,14 @@ export function AssigneePicker({
   };
 
   const handleWorkflowClick = (workflow: Workflow) => {
+    if (skipRuntimeSelection) {
+      guardedUpdate({
+        assignee_type: "workflow",
+        assignee_id: workflow.id,
+      });
+      setOpen(false);
+      return;
+    }
     setPendingWorkflowRuntime({
       workflowId: workflow.id,
       workflowTitle: workflow.title,
