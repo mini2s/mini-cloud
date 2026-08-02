@@ -41,6 +41,18 @@ const (
 	promptItemMaxRunes = 32 * 1024
 )
 
+// codeRepoProvider infers the code-repo platform from the URL host.
+// github.com → "github"; everything else → "gitlab".
+// Self-hosted GitLab and Gitea (when used as a code repo via github_repo
+// resources) both fall under "gitlab" — only GitHub SaaS uses "github".
+// Delivery repos (role=delivery) are always "gitea" and bypass this helper.
+func codeRepoProvider(rawURL string) string {
+	if strings.Contains(strings.ToLower(rawURL), "github.com") {
+		return "github"
+	}
+	return "gitlab"
+}
+
 // csCloudRepoSpec describes one repository the agent may work in.
 type csCloudRepoSpec struct {
 	URL        string `json:"url"`

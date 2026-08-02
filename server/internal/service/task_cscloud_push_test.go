@@ -2745,3 +2745,27 @@ func TestResolveCSCloudAddons_CloudSkillsPassedThrough(t *testing.T) {
 		t.Errorf("install metadata not passed through: %+v", s.Install)
 	}
 }
+
+func TestCodeRepoProvider(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{"github.com HTTPS", "https://github.com/org/repo.git", "github"},
+		{"github.com SSH scheme", "git@github.com:org/repo.git", "github"},
+		{"github.com uppercase", "HTTPS://GITHUB.COM/ORG/REPO.GIT", "github"},
+		{"gitlab.com", "https://gitlab.com/group/repo.git", "gitlab"},
+		{"self-hosted gitlab", "https://gitlab.example.com/group/repo.git", "gitlab"},
+		{"self-hosted gitea (code repo via github_repo resource)", "https://gitea.local/org/repo.git", "gitlab"},
+		{"empty", "", "gitlab"},
+		{"bare hostname", "github.com/org/r", "github"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := codeRepoProvider(tc.url); got != tc.want {
+				t.Errorf("codeRepoProvider(%q) = %q, want %q", tc.url, got, tc.want)
+			}
+		})
+	}
+}
