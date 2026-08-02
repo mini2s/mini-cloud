@@ -12,24 +12,14 @@ vi.mock("@multica/core/workspace/hooks", () => ({
       if (type === "workflow" && id === "workflow-1") return "Release Workflow";
       return "Unknown";
     },
+    getActorInitials: (type: string, id: string) => {
+      if (type === "member" && id === "user-1") return "AO";
+      if (type === "agent" && id === "agent-1") return "CW";
+      if (type === "squad" && id === "squad-1") return "RS";
+      if (type === "workflow" && id === "workflow-1") return "RW";
+      return "?";
+    },
   }),
-}));
-
-vi.mock("../../common/actor-avatar", () => ({
-  ActorAvatar: ({
-    actorType,
-    actorId,
-    className,
-  }: {
-    actorType: string;
-    actorId: string;
-    className?: string;
-  }) => (
-    <span
-      className={className}
-      data-testid={`avatar-${actorType}-${actorId}`}
-    />
-  ),
 }));
 
 const baseIssue: Issue = {
@@ -78,19 +68,22 @@ describe("IssuePeopleBadges", () => {
     expect(screen.getAllByText("Owner")).toHaveLength(2);
     expect(screen.getByText("Member")).toBeInTheDocument();
     expect(screen.getByText("Alice Owner")).toBeInTheDocument();
-    expect(screen.getByTestId("avatar-member-user-1")).toHaveClass(
+    expect(screen.getByTestId("actor-tile-member-user-1")).toHaveClass(
       "rounded-[4px]",
       "bg-primary/10",
     );
+    expect(screen.getByLabelText("member icon")).toBeInTheDocument();
+    expect(screen.getByText("A")).toBeInTheDocument();
     expect(screen.queryByText("O")).not.toBeInTheDocument();
     expect(screen.getAllByText("Assignee")).toHaveLength(2);
     expect(screen.getByText("Digital Human")).toBeInTheDocument();
     expect(screen.getByText("Claude Worker")).toBeInTheDocument();
-    expect(screen.getByTestId("avatar-agent-agent-1")).toHaveClass(
+    expect(screen.getByTestId("actor-tile-agent-agent-1")).toHaveClass(
       "rounded-[4px]",
-      "bg-muted",
+      "bg-info/10",
     );
-    expect(screen.queryByText("A")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("agent icon")).toBeInTheDocument();
+    expect(screen.getByText("C")).toBeInTheDocument();
   });
 
   it("distinguishes member, squad, agent, and workflow types in the hover tooltip", () => {
@@ -122,9 +115,10 @@ describe("IssuePeopleBadges", () => {
         />,
       );
 
-      expect(screen.getByTestId(`avatar-${item.type}-${item.id}`)).toHaveClass(
+      expect(screen.getByTestId(`actor-tile-${item.type}-${item.id}`)).toHaveClass(
         "rounded-[4px]",
       );
+      expect(screen.getByLabelText(`${item.type} icon`)).toBeInTheDocument();
       expect(screen.getByText(item.label)).toBeInTheDocument();
 
       unmount();

@@ -2,8 +2,8 @@
 
 import type { ReactNode, SyntheticEvent } from "react";
 import type { Issue, UpdateIssueRequest } from "@multica/core/types";
+import { Bot, GitBranch, UserRound, Users } from "lucide-react";
 import { useActorName } from "@multica/core/workspace/hooks";
-import { ActorAvatar } from "../../common/actor-avatar";
 import { AssigneePicker } from "./pickers";
 
 type ActorTypeLabels = Partial<Record<string, string>>;
@@ -46,30 +46,73 @@ interface RolePersonProps {
   label: string;
   actorType: string;
   actorId: string;
-  size: number;
+  initials: string;
+  compact: boolean;
   variant: "responsible" | "assignee";
 }
 
-function RolePerson({ label, actorType, actorId, size, variant }: RolePersonProps) {
+const ACTOR_TILE_VISUALS: Record<
+  string,
+  {
+    icon: typeof UserRound;
+    className: string;
+  }
+> = {
+  member: {
+    icon: UserRound,
+    className: "bg-primary/10 text-primary ring-primary/35",
+  },
+  agent: {
+    icon: Bot,
+    className: "bg-info/10 text-info ring-info/35",
+  },
+  squad: {
+    icon: Users,
+    className: "bg-warning/10 text-warning ring-warning/35",
+  },
+  workflow: {
+    icon: GitBranch,
+    className: "bg-success/10 text-success ring-success/35",
+  },
+};
+
+const DEFAULT_ACTOR_TILE_VISUAL = {
+  icon: UserRound,
+  className: "bg-muted text-muted-foreground ring-border",
+};
+
+function RolePerson({
+  label,
+  actorType,
+  actorId,
+  initials,
+  compact,
+  variant,
+}: RolePersonProps) {
+  const visual = ACTOR_TILE_VISUALS[actorType] ?? DEFAULT_ACTOR_TILE_VISUAL;
+  const TypeIcon = visual.icon;
+  const initial = initials.trim().charAt(0).toUpperCase() || "?";
+
   return (
     <span
       className="inline-flex min-w-0 items-center gap-1 rounded-sm text-[11px] font-medium leading-none text-muted-foreground"
       title={label}
     >
       <span className="shrink-0">{label}</span>
-      <span className="relative inline-flex shrink-0">
-        <ActorAvatar
-          actorType={actorType}
-          actorId={actorId}
-          size={size}
-          className={
-            variant === "responsible"
-              ? "rounded-[4px] bg-primary/10 text-primary ring-1 ring-primary/35 shadow-[0_0_0_1px_hsl(var(--primary)/0.16)]"
-              : "rounded-[4px] bg-muted text-muted-foreground ring-1 ring-border"
-          }
-          enableHoverCard
-          showStatusDot={actorType === "agent"}
+      <span
+        data-testid={`actor-tile-${actorType}-${actorId}`}
+        className={`inline-flex shrink-0 items-center justify-center gap-0.5 rounded-[4px] font-semibold leading-none ring-1 ${
+          compact ? "h-[18px] min-w-7 px-0.5 text-[9px]" : "h-5 min-w-8 px-1 text-[10px]"
+        } ${visual.className} ${
+          variant === "responsible" ? "shadow-[0_0_0_1px_hsl(var(--primary)/0.16)]" : ""
+        }`}
+      >
+        <TypeIcon
+          aria-label={`${actorType} icon`}
+          className={compact ? "size-2.5" : "size-3"}
+          strokeWidth={2.3}
         />
+        <span className="min-w-2 text-center tabular-nums">{initial}</span>
       </span>
     </span>
   );
@@ -94,7 +137,7 @@ export function IssuePeopleBadges({
   editableAssignee = false,
   onAssigneeUpdate,
 }: IssuePeopleBadgesProps) {
-  const { getActorName } = useActorName();
+  const { getActorName, getActorInitials } = useActorName();
   const hasResponsible = !!issue.responsible_user_id;
   const hasAssignee = !!issue.assignee_type && !!issue.assignee_id;
 
@@ -109,10 +152,10 @@ export function IssuePeopleBadges({
   const getActorTypeLabel = (actorType: string) => actorTypeLabels?.[actorType] ?? actorType;
   const tooltipTitle = [
     hasResponsible
-      ? `${responsibleLabel} · ${getActorTypeLabel("member")}: ${responsibleName}`
+      ? `${responsibleLabel} / ${getActorTypeLabel("member")}: ${responsibleName}`
       : null,
     hasAssignee
-      ? `${assigneeLabel} · ${getActorTypeLabel(issue.assignee_type!)}: ${assigneeName}`
+      ? `${assigneeLabel} / ${getActorTypeLabel(issue.assignee_type!)}: ${assigneeName}`
       : null,
   ].filter(Boolean).join(" / ");
 
@@ -123,7 +166,8 @@ export function IssuePeopleBadges({
           label={responsibleLabel}
           actorType="member"
           actorId={issue.responsible_user_id!}
-          size={compact ? 18 : 20}
+          initials={getActorInitials("member", issue.responsible_user_id!)}
+          compact={compact}
           variant="responsible"
         />
       )}
@@ -132,7 +176,8 @@ export function IssuePeopleBadges({
           label={assigneeLabel}
           actorType={issue.assignee_type!}
           actorId={issue.assignee_id!}
-          size={compact ? 18 : 20}
+          initials={getActorInitials(issue.assignee_type!, issue.assignee_id!)}
+          compact={compact}
           variant="assignee"
         />
       )}
