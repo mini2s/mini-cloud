@@ -280,7 +280,8 @@
     "toast_save_failed": "Failed to save repositories",
     "code_platform_label": "Code Platform",
     "platform_changed": "Platform changed",
-    "platform_save_failed": "Failed to change platform"
+    "platform_save_failed": "Failed to change platform",
+    "routed_to_other_tab": "Saved. Repositories are sorted into each platform tab by domain — check the other platform tab if you don't see one here."
   },
   "desktop": {
     "tabs": {

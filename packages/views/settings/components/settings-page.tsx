@@ -25,7 +25,7 @@ import { PreferencesTab } from "./preferences-tab";
 // Hidden: API tokens tab no longer needed.
 // import { TokensTab } from "./tokens-tab";
 import { WorkspaceTab } from "./workspace-tab";
-import { RepositoriesTab } from "./repositories-tab";
+import { RepositoriesSection } from "./repositories-section";
 import { GitHubTab } from "./github-tab";
 import { GitlabTab } from "./gitlab-tab";
 // Hidden per 2026-06-16 product decision.
@@ -201,7 +201,7 @@ export function SettingsPage({ extraAccountTabs }: SettingsPageProps = {}) {
           {/* <TabsContent value="tokens"><TokensTab /></TabsContent> */}
           {isWorkflowAdmin && <TabsContent value="workflow-admins"><WorkflowAdminsTab /></TabsContent>}
           <TabsContent value="workspace"><WorkspaceTab /></TabsContent>
-          <TabsContent value="repositories"><RepositoriesTab /></TabsContent>
+          <TabsContent value="repositories"><RepositoriesSection host="other" /></TabsContent>
           <TabsContent value="github"><GitHubTab /></TabsContent>
           <TabsContent value="gitlab"><GitlabTab /></TabsContent>
           {/* Hidden per 2026-06-16 product decision. */}

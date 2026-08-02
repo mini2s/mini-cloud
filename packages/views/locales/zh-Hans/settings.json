@@ -280,7 +280,8 @@
     "toast_save_failed": "保存代码仓库失败",
     "code_platform_label": "代码平台",
     "platform_changed": "平台已切换",
-    "platform_save_failed": "切换平台失败"
+    "platform_save_failed": "切换平台失败",
+    "routed_to_other_tab": "已保存。仓库按域名自动归入对应平台标签页——在这里看不到的，请到另一个平台标签页查看。"
   },
   "desktop": {
     "tabs": {

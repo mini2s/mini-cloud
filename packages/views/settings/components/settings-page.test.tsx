@@ -39,7 +39,7 @@ vi.mock("./notifications-tab", () => ({ NotificationsTab: () => <div>Notificatio
 // Hidden: API tokens tab removed.
 // vi.mock("./tokens-tab", () => ({ TokensTab: () => <div>Tokens content</div> }));
 vi.mock("./workspace-tab", () => ({ WorkspaceTab: () => <div>Workspace content</div> }));
-vi.mock("./repositories-tab", () => ({ RepositoriesTab: () => <div>Repositories content</div> }));
+vi.mock("./repositories-section", () => ({ RepositoriesSection: () => <div>Repositories content</div> }));
 vi.mock("./github-tab", () => ({ GitHubTab: () => <div>GitHub content</div> }));
 vi.mock("./gitlab-tab", () => ({ GitlabTab: () => <div>GitLab content</div> }));
 vi.mock("./workflow-roles-tab", () => ({ WorkflowRolesTab: () => <div>Roles content</div> }));
