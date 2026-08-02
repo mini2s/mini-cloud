@@ -1409,6 +1409,8 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
               assigneeId={issue.responsible_user_id ?? null}
               onUpdate={(updates) => handleUpdateField({ responsible_user_id: updates.assignee_id ?? null })}
               align="start"
+              allowedTypes={["member"]}
+              allowUnassigned={false}
             />
           </PropRow>
           <PropRow label={t(($) => $.detail.prop_assignee)}>
