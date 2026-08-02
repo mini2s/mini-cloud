@@ -2120,12 +2120,24 @@ func (s *WorkflowService) CloneWorkflowFromTemplate(
 		if err != nil {
 			return fmt.Errorf("list template nodes: %w", err)
 		}
+
+		// Roles are workspace-scoped with per-workspace UUIDs, so a role carried
+		// by a template node cannot be copied verbatim into another workspace.
+		// Remap each role to the target workspace's same-named role; builtin
+		// roles (developer/qa/tech_lead) are seeded into every workspace, so they
+		// always resolve. A role with no target counterpart is left unchanged.
+		remapRole, err := buildCloneRoleRemap(ctx, qtx, tmpl.WorkspaceID, workspaceID)
+		if err != nil {
+			return fmt.Errorf("build role remap: %w", err)
+		}
+
 		oldToNew := make(map[string]pgtype.UUID, len(tmplNodes))
 		for _, node := range tmplNodes {
 			criticType := node.CriticType
 			criticID := node.CriticID
-			criticRoleID := node.CriticRoleID
+			criticRoleID := remapRole(node.CriticRoleID)
 			criticAPIURL := node.CriticApiUrl
+			workerRoleID := remapRole(node.WorkerRoleID)
 			if workflowmeta.KindOf(node.FormatSchema) == workflowmeta.KindSplit &&
 				criticType == "human" && !criticID.Valid && !criticRoleID.Valid && !criticAPIURL.Valid {
 				criticType = "human"
@@ -2142,7 +2154,7 @@ func (s *WorkflowService) CloneWorkflowFromTemplate(
 				FormatSchema: node.FormatSchema,
 				WorkerType:   node.WorkerType,
 				WorkerID:     node.WorkerID,
-				WorkerRoleID: node.WorkerRoleID,
+				WorkerRoleID: workerRoleID,
 				CriticType:   criticType,
 				CriticID:     criticID,
 				CriticRoleID: criticRoleID,
@@ -2202,6 +2214,51 @@ func (s *WorkflowService) CloneWorkflowFromTemplate(
 		return db.MulticaWorkflow{}, nil, nil, err
 	}
 	return newWorkflow, newNodes, newEdges, nil
+}
+
+// buildCloneRoleRemap returns a function that translates a workflow role ID
+// from the source (template) workspace into the equivalent role ID in the
+// target workspace, matched by normalized name. A role with no same-named
+// counterpart in the target workspace is left unchanged (the caller still
+// receives a valid, non-remapped ID). Builtin roles (developer/qa/tech_lead)
+// are seeded into every workspace on creation, so they always remap.
+func buildCloneRoleRemap(
+	ctx context.Context,
+	qtx *db.Queries,
+	sourceWorkspaceID, targetWorkspaceID pgtype.UUID,
+) (func(pgtype.UUID) pgtype.UUID, error) {
+	if !sourceWorkspaceID.Valid || !targetWorkspaceID.Valid {
+		return func(id pgtype.UUID) pgtype.UUID { return id }, nil
+	}
+	sourceRoles, err := qtx.ListWorkflowRoles(ctx, sourceWorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	sourceName := make(map[string]string, len(sourceRoles))
+	for _, r := range sourceRoles {
+		sourceName[util.UUIDToString(r.ID)] = r.NormalizedName
+	}
+	targetRoles, err := qtx.ListWorkflowRoles(ctx, targetWorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	targetID := make(map[string]pgtype.UUID, len(targetRoles))
+	for _, r := range targetRoles {
+		targetID[r.NormalizedName] = r.ID
+	}
+	return func(id pgtype.UUID) pgtype.UUID {
+		if !id.Valid {
+			return id
+		}
+		name, ok := sourceName[util.UUIDToString(id)]
+		if !ok {
+			return id
+		}
+		if tgt, ok := targetID[name]; ok {
+			return tgt
+		}
+		return id
+	}, nil
 }
 
 // SetWorkflowTemplate toggles the is_template flag on a workflow.
