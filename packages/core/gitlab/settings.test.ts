@@ -7,45 +7,26 @@ function ws(settings: Record<string, unknown>): Pick<Workspace, "settings"> {
 }
 
 describe("deriveGitlabSettings", () => {
-  it("defaults the master switch to on and hidden sub-features to off when workspace is null", () => {
-    expect(deriveGitlabSettings(null)).toEqual({
-      enabled: true,
-      mrSidebar: false,
-      autoLinkMRs: false,
-    });
+  it("enabled is always true (master switch removed)", () => {
+    expect(deriveGitlabSettings(null).enabled).toBe(true);
+    expect(deriveGitlabSettings(ws({})).enabled).toBe(true);
+    // Even an explicit historical gitlab_enabled:false no longer disables.
+    expect(deriveGitlabSettings(ws({ gitlab_enabled: false })).enabled).toBe(true);
   });
 
-  it("defaults the master switch to on and hidden sub-features to off on empty settings", () => {
-    expect(deriveGitlabSettings(ws({}))).toEqual({
-      enabled: true,
-      mrSidebar: false,
-      autoLinkMRs: false,
-    });
+  it("autoLink defaults off and follows its sub-flag independently", () => {
+    expect(deriveGitlabSettings(null).autoLinkMRs).toBe(false);
+    expect(deriveGitlabSettings(ws({ gitlab_auto_link_enabled: true })).autoLinkMRs).toBe(true);
+    // master off no longer forces autoLink off
+    expect(
+      deriveGitlabSettings(ws({ gitlab_enabled: false, gitlab_auto_link_enabled: true })).autoLinkMRs,
+    ).toBe(true);
   });
 
-  it("explicit master switch off forces dependent flags off", () => {
+  it("mrSidebar follows its sub-flag independently", () => {
+    expect(deriveGitlabSettings(ws({ gitlab_mr_sidebar_enabled: true })).mrSidebar).toBe(true);
     expect(
-      deriveGitlabSettings(
-        ws({
-          gitlab_enabled: false,
-          gitlab_mr_sidebar_enabled: true,
-          gitlab_auto_link_enabled: true,
-        }),
-      ),
-    ).toEqual({
-      enabled: false,
-      mrSidebar: false,
-      autoLinkMRs: false,
-    });
-  });
-
-  it("lets hidden sub-flags opt in independently when the master switch is on", () => {
-    expect(
-      deriveGitlabSettings(ws({ gitlab_mr_sidebar_enabled: true })),
-    ).toMatchObject({ enabled: true, mrSidebar: true, autoLinkMRs: false });
-
-    expect(
-      deriveGitlabSettings(ws({ gitlab_auto_link_enabled: true })),
-    ).toMatchObject({ enabled: true, mrSidebar: false, autoLinkMRs: true });
+      deriveGitlabSettings(ws({ gitlab_enabled: false, gitlab_mr_sidebar_enabled: true })).mrSidebar,
+    ).toBe(true);
   });
 });
