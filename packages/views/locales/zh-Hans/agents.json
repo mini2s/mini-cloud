@@ -36,7 +36,7 @@
   },
   "empty": {
     "title": "还没有数智人",
-    "description": "创建一个数智人，像分配给同事那样把 issue 交给它。本地数智人在你的机器上运行，云数智人在 Multica 运行时上运行。"
+    "description": "创建一个数智人，像分配给同事那样把任务交给它。本地数智人在你的机器上运行，云数智人在 Multica 运行时上运行。"
   },
   "no_matches": {
     "title": "无匹配项",
@@ -162,7 +162,7 @@
     "empty_title": "没有可用的运行时",
     "empty_description": "请先连接一个运行时设备后再执行内置数智人。",
     "auto_title": "自动选择（推荐）",
-    "auto_description": "内置数智人按节点选择：空闲运行时优先，其次为 Issue 负责人的运行时；普通 Agent 保持自身绑定。",
+    "auto_description": "内置数智人按节点选择：空闲运行时优先，其次为任务负责人的运行时；普通 Agent 保持自身绑定。",
     "cancel": "取消",
     "confirm": "确认执行"
   },
@@ -367,18 +367,18 @@
       "success_pct": "{{percent}}% 成功",
       "avg_duration": "平均 {{value}}",
       "failed_count": "{{count}} 次失败",
-      "source_issue": "issue",
+      "source_issue": "任务",
       "source_chat": "聊天",
       "source_autopilot": "自动化",
       "source_untracked": "未追踪",
       "source_quick_create": "快速创建",
-      "source_creating_issue": "正在创建 issue",
+      "source_creating_issue": "正在创建任务",
       "source_chat_session": "聊天会话",
       "source_autopilot_run": "自动化运行",
-      "issue_short_fallback": "issue {{prefix}}...",
+      "issue_short_fallback": "任务 {{prefix}}...",
       "triggered_by": "触发来源",
-      "open_issue_aria": "打开 issue",
-      "open_issue_tooltip": "打开 issue",
+      "open_issue_aria": "打开任务",
+      "open_issue_tooltip": "打开任务",
       "transcript_tooltip": "查看记录",
       "cancel_task_aria": "取消 task",
       "cancel_task_tooltip": "取消 task",
