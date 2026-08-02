@@ -57,8 +57,8 @@ function RolePerson({ label, actorType, actorId, size, variant }: RolePersonProp
         size={size}
         className={
           variant === "responsible"
-            ? "ring-1 ring-primary/60"
-            : "ring-1 ring-muted-foreground/30"
+            ? "rounded-[4px] bg-primary/10 text-primary ring-1 ring-primary/35"
+            : "rounded-[4px] bg-muted text-muted-foreground ring-1 ring-border"
         }
         enableHoverCard
         showStatusDot={actorType === "agent"}

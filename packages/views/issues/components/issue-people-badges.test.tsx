@@ -14,8 +14,19 @@ vi.mock("@multica/core/workspace/hooks", () => ({
 }));
 
 vi.mock("../../common/actor-avatar", () => ({
-  ActorAvatar: ({ actorType, actorId }: { actorType: string; actorId: string }) => (
-    <span data-testid={`avatar-${actorType}-${actorId}`} />
+  ActorAvatar: ({
+    actorType,
+    actorId,
+    className,
+  }: {
+    actorType: string;
+    actorId: string;
+    className?: string;
+  }) => (
+    <span
+      className={className}
+      data-testid={`avatar-${actorType}-${actorId}`}
+    />
   ),
 }));
 
@@ -58,11 +69,17 @@ describe("IssuePeopleBadges", () => {
 
     expect(screen.getAllByText("Owner")).toHaveLength(2);
     expect(screen.getByText("Alice Owner")).toBeInTheDocument();
-    expect(screen.getByTestId("avatar-member-user-1")).toBeInTheDocument();
+    expect(screen.getByTestId("avatar-member-user-1")).toHaveClass(
+      "rounded-[4px]",
+      "bg-primary/10",
+    );
     expect(screen.queryByText("O")).not.toBeInTheDocument();
     expect(screen.getAllByText("Assignee")).toHaveLength(2);
     expect(screen.getByText("Claude Worker")).toBeInTheDocument();
-    expect(screen.getByTestId("avatar-agent-agent-1")).toBeInTheDocument();
+    expect(screen.getByTestId("avatar-agent-agent-1")).toHaveClass(
+      "rounded-[4px]",
+      "bg-muted",
+    );
     expect(screen.queryByText("A")).not.toBeInTheDocument();
   });
 });

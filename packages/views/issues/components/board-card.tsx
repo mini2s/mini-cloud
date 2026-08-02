@@ -156,18 +156,9 @@ export const BoardCardContent = memo(function BoardCardContent({
         );
       })()}
 
-      {/* Row 3: people, priority badge, start date, due date */}
+      {/* Row 3: priority badge, people, start date, due date */}
       {(showPeople || showPriority || showStartDate || showDueDate) && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          {showPeople && (
-            <IssuePeopleBadges
-              issue={issue}
-              responsibleLabel={t(($) => $.card.responsible)}
-              assigneeLabel={t(($) => $.card.assignee)}
-              editableAssignee={editable}
-              onAssigneeUpdate={handleUpdate}
-            />
-          )}
           {showPriority &&
             (editable ? (
               <PickerWrapper>
@@ -188,6 +179,15 @@ export const BoardCardContent = memo(function BoardCardContent({
                 {priorityCfg.label}
               </span>
             ))}
+          {showPeople && (
+            <IssuePeopleBadges
+              issue={issue}
+              responsibleLabel={t(($) => $.card.responsible)}
+              assigneeLabel={t(($) => $.card.assignee)}
+              editableAssignee={editable}
+              onAssigneeUpdate={handleUpdate}
+            />
+          )}
           {showStartDate && (
             <div className={showDueDate ? undefined : "ml-auto"}>
               {editable ? (
