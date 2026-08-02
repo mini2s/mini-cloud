@@ -97,11 +97,13 @@ This rule is aligned with `apps/docs/content/docs/*.zh.mdx` — the docs are the
 
 ### Entities — mixed rule (`issue` / `skill` / `task`)
 
-`issue` / `skill` / `task` are Multica's core entities. They have schema columns, API fields, and product UI labels that are all English. In Chinese text, they follow a **mixed rule** — what to use depends on where the word appears:
+`issue` / `skill` / `task` are Multica's core entities. Schema fields, API fields, routes, and code identifiers stay English. In Chinese UI, user-facing `issue` copy is rendered as `任务`; the English UI still uses `Issue` / `issue`. Other entities follow a **mixed rule** — what to use depends on where the word appears:
 
 | Context | Render | Example |
 | --- | --- | --- |
-| **UI strings, state names, code references** | lowercase English | "排队中的 task"、"创建子 issue"、"为数智人注入 skill" |
+| **Chinese UI strings for issue** | Chinese term | "新建任务"、"创建子任务"、"任务列表" |
+| **State names, code references, API fields, routes** | lowercase English | "`issue_status`", "`/{slug}/issues`", "`task_id`" |
+| **UI strings for other entities** | lowercase English | "排队中的 task"、"为数智人注入 skill" |
 | **Doc titles / section headings** | Title-case English **or** the Chinese term | "Issue 与 project"、"Skills"、"执行任务" |
 | **Long-form doc prose, when the entity is the running subject** | Chinese term, with English in parentheses on first mention | "**执行任务**（task）是数智人每一次工作的单位" |
 | **API / DB fields** | always `task` / `issue` / `skill` | `task_id`, `issue_status`, `skill_uuid` |
@@ -109,12 +111,13 @@ This rule is aligned with `apps/docs/content/docs/*.zh.mdx` — the docs are the
 Chinese term reference:
 
 - `task` ↔ `执行任务` (or shortened to `任务` once context is clear)
-- `issue` has no settled Chinese translation — leave English; titles may capitalize as `Issue`
+- `issue` ↔ Chinese UI uses `任务`; English UI and code/API/route contexts keep `Issue` / `issue`
 - `skill` has no settled Chinese translation — leave English; titles may capitalize as `Skills`
 
-**Why `issue` / `skill` / `task` aren't forced into Chinese the way `project` / `autopilot` are**:
+**Why Chinese UI renders `issue` as `任务`, while technical contexts keep `issue`**:
 
-- **`issue` / `task`**: dev teams talk in English. The Chinese candidates ("任务" — too vague, almost synonymous with "工作"; "工单" — IT ticket connotation; "议题" — GitHub-style but doesn't match the product feel) all read worse than `issue`. **But** in long-form doc prose, repeating lowercase `task` 50× breaks the rhythm — so prose is allowed to use `执行任务`, while UI strings and state names stay lowercase English.
+- **`issue`**: the Chinese product UI is user-facing, and `任务` is clearer there. The English UI still says `Issue`; code, API, DB, routes, and CLI commands still say `issue` so the product term and technical contract do not drift.
+- **`task`**: means the execution unit performed by a digital human. The formal Chinese term is `执行任务`, shortened to `任务` when context is clear. When issue and task appear together, prefer context or a more specific phrase to disambiguate.
 - **`skill`**: Multica-specific concept with no established Chinese term.
 - **`project` → "项目"**: settled mainstream Chinese word. Feishu / Tower / Teambition / PingCode / GitHub Projects — every Chinese product translates it. No product keeps `project` in Chinese context.
 - **`autopilot` → "自动化"**: in Chinese, "autopilot" associates with Tesla's "自动驾驶" and doesn't match what the feature does (run tasks on a schedule). Notion and Feishu both use "自动化"; that's the industry consensus.
@@ -191,7 +194,7 @@ In UI, surface them in English (optionally `code-style` wrapped):
 
 Always put **a single space** between an English word (entity / brand / acronym) and surrounding Chinese:
 
-- "Create new issue" → "新建 issue"
+- "Create new issue" → "新建任务"
 - "Assign to digital human" → "分配给数智人"
 - "Configure runtime" → "配置运行时"
 - "Stop daemon" → "停止守护进程"
@@ -209,13 +212,13 @@ i18next uses `_one` / `_other`; Chinese has no grammatical number, only fill `_o
 
 // zh-Hans/issues.json
 {
-  "issue_count_other": "{{count}} 个 issue"
+  "issue_count_other": "{{count}} 个任务"
 }
 ```
 
 Common count formats:
 
-- `{{count}} issues` → `{{count}} 个 issue`
+- `{{count}} issues` → `{{count}} 个任务`
 - `{{count}} digital humans` → `{{count}} 个数智人`
 - `{{count}} workspaces` → `{{count}} 个工作区`
 - `{{count}} comments` → `{{count}} 条评论`
@@ -280,7 +283,7 @@ See `auth.json` for the canonical example (the `web` section contains `prefer_de
 - **Error messages**: gentle but clear. "无法保存修改" beats "保存修改失败了！".
 - **Buttons**: verb first, 2–4 characters. "取消"、"保存修改"、"立即同步".
 - **Tooltips**: full short sentence. "复制链接到剪贴板".
-- **Placeholders**: example-style. "输入 issue 标题...".
+- **Placeholders**: example-style. "输入任务标题...".
 
 ### Where to look when in doubt
 
