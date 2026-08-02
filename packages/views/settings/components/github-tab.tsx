@@ -3,11 +3,9 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ExternalLink, GitCommitHorizontal, Link2, PanelRight } from "lucide-react";
+import { GitCommitHorizontal, Link2, PanelRight } from "lucide-react";
 import { Button } from "@multica/ui/components/ui/button";
 import { Card, CardContent } from "@multica/ui/components/ui/card";
-import { Label } from "@multica/ui/components/ui/label";
-import { Switch } from "@multica/ui/components/ui/switch";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,13 +26,12 @@ import {
 } from "@multica/core/github";
 import { api } from "@multica/core/api";
 import type { Workspace } from "@multica/core/types";
-import { useNavigation } from "../../navigation";
 import { useT } from "../../i18n";
 import { GitHubMark } from "./github-mark";
 import { FeatureRow } from "./feature-row";
+import { RepositoriesSection } from "./repositories-section";
 
 type SettingsKey =
-  | "github_enabled"
   | "github_pr_sidebar_enabled"
   | "co_authored_by_enabled"
   | "github_auto_link_prs_enabled";
@@ -44,7 +41,6 @@ export function GitHubTab() {
   const workspace = useCurrentWorkspace();
   const wsId = useWorkspaceId();
   const qc = useQueryClient();
-  const navigation = useNavigation();
   const user = useAuthStore((s) => s.user);
 
   const { data: members = [] } = useQuery(memberListOptions(wsId));
@@ -70,9 +66,6 @@ export function GitHubTab() {
   const [connecting, setConnecting] = useState(false);
   const [disconnectTarget, setDisconnectTarget] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
-
-  const githubRepoCount =
-    workspace?.repos?.filter((r) => /github\.com/i.test(r.url ?? "")).length ?? 0;
 
   async function persistSetting(key: SettingsKey, next: boolean) {
     if (!workspace || savingKey) return;
@@ -126,44 +119,12 @@ export function GitHubTab() {
 
   if (!workspace) return null;
 
-  const repositoriesHref = `${navigation.pathname}?tab=repositories`;
-
   return (
     <div className="space-y-8">
       <section className="space-y-1">
         <p className="text-sm text-muted-foreground">
           {t(($) => $.github.page_description)}
         </p>
-      </section>
-
-      <section className="space-y-3">
-        <Card>
-          <CardContent>
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className="rounded-md border bg-muted/50 p-2 text-muted-foreground">
-                  <GitHubMark className="h-4 w-4" />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="github-master" className="text-sm font-medium">
-                    {t(($) => $.github.section_master)}
-                  </Label>
-                  <p className="text-sm text-muted-foreground">
-                    {flags.enabled
-                      ? t(($) => $.github.master_description_on)
-                      : t(($) => $.github.master_description_off)}
-                  </p>
-                </div>
-              </div>
-              <Switch
-                id="github-master"
-                checked={flags.enabled}
-                onCheckedChange={(v) => persistSetting("github_enabled", v)}
-                disabled={!canManage || savingKey === "github_enabled"}
-              />
-            </div>
-          </CardContent>
-        </Card>
       </section>
 
       <section className="space-y-3">
@@ -209,9 +170,8 @@ export function GitHubTab() {
               {canManage && (
                 <div className="flex items-center gap-2">
                   {connected && primaryInstallation ? (
-                    // Disconnect must stay reachable even when the master switch
-                    // is off — disconnect is a separate intent (revoke the App
-                    // grant) from hiding the feature.
+                    // Disconnect revokes the GitHub App grant — a separate
+                    // intent from feature visibility.
                     <Button
                       variant="outline"
                       size="sm"
@@ -271,7 +231,7 @@ export function GitHubTab() {
                 </p>
               }
               checked={flags.prSidebar}
-              disabled={!canManage || !flags.enabled || savingKey === "github_pr_sidebar_enabled"}
+              disabled={!canManage || savingKey === "github_pr_sidebar_enabled"}
               onCheckedChange={(v) => persistSetting("github_pr_sidebar_enabled", v)}
             />
 
@@ -289,7 +249,7 @@ export function GitHubTab() {
                 </p>
               }
               checked={flags.coAuthor}
-              disabled={!canManage || !flags.enabled || savingKey === "co_authored_by_enabled"}
+              disabled={!canManage || savingKey === "co_authored_by_enabled"}
               onCheckedChange={(v) => persistSetting("co_authored_by_enabled", v)}
             />
 
@@ -303,38 +263,14 @@ export function GitHubTab() {
                 </p>
               }
               checked={flags.autoLinkPRs}
-              disabled={!canManage || !flags.enabled || savingKey === "github_auto_link_prs_enabled"}
+              disabled={!canManage || savingKey === "github_auto_link_prs_enabled"}
               onCheckedChange={(v) => persistSetting("github_auto_link_prs_enabled", v)}
             />
           </CardContent>
         </Card>
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold">{t(($) => $.github.section_repositories)}</h2>
-        <Card>
-          <CardContent>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="space-y-1">
-                <p className="text-sm font-medium">
-                  {t(($) => $.github.repositories_shortcut_label)}
-                </p>
-                <p className="text-xs text-muted-foreground tabular-nums">
-                  {githubRepoCount}
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => navigation.push(repositoriesHref)}
-              >
-                <ExternalLink className="h-3 w-3" />
-                {t(($) => $.github.repositories_shortcut_link)}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </section>
+      <RepositoriesSection host="github" />
 
       <AlertDialog
         open={!!disconnectTarget}
