@@ -3,7 +3,6 @@
 import type { ReactNode, SyntheticEvent } from "react";
 import type { Issue, UpdateIssueRequest } from "@multica/core/types";
 import { useActorName } from "@multica/core/workspace/hooks";
-import { ArrowRight } from "lucide-react";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { AssigneePicker } from "./pickers";
 
@@ -19,24 +18,19 @@ function PickerWrapper({ children }: { children: ReactNode }) {
   );
 }
 
-interface PersonBadgeProps {
+interface PeopleTooltipRowProps {
   label: string;
   actorName: string;
-  compact?: boolean;
 }
 
-function PersonBadge({ label, actorName, compact = false }: PersonBadgeProps) {
+function PeopleTooltipRow({ label, actorName }: PeopleTooltipRowProps) {
   return (
-    <span
-      className={`inline-flex min-w-0 items-center gap-1.5 ${
-        compact ? "text-[11px]" : "text-xs"
-      }`}
-      title={`${label}: ${actorName}`}
-    >
-      <span className="min-w-0 truncate">
-        <span className="text-muted-foreground/70">{label}</span>
-        <span className="mx-1 text-muted-foreground/40">/</span>
-        <span className="font-medium text-foreground/80">{actorName}</span>
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="w-10 shrink-0 text-[10px] font-medium text-muted-foreground">
+        {label}
+      </span>
+      <span className="min-w-0 truncate text-xs font-medium text-foreground">
+        {actorName}
       </span>
     </span>
   );
@@ -71,6 +65,10 @@ export function IssuePeopleBadges({
   const assigneeName = hasAssignee
     ? getActorName(issue.assignee_type!, issue.assignee_id!)
     : null;
+  const tooltipTitle = [
+    hasResponsible ? `${responsibleLabel}: ${responsibleName}` : null,
+    hasAssignee ? `${assigneeLabel}: ${assigneeName}` : null,
+  ].filter(Boolean).join(" / ");
 
   const avatarStack = (
     <span className="flex shrink-0 -space-x-1">
@@ -96,77 +94,41 @@ export function IssuePeopleBadges({
     </span>
   );
 
-  const assigneeBadge = hasAssignee ? (
-    <PersonBadge
-      label={assigneeLabel}
-      actorName={assigneeName!}
-      compact={compact}
-    />
-  ) : null;
-
-  if (compact) {
-    return (
-      <span className="group/people inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-muted-foreground transition-colors hover:bg-muted/60 focus-within:bg-muted/60">
-        {avatarStack}
-        <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-150 group-hover/people:max-w-56 group-hover/people:opacity-100 group-focus-within/people:max-w-56 group-focus-within/people:opacity-100">
-          <span className="inline-flex min-w-0 items-center gap-1 text-[11px]">
-            {hasResponsible && (
-              <span className="truncate">
-                <span className="text-muted-foreground/70">{responsibleLabel}</span>
-                <span className="mx-1 text-muted-foreground/40">/</span>
-                <span className="font-medium text-foreground/80">{responsibleName}</span>
-              </span>
-            )}
-            {hasResponsible && hasAssignee && (
-              <ArrowRight className="size-3 shrink-0 text-muted-foreground/40" />
-            )}
-            {assigneeBadge &&
-              (editableAssignee && onAssigneeUpdate ? (
-                <PickerWrapper>
-                  <AssigneePicker
-                    assigneeType={issue.assignee_type}
-                    assigneeId={issue.assignee_id}
-                    onUpdate={onAssigneeUpdate}
-                    trigger={assigneeBadge}
-                  />
-                </PickerWrapper>
-              ) : (
-                assigneeBadge
-              ))}
-          </span>
-        </span>
-      </span>
-    );
-  }
-
-  return (
-    <span className="inline-flex min-w-0 max-w-full shrink items-center gap-1.5 rounded-md bg-muted/45 px-1.5 py-1 text-muted-foreground">
-      {avatarStack}
-      <span className="flex min-w-0 items-center gap-1.5">
+  const hoverTooltip = (
+    <span className="pointer-events-none absolute bottom-full left-0 z-20 mb-2 hidden w-max max-w-56 rounded-md border border-border bg-popover px-2.5 py-2 text-popover-foreground shadow-md group-hover/people:block group-focus-within/people:block">
+      <span className="flex flex-col gap-1">
         {hasResponsible && (
-          <PersonBadge
-            label={responsibleLabel}
-            actorName={responsibleName!}
-            compact={compact}
-          />
+          <PeopleTooltipRow label={responsibleLabel} actorName={responsibleName!} />
         )}
-        {hasResponsible && hasAssignee && (
-          <ArrowRight className="size-3 shrink-0 text-muted-foreground/40" />
+        {hasAssignee && (
+          <PeopleTooltipRow label={assigneeLabel} actorName={assigneeName!} />
         )}
-        {assigneeBadge &&
-          (editableAssignee && onAssigneeUpdate ? (
-            <PickerWrapper>
-              <AssigneePicker
-                assigneeType={issue.assignee_type}
-                assigneeId={issue.assignee_id}
-                onUpdate={onAssigneeUpdate}
-                trigger={assigneeBadge}
-              />
-            </PickerWrapper>
-          ) : (
-            assigneeBadge
-          ))}
       </span>
     </span>
   );
+
+  const trigger = (
+    <span
+      className="group/people relative inline-flex shrink-0 items-center rounded-full transition-transform hover:-translate-y-px focus-within:-translate-y-px"
+      title={tooltipTitle}
+    >
+      {avatarStack}
+      {hoverTooltip}
+    </span>
+  );
+
+  if (editableAssignee && onAssigneeUpdate && hasAssignee) {
+    return (
+      <PickerWrapper>
+        <AssigneePicker
+          assigneeType={issue.assignee_type}
+          assigneeId={issue.assignee_id}
+          onUpdate={onAssigneeUpdate}
+          trigger={trigger}
+        />
+      </PickerWrapper>
+    );
+  }
+
+  return trigger;
 }

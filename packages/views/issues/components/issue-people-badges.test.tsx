@@ -47,7 +47,7 @@ const baseIssue: Issue = {
 };
 
 describe("IssuePeopleBadges", () => {
-  it("renders responsible and assignee names in hover-expand badges", () => {
+  it("renders two avatars and keeps responsible and assignee names in the hover tooltip", () => {
     render(
       <IssuePeopleBadges
         issue={baseIssue}
