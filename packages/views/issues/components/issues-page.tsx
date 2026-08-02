@@ -157,8 +157,24 @@ export function IssuesPage() {
   const updateIssueMutation = useUpdateIssue();
   const handleMoveIssue = useCallback(
     (issueId: string, updates: Pick<UpdateIssueRequest, "status" | "assignee_type" | "assignee_id" | "position">) => {
+      const issue = (usesAssigneeBoard ? assigneeIssues : allIssues).find((item) => item.id === issueId);
+      if (
+        issue &&
+        issue.status === "backlog" &&
+        !issue.assignee_type &&
+        !issue.assignee_id &&
+        updates.status &&
+        updates.status !== "backlog"
+      ) {
+        toast.error(t(($) => $.page.assign_first));
+        return false;
+      }
+      const normalizedUpdates =
+        updates.status === "backlog"
+          ? { ...updates, assignee_type: null, assignee_id: null }
+          : updates;
       updateIssueMutation.mutate(
-        { id: issueId, ...updates },
+        { id: issueId, ...normalizedUpdates },
         {
           onError: (err) =>
             toast.error(
@@ -168,8 +184,9 @@ export function IssuesPage() {
             ),
         },
       );
+      return true;
     },
-    [updateIssueMutation, t],
+    [allIssues, assigneeIssues, updateIssueMutation, t, usesAssigneeBoard],
   );
 
   if (loading) {

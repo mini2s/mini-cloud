@@ -356,7 +356,7 @@ describe("CreateIssueModal", () => {
       id: "issue-123",
       identifier: "TES-123",
       title: "Ship create issue regression coverage",
-      status: "todo",
+      status: "backlog",
     });
   });
 
@@ -507,6 +507,7 @@ describe("CreateIssueModal", () => {
 
     await waitFor(() => {
       expect(mockCreateIssue).toHaveBeenCalledWith(expect.objectContaining({
+        status: "todo",
         responsible_user_id: "member-2",
         assignee_type: "workflow",
         assignee_id: "workflow-1",

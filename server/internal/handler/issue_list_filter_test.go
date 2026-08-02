@@ -500,3 +500,92 @@ func insertWorkflowStampedIssueFixture(t *testing.T, ctx context.Context, title 
 
 	return issueID, workflowID, runID, stageID, originID
 }
+
+// TestListIssues_ResponsibleUserFilter verifies that the responsible_user_id
+// query param narrows the list to issues whose responsible owner is that user.
+// The "My Issues" page's "Responsible" tab relies on this filter.
+func TestListIssues_ResponsibleUserFilter(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+	suffix := time.Now().UnixNano()
+
+	// A second real user so the "not me" issue has a valid responsible_user_id
+	// (the column REFERENCES multica_user(id)).
+	var otherUserID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_user (name, email)
+		VALUES ($1, $2) RETURNING id
+	`, fmt.Sprintf("Responsible Other %d", suffix), fmt.Sprintf("responsible-other-%d@multica.ai", suffix)).Scan(&otherUserID); err != nil {
+		t.Fatalf("create other user: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_user WHERE id = $1`, otherUserID)
+	})
+
+	mineID := insertIssueWithResponsibleUser(t, ctx, fmt.Sprintf("responsible-mine-%d", suffix), testUserID)
+	otherID := insertIssueWithResponsibleUser(t, ctx, fmt.Sprintf("responsible-other-%d", suffix), otherUserID)
+
+	path := fmt.Sprintf("/api/issues?workspace_id=%s&responsible_user_id=%s&limit=500", testWorkspaceID, testUserID)
+	w := httptest.NewRecorder()
+	testHandler.ListIssues(w, newRequest("GET", path, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("ListIssues: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Issues []IssueResponse `json:"issues"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+
+	foundMine := false
+	foundOther := false
+	for _, iss := range resp.Issues {
+		if iss.ID == mineID {
+			foundMine = true
+		}
+		if iss.ID == otherID {
+			foundOther = true
+		}
+	}
+
+	if !foundMine {
+		t.Fatalf("responsible_user_id filter must include issue %s (responsible = %s)", mineID, testUserID)
+	}
+	if foundOther {
+		t.Fatalf("responsible_user_id filter must exclude issue %s (responsible = %s, not %s)", otherID, otherUserID, testUserID)
+	}
+}
+
+// insertIssueWithResponsibleUser creates an issue whose responsible_user_id is
+// set explicitly, and registers it for cleanup.
+func insertIssueWithResponsibleUser(t *testing.T, ctx context.Context, title, responsibleUserID string) string {
+	t.Helper()
+
+	var number int
+	if err := testPool.QueryRow(ctx, `
+		UPDATE multica_workspace
+		SET issue_counter = GREATEST(issue_counter, (SELECT COALESCE(MAX(number), 0) FROM multica_issue WHERE workspace_id = $1)) + 1
+		WHERE id = $1 RETURNING issue_counter
+	`, testWorkspaceID).Scan(&number); err != nil {
+		t.Fatalf("next issue number: %v", err)
+	}
+
+	var id string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_issue (workspace_id, title, status, priority, creator_type, creator_id, responsible_user_id, position, number)
+		VALUES ($1, $2, 'todo', 'none', 'member', $3, $3, 0, $4) RETURNING id
+	`, testWorkspaceID, title, responsibleUserID, number).Scan(&id); err != nil {
+		t.Fatalf("create issue %q: %v", title, err)
+	}
+
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM multica_issue WHERE id = $1`, id)
+	})
+
+	return id
+}

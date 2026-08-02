@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Issue } from "@multica/core/types";
 import { I18nProvider } from "@multica/core/i18n/react";
@@ -62,6 +62,7 @@ vi.mock("../../workspace/workspace-avatar", () => ({
 // Mock api (queries use api internally)
 const mockListIssues = vi.hoisted(() => vi.fn().mockResolvedValue({ issues: [], total: 0 }));
 const mockListGroupedIssues = vi.hoisted(() => vi.fn().mockResolvedValue({ groups: [] }));
+const mockUpdateIssueMutate = vi.hoisted(() => vi.fn());
 const mockListMembers = vi.hoisted(() =>
   vi.fn().mockResolvedValue([
     {
@@ -131,6 +132,11 @@ vi.mock("@multica/core/api", () => ({
     listSquads: (...args: any[]) => mockListSquads(...args),
   }),
   setApiInstance: vi.fn(),
+}));
+
+vi.mock("@multica/core/issues/mutations", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@multica/core/issues/mutations")>()),
+  useUpdateIssue: () => ({ mutate: mockUpdateIssueMutate }),
 }));
 
 // Mock issue config
@@ -315,6 +321,34 @@ vi.mock("@dnd-kit/utilities", () => ({
   CSS: { Transform: { toString: () => undefined } },
 }));
 
+vi.mock("./board-view", () => ({
+  BoardView: ({ issues, visibleStatuses, assigneeGroups, onMoveIssue }: any) => (
+    <div>
+      {assigneeGroups?.map((group: any) => {
+        const label =
+          group.assignee_type === "member"
+            ? "Test User"
+            : group.assignee_type === "agent"
+              ? "Agent One"
+              : group.assignee_type === "squad"
+                ? "Squad One"
+                : "No assignee";
+        return <div key={group.id}>{label}</div>;
+      })}
+      {visibleStatuses.map((status: string) => (
+        <div key={status}>{status === "in_progress" ? "In Progress" : status.charAt(0).toUpperCase() + status.slice(1)}</div>
+      ))}
+      {issues.map((issue: Issue) => (
+        <div key={issue.id}>
+          <span>{issue.title}</span>
+          <button onClick={() => onMoveIssue(issue.id, { status: "todo" })}>move {issue.id} to todo</button>
+          <button onClick={() => onMoveIssue(issue.id, { status: "backlog" })}>move {issue.id} to backlog</button>
+        </div>
+      ))}
+    </div>
+  ),
+}));
+
 // Mock @base-ui/react/accordion (used by ListView)
 vi.mock("@base-ui/react/accordion", () => ({
   Accordion: Object.assign(
@@ -454,6 +488,7 @@ function mockAssigneeGroups(issues: Issue[]) {
 // ---------------------------------------------------------------------------
 
 import { IssuesPage } from "./issues-page";
+import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -621,5 +656,43 @@ describe("IssuesPage (shared)", () => {
     await screen.findByText("Implement auth");
     expect(screen.queryByText("Squad task")).not.toBeInTheDocument();
     expect(screen.queryByText("Design landing page")).not.toBeInTheDocument();
+  });
+
+  it("blocks moving an unassigned backlog issue out of backlog", async () => {
+    mockListIssues.mockImplementation((params: any) =>
+      Promise.resolve({
+        issues: mockIssues.filter((i) => i.status === params?.status),
+        total: mockIssues.filter((i) => i.status === params?.status).length,
+      }),
+    );
+
+    renderWithQuery(<IssuesPage />);
+
+    await screen.findByText("Write tests");
+    fireEvent.click(screen.getByRole("button", { name: "move issue-3 to todo" }));
+
+    expect(mockUpdateIssueMutate).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith("Please assign the task first.");
+  });
+
+  it("clears assignee fields when moving an issue back to backlog", async () => {
+    mockListIssues.mockImplementation((params: any) =>
+      Promise.resolve({
+        issues: mockIssues.filter((i) => i.status === params?.status),
+        total: mockIssues.filter((i) => i.status === params?.status).length,
+      }),
+    );
+
+    renderWithQuery(<IssuesPage />);
+
+    await screen.findByText("Implement auth");
+    fireEvent.click(screen.getByRole("button", { name: "move issue-1 to backlog" }));
+
+    await waitFor(() => {
+      expect(mockUpdateIssueMutate).toHaveBeenCalledWith(
+        { id: "issue-1", status: "backlog", assignee_type: null, assignee_id: null },
+        expect.any(Object),
+      );
+    });
   });
 });

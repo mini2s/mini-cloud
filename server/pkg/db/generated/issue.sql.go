@@ -20,7 +20,7 @@ WHERE id = $1
   AND assignee_type IS NULL
   AND assignee_id IS NULL
   AND status NOT IN ('done', 'cancelled')
-RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, responsible_user_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id
+RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id, responsible_user_id
 `
 
 type AssignSplitChildIssueIfUnassignedParams struct {
@@ -41,7 +41,6 @@ func (q *Queries) AssignSplitChildIssueIfUnassigned(ctx context.Context, arg Ass
 		&i.Priority,
 		&i.AssigneeType,
 		&i.AssigneeID,
-		&i.ResponsibleUserID,
 		&i.CreatorType,
 		&i.CreatorID,
 		&i.ParentIssueID,
@@ -61,6 +60,7 @@ func (q *Queries) AssignSplitChildIssueIfUnassigned(ctx context.Context, arg Ass
 		&i.WorkflowID,
 		&i.WorkflowRunID,
 		&i.StageID,
+		&i.ResponsibleUserID,
 	)
 	return i, err
 }
@@ -159,15 +159,16 @@ WHERE i.workspace_id = $1
   AND ($5::uuid IS NULL OR i.assignee_id = $5)
   AND ($6::uuid[] IS NULL OR i.assignee_id = ANY($6::uuid[]))
   AND ($7::uuid IS NULL OR i.creator_id = $7)
-  AND ($8::uuid IS NULL OR i.project_id = $8)
-  AND ($9::bool IS NULL OR (i.start_date IS NOT NULL OR i.due_date IS NOT NULL))
-  AND ($10::jsonb IS NULL OR i.metadata @> $10::jsonb)
+  AND ($8::uuid IS NULL OR i.responsible_user_id = $8)
+  AND ($9::uuid IS NULL OR i.project_id = $9)
+  AND ($10::bool IS NULL OR (i.start_date IS NOT NULL OR i.due_date IS NOT NULL))
+  AND ($11::jsonb IS NULL OR i.metadata @> $11::jsonb)
   AND (
-    $11::uuid IS NULL
+    $12::uuid IS NULL
     OR (i.assignee_type = 'agent' AND i.assignee_id IN (
           SELECT a.id FROM multica_agent a
            WHERE a.workspace_id = $1
-             AND a.owner_id     = $11::uuid
+             AND a.owner_id     = $12::uuid
     ))
     OR (i.assignee_type = 'squad' AND i.assignee_id IN (
           SELECT sm.squad_id
@@ -175,14 +176,14 @@ WHERE i.workspace_id = $1
             JOIN multica_squad s ON s.id = sm.squad_id
            WHERE s.workspace_id = $1
              AND sm.member_type = 'member'
-             AND sm.member_id   = $11::uuid
+             AND sm.member_id   = $12::uuid
           UNION
           SELECT s.id
             FROM multica_squad s
             JOIN multica_agent a ON a.id = s.leader_id
            WHERE s.workspace_id = $1
              AND a.workspace_id = $1
-             AND a.owner_id     = $11::uuid
+             AND a.owner_id     = $12::uuid
           UNION
           SELECT sm.squad_id
             FROM multica_squad_member sm
@@ -191,7 +192,7 @@ WHERE i.workspace_id = $1
            WHERE s.workspace_id = $1
              AND sm.member_type = 'agent'
              AND a.workspace_id = $1
-             AND a.owner_id     = $11::uuid
+             AND a.owner_id     = $12::uuid
     ))
   )
 `
@@ -204,6 +205,7 @@ type CountIssuesParams struct {
 	AssigneeID            pgtype.UUID   `json:"assignee_id"`
 	AssigneeIds           []pgtype.UUID `json:"assignee_ids"`
 	CreatorID             pgtype.UUID   `json:"creator_id"`
+	ResponsibleUserID     pgtype.UUID   `json:"responsible_user_id"`
 	ProjectID             pgtype.UUID   `json:"project_id"`
 	Scheduled             pgtype.Bool   `json:"scheduled"`
 	MetadataFilter        []byte        `json:"metadata_filter"`
@@ -220,6 +222,7 @@ func (q *Queries) CountIssues(ctx context.Context, arg CountIssuesParams) (int64
 		arg.AssigneeID,
 		arg.AssigneeIds,
 		arg.CreatorID,
+		arg.ResponsibleUserID,
 		arg.ProjectID,
 		arg.Scheduled,
 		arg.MetadataFilter,
@@ -237,9 +240,9 @@ INSERT INTO multica_issue (
     parent_issue_id, position, start_date, due_date, number, project_id,
     workflow_id, workflow_run_id, stage_id
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+    $1, $2, $3, $4, $5, $6, $7, $16, $8, $9, $10, $11, $12, $13, $14, $15,
     $17, $18, $19
-) RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, responsible_user_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id
+) RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id, responsible_user_id
 `
 
 type CreateIssueParams struct {
@@ -250,7 +253,6 @@ type CreateIssueParams struct {
 	Priority          string             `json:"priority"`
 	AssigneeType      pgtype.Text        `json:"assignee_type"`
 	AssigneeID        pgtype.UUID        `json:"assignee_id"`
-	ResponsibleUserID pgtype.UUID        `json:"responsible_user_id"`
 	CreatorType       string             `json:"creator_type"`
 	CreatorID         pgtype.UUID        `json:"creator_id"`
 	ParentIssueID     pgtype.UUID        `json:"parent_issue_id"`
@@ -259,6 +261,7 @@ type CreateIssueParams struct {
 	DueDate           pgtype.Timestamptz `json:"due_date"`
 	Number            int32              `json:"number"`
 	ProjectID         pgtype.UUID        `json:"project_id"`
+	ResponsibleUserID pgtype.UUID        `json:"responsible_user_id"`
 	WorkflowID        pgtype.UUID        `json:"workflow_id"`
 	WorkflowRunID     pgtype.UUID        `json:"workflow_run_id"`
 	StageID           pgtype.UUID        `json:"stage_id"`
@@ -273,7 +276,6 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Multi
 		arg.Priority,
 		arg.AssigneeType,
 		arg.AssigneeID,
-		arg.ResponsibleUserID,
 		arg.CreatorType,
 		arg.CreatorID,
 		arg.ParentIssueID,
@@ -282,6 +284,7 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Multi
 		arg.DueDate,
 		arg.Number,
 		arg.ProjectID,
+		arg.ResponsibleUserID,
 		arg.WorkflowID,
 		arg.WorkflowRunID,
 		arg.StageID,
@@ -296,7 +299,6 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Multi
 		&i.Priority,
 		&i.AssigneeType,
 		&i.AssigneeID,
-		&i.ResponsibleUserID,
 		&i.CreatorType,
 		&i.CreatorID,
 		&i.ParentIssueID,
@@ -316,6 +318,7 @@ func (q *Queries) CreateIssue(ctx context.Context, arg CreateIssueParams) (Multi
 		&i.WorkflowID,
 		&i.WorkflowRunID,
 		&i.StageID,
+		&i.ResponsibleUserID,
 	)
 	return i, err
 }
@@ -327,10 +330,10 @@ INSERT INTO multica_issue (
     parent_issue_id, position, start_date, due_date, number, project_id,
     origin_type, origin_id, workflow_id, workflow_run_id, stage_id
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+    $1, $2, $3, $4, $5, $6, $7, $16, $8, $9, $10, $11, $12, $13, $14, $15,
     $17, $18,
     $19, $20, $21
-) RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, responsible_user_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id
+) RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id, responsible_user_id
 `
 
 type CreateIssueWithOriginParams struct {
@@ -341,7 +344,6 @@ type CreateIssueWithOriginParams struct {
 	Priority          string             `json:"priority"`
 	AssigneeType      pgtype.Text        `json:"assignee_type"`
 	AssigneeID        pgtype.UUID        `json:"assignee_id"`
-	ResponsibleUserID pgtype.UUID        `json:"responsible_user_id"`
 	CreatorType       string             `json:"creator_type"`
 	CreatorID         pgtype.UUID        `json:"creator_id"`
 	ParentIssueID     pgtype.UUID        `json:"parent_issue_id"`
@@ -350,6 +352,7 @@ type CreateIssueWithOriginParams struct {
 	DueDate           pgtype.Timestamptz `json:"due_date"`
 	Number            int32              `json:"number"`
 	ProjectID         pgtype.UUID        `json:"project_id"`
+	ResponsibleUserID pgtype.UUID        `json:"responsible_user_id"`
 	OriginType        pgtype.Text        `json:"origin_type"`
 	OriginID          pgtype.UUID        `json:"origin_id"`
 	WorkflowID        pgtype.UUID        `json:"workflow_id"`
@@ -366,7 +369,6 @@ func (q *Queries) CreateIssueWithOrigin(ctx context.Context, arg CreateIssueWith
 		arg.Priority,
 		arg.AssigneeType,
 		arg.AssigneeID,
-		arg.ResponsibleUserID,
 		arg.CreatorType,
 		arg.CreatorID,
 		arg.ParentIssueID,
@@ -375,6 +377,7 @@ func (q *Queries) CreateIssueWithOrigin(ctx context.Context, arg CreateIssueWith
 		arg.DueDate,
 		arg.Number,
 		arg.ProjectID,
+		arg.ResponsibleUserID,
 		arg.OriginType,
 		arg.OriginID,
 		arg.WorkflowID,
@@ -391,7 +394,6 @@ func (q *Queries) CreateIssueWithOrigin(ctx context.Context, arg CreateIssueWith
 		&i.Priority,
 		&i.AssigneeType,
 		&i.AssigneeID,
-		&i.ResponsibleUserID,
 		&i.CreatorType,
 		&i.CreatorID,
 		&i.ParentIssueID,
@@ -411,6 +413,7 @@ func (q *Queries) CreateIssueWithOrigin(ctx context.Context, arg CreateIssueWith
 		&i.WorkflowID,
 		&i.WorkflowRunID,
 		&i.StageID,
+		&i.ResponsibleUserID,
 	)
 	return i, err
 }
@@ -439,7 +442,7 @@ UPDATE multica_issue SET
     metadata = metadata - $1::text,
     updated_at = now()
 WHERE id = $2 AND workspace_id = $3
-RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, responsible_user_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id
+RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id, responsible_user_id
 `
 
 type DeleteIssueMetadataKeyParams struct {
@@ -462,7 +465,6 @@ func (q *Queries) DeleteIssueMetadataKey(ctx context.Context, arg DeleteIssueMet
 		&i.Priority,
 		&i.AssigneeType,
 		&i.AssigneeID,
-		&i.ResponsibleUserID,
 		&i.CreatorType,
 		&i.CreatorID,
 		&i.ParentIssueID,
@@ -482,6 +484,7 @@ func (q *Queries) DeleteIssueMetadataKey(ctx context.Context, arg DeleteIssueMet
 		&i.WorkflowID,
 		&i.WorkflowRunID,
 		&i.StageID,
+		&i.ResponsibleUserID,
 	)
 	return i, err
 }
@@ -517,7 +520,7 @@ func (q *Queries) FinalizeSplitChildIssueRun(ctx context.Context, arg FinalizeSp
 }
 
 const findActiveDuplicateIssue = `-- name: FindActiveDuplicateIssue :one
-SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, responsible_user_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id FROM multica_issue
+SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id, responsible_user_id FROM multica_issue
 WHERE workspace_id = $1
   AND status NOT IN ('done', 'cancelled')
   AND project_id IS NOT DISTINCT FROM $2::uuid
@@ -551,7 +554,6 @@ func (q *Queries) FindActiveDuplicateIssue(ctx context.Context, arg FindActiveDu
 		&i.Priority,
 		&i.AssigneeType,
 		&i.AssigneeID,
-		&i.ResponsibleUserID,
 		&i.CreatorType,
 		&i.CreatorID,
 		&i.ParentIssueID,
@@ -571,12 +573,13 @@ func (q *Queries) FindActiveDuplicateIssue(ctx context.Context, arg FindActiveDu
 		&i.WorkflowID,
 		&i.WorkflowRunID,
 		&i.StageID,
+		&i.ResponsibleUserID,
 	)
 	return i, err
 }
 
 const getDirectIssueByWorkflowRun = `-- name: GetDirectIssueByWorkflowRun :one
-SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, responsible_user_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id FROM multica_issue
+SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id, responsible_user_id FROM multica_issue
 WHERE workspace_id = $1
   AND workflow_run_id = $2
   AND origin_type IS DISTINCT FROM 'workflow'
@@ -601,7 +604,6 @@ func (q *Queries) GetDirectIssueByWorkflowRun(ctx context.Context, arg GetDirect
 		&i.Priority,
 		&i.AssigneeType,
 		&i.AssigneeID,
-		&i.ResponsibleUserID,
 		&i.CreatorType,
 		&i.CreatorID,
 		&i.ParentIssueID,
@@ -621,12 +623,13 @@ func (q *Queries) GetDirectIssueByWorkflowRun(ctx context.Context, arg GetDirect
 		&i.WorkflowID,
 		&i.WorkflowRunID,
 		&i.StageID,
+		&i.ResponsibleUserID,
 	)
 	return i, err
 }
 
 const getIssue = `-- name: GetIssue :one
-SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, responsible_user_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id FROM multica_issue
+SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id, responsible_user_id FROM multica_issue
 WHERE id = $1
 `
 
@@ -642,7 +645,6 @@ func (q *Queries) GetIssue(ctx context.Context, id pgtype.UUID) (MulticaIssue, e
 		&i.Priority,
 		&i.AssigneeType,
 		&i.AssigneeID,
-		&i.ResponsibleUserID,
 		&i.CreatorType,
 		&i.CreatorID,
 		&i.ParentIssueID,
@@ -662,12 +664,13 @@ func (q *Queries) GetIssue(ctx context.Context, id pgtype.UUID) (MulticaIssue, e
 		&i.WorkflowID,
 		&i.WorkflowRunID,
 		&i.StageID,
+		&i.ResponsibleUserID,
 	)
 	return i, err
 }
 
 const getIssueByNumber = `-- name: GetIssueByNumber :one
-SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, responsible_user_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id FROM multica_issue
+SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id, responsible_user_id FROM multica_issue
 WHERE workspace_id = $1 AND number = $2
 `
 
@@ -688,7 +691,6 @@ func (q *Queries) GetIssueByNumber(ctx context.Context, arg GetIssueByNumberPara
 		&i.Priority,
 		&i.AssigneeType,
 		&i.AssigneeID,
-		&i.ResponsibleUserID,
 		&i.CreatorType,
 		&i.CreatorID,
 		&i.ParentIssueID,
@@ -708,12 +710,13 @@ func (q *Queries) GetIssueByNumber(ctx context.Context, arg GetIssueByNumberPara
 		&i.WorkflowID,
 		&i.WorkflowRunID,
 		&i.StageID,
+		&i.ResponsibleUserID,
 	)
 	return i, err
 }
 
 const getIssueByOrigin = `-- name: GetIssueByOrigin :one
-SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, responsible_user_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id FROM multica_issue
+SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id, responsible_user_id FROM multica_issue
 WHERE workspace_id = $1
   AND origin_type = $2
   AND origin_id = $3
@@ -728,7 +731,7 @@ type GetIssueByOriginParams struct {
 
 // Finds the multica_issue stamped with a specific (origin_type, origin_id) pair.
 // Used by quick-create completion to deterministically locate the multica_issue
-// produced by a given multica_agent_task_queue.id 鈥?robust against concurrent
+// produced by a given multica_agent_task_queue.id — robust against concurrent
 // multica_issue creates by the same multica_agent (assignment task + quick-create both
 // running with max_concurrent_tasks > 1).
 func (q *Queries) GetIssueByOrigin(ctx context.Context, arg GetIssueByOriginParams) (MulticaIssue, error) {
@@ -743,7 +746,6 @@ func (q *Queries) GetIssueByOrigin(ctx context.Context, arg GetIssueByOriginPara
 		&i.Priority,
 		&i.AssigneeType,
 		&i.AssigneeID,
-		&i.ResponsibleUserID,
 		&i.CreatorType,
 		&i.CreatorID,
 		&i.ParentIssueID,
@@ -763,12 +765,13 @@ func (q *Queries) GetIssueByOrigin(ctx context.Context, arg GetIssueByOriginPara
 		&i.WorkflowID,
 		&i.WorkflowRunID,
 		&i.StageID,
+		&i.ResponsibleUserID,
 	)
 	return i, err
 }
 
 const getIssueInWorkspace = `-- name: GetIssueInWorkspace :one
-SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, responsible_user_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id FROM multica_issue
+SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id, responsible_user_id FROM multica_issue
 WHERE id = $1 AND workspace_id = $2
 `
 
@@ -789,7 +792,6 @@ func (q *Queries) GetIssueInWorkspace(ctx context.Context, arg GetIssueInWorkspa
 		&i.Priority,
 		&i.AssigneeType,
 		&i.AssigneeID,
-		&i.ResponsibleUserID,
 		&i.CreatorType,
 		&i.CreatorID,
 		&i.ParentIssueID,
@@ -809,6 +811,7 @@ func (q *Queries) GetIssueInWorkspace(ctx context.Context, arg GetIssueInWorkspa
 		&i.WorkflowID,
 		&i.WorkflowRunID,
 		&i.StageID,
+		&i.ResponsibleUserID,
 	)
 	return i, err
 }
@@ -850,7 +853,7 @@ func (q *Queries) GetOpenSplitTaskByIssueID(ctx context.Context, issueID pgtype.
 }
 
 const listChildIssues = `-- name: ListChildIssues :many
-SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, responsible_user_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id FROM multica_issue
+SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id, responsible_user_id FROM multica_issue
 WHERE parent_issue_id = $1
   AND (origin_type IS NULL OR origin_type <> 'workflow')
 ORDER BY position ASC, created_at DESC
@@ -874,7 +877,6 @@ func (q *Queries) ListChildIssues(ctx context.Context, parentIssueID pgtype.UUID
 			&i.Priority,
 			&i.AssigneeType,
 			&i.AssigneeID,
-			&i.ResponsibleUserID,
 			&i.CreatorType,
 			&i.CreatorID,
 			&i.ParentIssueID,
@@ -894,6 +896,7 @@ func (q *Queries) ListChildIssues(ctx context.Context, parentIssueID pgtype.UUID
 			&i.WorkflowID,
 			&i.WorkflowRunID,
 			&i.StageID,
+			&i.ResponsibleUserID,
 		); err != nil {
 			return nil, err
 		}
@@ -977,18 +980,19 @@ WHERE i.workspace_id = $1
   AND ($7::uuid IS NULL OR i.assignee_id = $7)
   AND ($8::uuid[] IS NULL OR i.assignee_id = ANY($8::uuid[]))
   AND ($9::uuid IS NULL OR i.creator_id = $9)
-  AND ($10::uuid IS NULL OR i.project_id = $10)
-  AND ($11::bool IS NULL OR (i.start_date IS NOT NULL OR i.due_date IS NOT NULL))
-  AND ($12::jsonb IS NULL OR i.metadata @> $12::jsonb)
+  AND ($10::uuid IS NULL OR i.responsible_user_id = $10)
+  AND ($11::uuid IS NULL OR i.project_id = $11)
+  AND ($12::bool IS NULL OR (i.start_date IS NOT NULL OR i.due_date IS NOT NULL))
+  AND ($13::jsonb IS NULL OR i.metadata @> $13::jsonb)
   AND (
-    $13::uuid IS NULL
+    $14::uuid IS NULL
     -- (1) assignee is an multica_agent owned by the user
     OR (i.assignee_type = 'agent' AND i.assignee_id IN (
           SELECT a.id FROM multica_agent a
            WHERE a.workspace_id = $1
-             AND a.owner_id     = $13::uuid
+             AND a.owner_id     = $14::uuid
     ))
-    -- (2)(3)(4) assignee is a multica_squad related to the user 鈥?three relations
+    -- (2)(3)(4) assignee is a multica_squad related to the user — three relations
     OR (i.assignee_type = 'squad' AND i.assignee_id IN (
           -- (2) the user is a human multica_member of the multica_squad
           SELECT sm.squad_id
@@ -996,7 +1000,7 @@ WHERE i.workspace_id = $1
             JOIN multica_squad s ON s.id = sm.squad_id
            WHERE s.workspace_id = $1
              AND sm.member_type = 'member'
-             AND sm.member_id   = $13::uuid
+             AND sm.member_id   = $14::uuid
           UNION
           -- (3) the multica_squad's canonical leader is an multica_agent owned by the user.
           -- We read multica_squad.leader_id directly rather than relying on a
@@ -1007,7 +1011,7 @@ WHERE i.workspace_id = $1
             JOIN multica_agent a ON a.id = s.leader_id
            WHERE s.workspace_id = $1
              AND a.workspace_id = $1
-             AND a.owner_id     = $13::uuid
+             AND a.owner_id     = $14::uuid
           UNION
           -- (4) the multica_squad has an multica_agent multica_member owned by the user
           SELECT sm.squad_id
@@ -1017,7 +1021,7 @@ WHERE i.workspace_id = $1
            WHERE s.workspace_id = $1
              AND sm.member_type = 'agent'
              AND a.workspace_id = $1
-             AND a.owner_id     = $13::uuid
+             AND a.owner_id     = $14::uuid
     ))
   )
 ORDER BY i.position ASC, i.created_at DESC
@@ -1034,6 +1038,7 @@ type ListIssuesParams struct {
 	AssigneeID            pgtype.UUID   `json:"assignee_id"`
 	AssigneeIds           []pgtype.UUID `json:"assignee_ids"`
 	CreatorID             pgtype.UUID   `json:"creator_id"`
+	ResponsibleUserID     pgtype.UUID   `json:"responsible_user_id"`
 	ProjectID             pgtype.UUID   `json:"project_id"`
 	Scheduled             pgtype.Bool   `json:"scheduled"`
 	MetadataFilter        []byte        `json:"metadata_filter"`
@@ -1069,7 +1074,7 @@ type ListIssuesRow struct {
 }
 
 // involves_user_id widens the assignee filter to surface issues where the user
-// is *indirectly* the assignee 鈥?via an owned multica_agent or a multica_squad they belong to /
+// is *indirectly* the assignee — via an owned multica_agent or a multica_squad they belong to /
 // lead / have an multica_agent inside. The semantics intentionally exclude direct
 // multica_member assignment (`assignee_type='member' AND assignee_id=involves_user_id`)
 // because that is already the meaning of the `assignee_id` filter (tab 1
@@ -1085,6 +1090,7 @@ func (q *Queries) ListIssues(ctx context.Context, arg ListIssuesParams) ([]ListI
 		arg.AssigneeID,
 		arg.AssigneeIds,
 		arg.CreatorID,
+		arg.ResponsibleUserID,
 		arg.ProjectID,
 		arg.Scheduled,
 		arg.MetadataFilter,
@@ -1148,14 +1154,15 @@ WHERE i.workspace_id = $1
   AND ($4::uuid IS NULL OR i.assignee_id = $4)
   AND ($5::uuid[] IS NULL OR i.assignee_id = ANY($5::uuid[]))
   AND ($6::uuid IS NULL OR i.creator_id = $6)
-  AND ($7::uuid IS NULL OR i.project_id = $7)
-  AND ($8::jsonb IS NULL OR i.metadata @> $8::jsonb)
+  AND ($7::uuid IS NULL OR i.responsible_user_id = $7)
+  AND ($8::uuid IS NULL OR i.project_id = $8)
+  AND ($9::jsonb IS NULL OR i.metadata @> $9::jsonb)
   AND (
-    $9::uuid IS NULL
+    $10::uuid IS NULL
     OR (i.assignee_type = 'agent' AND i.assignee_id IN (
           SELECT a.id FROM multica_agent a
            WHERE a.workspace_id = $1
-             AND a.owner_id     = $9::uuid
+             AND a.owner_id     = $10::uuid
     ))
     OR (i.assignee_type = 'squad' AND i.assignee_id IN (
           SELECT sm.squad_id
@@ -1163,14 +1170,14 @@ WHERE i.workspace_id = $1
             JOIN multica_squad s ON s.id = sm.squad_id
            WHERE s.workspace_id = $1
              AND sm.member_type = 'member'
-             AND sm.member_id   = $9::uuid
+             AND sm.member_id   = $10::uuid
           UNION
           SELECT s.id
             FROM multica_squad s
             JOIN multica_agent a ON a.id = s.leader_id
            WHERE s.workspace_id = $1
              AND a.workspace_id = $1
-             AND a.owner_id     = $9::uuid
+             AND a.owner_id     = $10::uuid
           UNION
           SELECT sm.squad_id
             FROM multica_squad_member sm
@@ -1179,7 +1186,7 @@ WHERE i.workspace_id = $1
            WHERE s.workspace_id = $1
              AND sm.member_type = 'agent'
              AND a.workspace_id = $1
-             AND a.owner_id     = $9::uuid
+             AND a.owner_id     = $10::uuid
     ))
   )
 ORDER BY i.position ASC, i.created_at DESC
@@ -1192,6 +1199,7 @@ type ListOpenIssuesParams struct {
 	AssigneeID            pgtype.UUID   `json:"assignee_id"`
 	AssigneeIds           []pgtype.UUID `json:"assignee_ids"`
 	CreatorID             pgtype.UUID   `json:"creator_id"`
+	ResponsibleUserID     pgtype.UUID   `json:"responsible_user_id"`
 	ProjectID             pgtype.UUID   `json:"project_id"`
 	MetadataFilter        []byte        `json:"metadata_filter"`
 	InvolvesUserID        pgtype.UUID   `json:"involves_user_id"`
@@ -1235,6 +1243,7 @@ func (q *Queries) ListOpenIssues(ctx context.Context, arg ListOpenIssuesParams) 
 		arg.AssigneeID,
 		arg.AssigneeIds,
 		arg.CreatorID,
+		arg.ResponsibleUserID,
 		arg.ProjectID,
 		arg.MetadataFilter,
 		arg.InvolvesUserID,
@@ -1309,7 +1318,8 @@ type MarkIssueFirstExecutedRow struct {
 
 // Flips first_executed_at from NULL to now() atomically. Returns the row if
 // this was the first time the multica_issue was executed; no rows otherwise. The
-// analytics issue_executed event fires exactly when this returns a row 鈥?// retries and re-assignments hit the WHERE clause and no-op.
+// analytics issue_executed event fires exactly when this returns a row —
+// retries and re-assignments hit the WHERE clause and no-op.
 func (q *Queries) MarkIssueFirstExecuted(ctx context.Context, id pgtype.UUID) (MarkIssueFirstExecutedRow, error) {
 	row := q.db.QueryRow(ctx, markIssueFirstExecuted, id)
 	var i MarkIssueFirstExecutedRow
@@ -1329,7 +1339,7 @@ UPDATE multica_issue SET
     metadata = jsonb_set(metadata, ARRAY[$1::text], $2::jsonb),
     updated_at = now()
 WHERE id = $3 AND workspace_id = $4
-RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, responsible_user_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id
+RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id, responsible_user_id
 `
 
 type SetIssueMetadataKeyParams struct {
@@ -1341,7 +1351,7 @@ type SetIssueMetadataKeyParams struct {
 
 // SearchIssues: moved to handler (dynamic SQL for multi-word search support).
 // Atomically sets a single key in the multica_issue's metadata JSONB. The
-// workspace_id filter is the authorization gate 鈥?handler resolves the
+// workspace_id filter is the authorization gate — handler resolves the
 // multica_issue first so this is also the tenant check.
 func (q *Queries) SetIssueMetadataKey(ctx context.Context, arg SetIssueMetadataKeyParams) (MulticaIssue, error) {
 	row := q.db.QueryRow(ctx, setIssueMetadataKey,
@@ -1360,7 +1370,6 @@ func (q *Queries) SetIssueMetadataKey(ctx context.Context, arg SetIssueMetadataK
 		&i.Priority,
 		&i.AssigneeType,
 		&i.AssigneeID,
-		&i.ResponsibleUserID,
 		&i.CreatorType,
 		&i.CreatorID,
 		&i.ParentIssueID,
@@ -1380,6 +1389,7 @@ func (q *Queries) SetIssueMetadataKey(ctx context.Context, arg SetIssueMetadataK
 		&i.WorkflowID,
 		&i.WorkflowRunID,
 		&i.StageID,
+		&i.ResponsibleUserID,
 	)
 	return i, err
 }
@@ -1402,7 +1412,7 @@ UPDATE multica_issue SET
     stage_id = $15,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, responsible_user_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id
+RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id, responsible_user_id
 `
 
 type UpdateIssueParams struct {
@@ -1451,7 +1461,6 @@ func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Multi
 		&i.Priority,
 		&i.AssigneeType,
 		&i.AssigneeID,
-		&i.ResponsibleUserID,
 		&i.CreatorType,
 		&i.CreatorID,
 		&i.ParentIssueID,
@@ -1471,6 +1480,7 @@ func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Multi
 		&i.WorkflowID,
 		&i.WorkflowRunID,
 		&i.StageID,
+		&i.ResponsibleUserID,
 	)
 	return i, err
 }
@@ -1480,7 +1490,7 @@ UPDATE multica_issue SET
     status = $2,
     updated_at = now()
 WHERE id = $1 AND workspace_id = $3
-RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, responsible_user_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id
+RETURNING id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, workflow_id, workflow_run_id, stage_id, responsible_user_id
 `
 
 type UpdateIssueStatusParams struct {
@@ -1502,7 +1512,6 @@ func (q *Queries) UpdateIssueStatus(ctx context.Context, arg UpdateIssueStatusPa
 		&i.Priority,
 		&i.AssigneeType,
 		&i.AssigneeID,
-		&i.ResponsibleUserID,
 		&i.CreatorType,
 		&i.CreatorID,
 		&i.ParentIssueID,
@@ -1522,6 +1531,7 @@ func (q *Queries) UpdateIssueStatus(ctx context.Context, arg UpdateIssueStatusPa
 		&i.WorkflowID,
 		&i.WorkflowRunID,
 		&i.StageID,
+		&i.ResponsibleUserID,
 	)
 	return i, err
 }

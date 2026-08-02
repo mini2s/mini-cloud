@@ -919,11 +919,8 @@ func commentMentionsAnyone(content string) bool {
 	return false
 }
 
-// shouldEnqueueSquadLeaderOnAssign returns true when assigning an issue to a
-// squad (or creating an issue pre-assigned to a squad) should immediately
-// trigger the squad leader. Mirrors shouldEnqueueAgentTask: backlog issues
-// are skipped (parking lot), and the leader agent must have a runtime and
-// not be archived.
+// shouldEnqueueSquadLeaderOnAssign returns true when an issue assigned to a
+// squad is ready to trigger the squad leader.
 func (h *Handler) shouldEnqueueSquadLeaderOnAssign(ctx context.Context, issue db.MulticaIssue) bool {
 	if !service.IssueStatusStartsWork(issue.Status) {
 		return false

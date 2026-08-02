@@ -67,7 +67,10 @@ export function BoardColumn({
   );
 
   return (
-    <div className={`flex w-[280px] shrink-0 flex-col rounded-xl ${cfg?.columnBg ?? "bg-muted/40"} p-2`}>
+    <div
+      data-testid={`board-column-${group.id}`}
+      className={`flex w-[280px] shrink-0 flex-col rounded-xl ${cfg?.columnBg ?? "bg-muted/40"} p-2`}
+    >
       <div className="mb-2 flex items-center justify-between px-1.5">
         <BoardGroupHeading group={group} count={totalCount ?? issueIds.length} />
 
@@ -115,6 +118,7 @@ export function BoardColumn({
       </div>
       <div
         ref={setNodeRef}
+        data-testid={`board-column-droppable-${group.id}`}
         className={`min-h-[200px] flex-1 space-y-2 overflow-y-auto rounded-lg p-1 transition-colors ${
           isOver ? "bg-accent/60" : ""
         }`}

@@ -4,7 +4,8 @@
     "breadcrumb_workspace_fallback": "工作区",
     "empty_title": "还没有任务",
     "empty_hint": "创建一个任务开始使用。",
-    "move_failed": "移动任务失败"
+    "move_failed": "移动任务失败",
+    "assign_first": "请先分配任务"
   },
   "status": {
     "backlog": "待规划",
@@ -665,13 +666,13 @@
   },
   "backlog_hint": {
     "title": "数智人在 backlog 状态下暂停",
-    "description": "这个任务处于待规划状态，被分配的数智人会等待。准备启动时把它移到 todo。",
+    "description": "这个任务处于待规划状态，被分配的数智人会等待。准备启动时把它移到进行中。",
     "row_backlog_label": "Backlog",
     "row_backlog_hint": "数智人保持暂停",
-    "row_todo_label": "Todo",
-    "row_todo_hint": "启动数智人",
+    "row_in_progress_label": "进行中",
+    "row_in_progress_hint": "启动数智人",
     "dont_show_again": "不再提示",
-    "keep_in_backlog": "保持在 Backlog",
-    "move_to_todo": "移到 Todo"
+    "keep_in_backlog": "保持在待规划",
+    "move_to_in_progress": "移到进行中"
   }
 }

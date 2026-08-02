@@ -69,7 +69,7 @@ export const issueKeys = {
 
 export type MyIssuesFilter = Pick<
   ListIssuesParams,
-  "assignee_id" | "assignee_ids" | "creator_id" | "project_id" | "involves_user_id"
+  "assignee_id" | "assignee_ids" | "creator_id" | "responsible_user_id" | "project_id" | "involves_user_id"
 >;
 
 export type AssigneeGroupedIssuesFilter = Omit<
@@ -130,35 +130,36 @@ async function fetchAllIssues(): Promise<Issue[]> {
 }
 
 /**
- * "All my issues" — union of three server filters:
- *   assignee_id=me OR creator_id=me OR involves_user_id=me
+ * "All my issues" — union of four server filters:
+ *   assignee_id=me OR creator_id=me OR responsible_user_id=me OR involves_user_id=me
  *
- * The backend has no OR-across-user-filters today, so we run the three
+ * The backend has no OR-across-user-filters today, so we run the four
  * existing single-filter fetches in parallel and dedupe on the client by
  * issue id within each status bucket. Order within each bucket preserves
  * the first-seen position (each sub-fetch is already server-sorted).
  *
  * Personal lists are bounded (tens to a few hundred issues across all
- * three relations), so 3× the request count is acceptable — a single
+ * four relations), so 4× the request count is acceptable — a single
  * fetchFirstPages already runs 7 status fetches in parallel, so the total
- * here is 21 small parallel requests. Easy enough; no need to add a new
+ * here is 28 small parallel requests. Easy enough; no need to add a new
  * backend query just for this scope.
  *
  * `total` per bucket is set to the merged length, not the true server
  * total — pagination on the "All" scope is out of scope; the first
- * 50-per-status × 3 widening (deduped) is what the page renders.
+ * 50-per-status × 4 widening (deduped) is what the page renders.
  */
 async function fetchAllMyFirstPages(userId: string): Promise<ListIssuesCache> {
-  const [byAssignee, byCreator, byInvolves] = await Promise.all([
+  const [byAssignee, byCreator, byResponsible, byInvolves] = await Promise.all([
     fetchFirstPages({ assignee_id: userId }),
     fetchFirstPages({ creator_id: userId }),
+    fetchFirstPages({ responsible_user_id: userId }),
     fetchFirstPages({ involves_user_id: userId }),
   ]);
   const byStatus: ListIssuesCache["byStatus"] = {};
   for (const status of PAGINATED_STATUSES) {
     const seen = new Set<string>();
     const merged: Issue[] = [];
-    for (const cache of [byAssignee, byCreator, byInvolves]) {
+    for (const cache of [byAssignee, byCreator, byResponsible, byInvolves]) {
       const bucket = cache.byStatus[status];
       if (!bucket) continue;
       for (const issue of bucket.issues) {
@@ -174,7 +175,7 @@ async function fetchAllMyFirstPages(userId: string): Promise<ListIssuesCache> {
 
 /**
  * Sibling of {@link fetchAllMyFirstPages} for the assignee-grouped board
- * view. Runs the three single-filter grouped queries in parallel and
+ * view. Runs the four single-filter grouped queries in parallel and
  * merges groups by (assignee_type, assignee_id), deduping issues within
  * each group. Extra filters from the page (statuses, priorities, etc.)
  * pass through unchanged.
@@ -186,6 +187,7 @@ async function fetchAllMyAssigneeGroups(
   const variants: AssigneeGroupedIssuesFilter[] = [
     { ...filter, assignee_id: userId },
     { ...filter, creator_id: userId },
+    { ...filter, responsible_user_id: userId },
     { ...filter, involves_user_id: userId },
   ];
   const responses = await Promise.all(
