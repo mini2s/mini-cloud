@@ -2811,3 +2811,79 @@ func TestCodeRepoProvider(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveCodeRepo_GithubCodeRepoInfersGithubProvider(t *testing.T) {
+	wsRepos, _ := json.Marshal([]struct{ URL string }{
+		{URL: "https://github.com/org/backend.git"},
+	})
+	wsSettings, _ := json.Marshal(struct {
+		GitlabAccessToken string `json:"gitlab_access_token"`
+		GithubAccessToken string `json:"github_access_token"`
+	}{GitlabAccessToken: "tok-gl", GithubAccessToken: "tok-gh"})
+	mdb := &resolveTestDB{
+		workspace: &db.MulticaWorkspace{
+			ID:       testUUID(1),
+			Repos:    wsRepos,
+			Settings: wsSettings,
+		},
+		issue: &db.MulticaIssue{ID: testUUID(5), WorkspaceID: testUUID(1)},
+	}
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{IssueID: testUUID(5)}
+
+	repos, tokens, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
+
+	if tokens.GithubToken != "tok-gh" {
+		t.Fatalf("github token = %q, want tok-gh", tokens.GithubToken)
+	}
+	if tokens.GitlabToken != "tok-gl" {
+		t.Fatalf("gitlab token = %q, want tok-gl (still read even when repos are github)", tokens.GitlabToken)
+	}
+	if len(repos) != 1 {
+		t.Fatalf("repos count = %d, want 1", len(repos))
+	}
+	if repos[0].Provider != "github" {
+		t.Fatalf("repo provider = %q, want github", repos[0].Provider)
+	}
+	if projectID != "" {
+		t.Fatalf("projectID = %q, want empty", projectID)
+	}
+}
+
+func TestResolveCodeRepo_MixedProjectResourcesInferPerRepoProvider(t *testing.T) {
+	wsSettings, _ := json.Marshal(struct {
+		GitlabAccessToken string `json:"gitlab_access_token"`
+		GithubAccessToken string `json:"github_access_token"`
+	}{GitlabAccessToken: "tok-gl", GithubAccessToken: "tok-gh"})
+	mdb := &resolveTestDB{
+		workspace: &db.MulticaWorkspace{
+			ID:       testUUID(1),
+			Settings: wsSettings,
+		},
+		issue: &db.MulticaIssue{ID: testUUID(5), WorkspaceID: testUUID(1), ProjectID: testUUID(10)},
+		projResRows: []db.MulticaProjectResource{
+			{ResourceType: "github_repo", ResourceRef: []byte(`{"url":"https://github.com/org/repo-a.git"}`)},
+			{ResourceType: "github_repo", ResourceRef: []byte(`{"url":"https://gitlab.example.com/org/repo-b.git"}`)},
+		},
+	}
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{IssueID: testUUID(5)}
+
+	repos, tokens, _ := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
+
+	if tokens.GitlabToken != "tok-gl" {
+		t.Fatalf("gitlab token = %q, want tok-gl", tokens.GitlabToken)
+	}
+	if tokens.GithubToken != "tok-gh" {
+		t.Fatalf("github token = %q, want tok-gh", tokens.GithubToken)
+	}
+	if len(repos) != 2 {
+		t.Fatalf("repos count = %d, want 2", len(repos))
+	}
+	if repos[0].Provider != "github" {
+		t.Fatalf("repos[0] provider = %q, want github", repos[0].Provider)
+	}
+	if repos[1].Provider != "gitlab" {
+		t.Fatalf("repos[1] provider = %q, want gitlab", repos[1].Provider)
+	}
+}
