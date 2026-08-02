@@ -190,7 +190,9 @@ export const BoardCardContent = memo(function BoardCardContent({
                 squad: t(($) => $.card.actor_types.squad),
                 workflow: t(($) => $.card.actor_types.workflow),
               }}
+              editableResponsible={editable}
               editableAssignee={editable}
+              onResponsibleUpdate={handleUpdate}
               onAssigneeUpdate={handleUpdate}
             />
           )}

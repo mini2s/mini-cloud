@@ -1,8 +1,14 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type { Issue } from "@multica/core/types";
 import { IssuePeopleBadges } from "./issue-people-badges";
+
+const mockedAssigneePickers: Array<{
+  allowedTypes?: string[];
+  allowUnassigned?: boolean;
+  onUpdate: (updates: Record<string, unknown>) => void;
+}> = [];
 
 vi.mock("@multica/core/workspace/hooks", () => ({
   useActorName: () => ({
@@ -27,17 +33,26 @@ vi.mock("./pickers", () => ({
   AssigneePicker: ({
     trigger,
     triggerRender,
+    allowedTypes,
+    allowUnassigned,
+    onUpdate,
   }: {
     trigger: ReactNode;
     triggerRender?: ReactElement<{ className?: string }>;
-  }) => (
-    <span
-      data-testid="assignee-picker"
-      data-trigger-class={triggerRender?.props.className ?? ""}
-    >
-      {trigger}
-    </span>
-  ),
+    allowedTypes?: string[];
+    allowUnassigned?: boolean;
+    onUpdate: (updates: Record<string, unknown>) => void;
+  }) => {
+    mockedAssigneePickers.push({ allowedTypes, allowUnassigned, onUpdate });
+    return (
+      <span
+        data-testid="assignee-picker"
+        data-trigger-class={triggerRender?.props.className ?? ""}
+      >
+        {trigger}
+      </span>
+    );
+  },
 }));
 
 const baseIssue: Issue = {
@@ -68,6 +83,10 @@ const baseIssue: Issue = {
 };
 
 describe("IssuePeopleBadges", () => {
+  beforeEach(() => {
+    mockedAssigneePickers.length = 0;
+  });
+
   it("renders two actor tiles and keeps responsible and assignee names in the hover tooltip", () => {
     render(
       <IssuePeopleBadges
@@ -202,5 +221,37 @@ describe("IssuePeopleBadges", () => {
     expect(
       screen.getByLabelText("Claude Worker"),
     ).not.toHaveAttribute("title");
+  });
+
+  it("limits the editable responsible picker to members", () => {
+    const onResponsibleUpdate = vi.fn();
+    const onAssigneeUpdate = vi.fn();
+    render(
+      <IssuePeopleBadges
+        issue={baseIssue}
+        responsibleLabel="Owner"
+        assigneeLabel="Assignee"
+        editableResponsible
+        editableAssignee
+        onResponsibleUpdate={onResponsibleUpdate}
+        onAssigneeUpdate={onAssigneeUpdate}
+      />,
+    );
+
+    expect(mockedAssigneePickers).toHaveLength(2);
+    expect(mockedAssigneePickers[0]).toMatchObject({
+      allowedTypes: ["member"],
+      allowUnassigned: false,
+    });
+
+    mockedAssigneePickers[0]!.onUpdate({
+      assignee_type: "member",
+      assignee_id: "user-2",
+    });
+
+    expect(onResponsibleUpdate).toHaveBeenCalledWith({
+      responsible_user_id: "user-2",
+    });
+    expect(onAssigneeUpdate).not.toHaveBeenCalled();
   });
 });

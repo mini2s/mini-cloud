@@ -151,7 +151,9 @@ interface IssuePeopleBadgesProps {
   assigneeLabel: string;
   actorTypeLabels?: ActorTypeLabels;
   compact?: boolean;
+  editableResponsible?: boolean;
   editableAssignee?: boolean;
+  onResponsibleUpdate?: (updates: Partial<UpdateIssueRequest>) => void;
   onAssigneeUpdate?: (updates: Partial<UpdateIssueRequest>) => void;
 }
 
@@ -160,7 +162,9 @@ export function IssuePeopleBadges({
   responsibleLabel,
   assigneeLabel,
   compact = false,
+  editableResponsible = false,
   editableAssignee = false,
+  onResponsibleUpdate,
   onAssigneeUpdate,
 }: IssuePeopleBadgesProps) {
   const { getActorName, getActorInitials } = useActorName();
@@ -181,54 +185,73 @@ export function IssuePeopleBadges({
   const assigneeInitials = hasAssignee
     ? getActorInitials(issue.assignee_type!, issue.assignee_id!)
     : null;
+  const responsiblePerson = hasResponsible ? (
+    <RolePerson
+      label={responsibleLabel}
+      actorType="member"
+      actorId={issue.responsible_user_id!}
+      actorName={responsibleName!}
+      initials={responsibleInitials!}
+      compact={compact}
+      variant="responsible"
+    />
+  ) : null;
+  const assigneePerson = hasAssignee ? (
+    <RolePerson
+      label={assigneeLabel}
+      actorType={issue.assignee_type!}
+      actorId={issue.assignee_id!}
+      actorName={assigneeName!}
+      initials={assigneeInitials!}
+      compact={compact}
+      variant="assignee"
+    />
+  ) : null;
   const rolePeople = (
     <span className="inline-flex shrink-0 items-center gap-2">
-      {hasResponsible && (
-        <RolePerson
-          label={responsibleLabel}
-          actorType="member"
-          actorId={issue.responsible_user_id!}
-          actorName={responsibleName!}
-          initials={responsibleInitials!}
-          compact={compact}
-          variant="responsible"
-        />
-      )}
-      {hasAssignee && (
-        <RolePerson
-          label={assigneeLabel}
-          actorType={issue.assignee_type!}
-          actorId={issue.assignee_id!}
-          actorName={assigneeName!}
-          initials={assigneeInitials!}
-          compact={compact}
-          variant="assignee"
-        />
+      {responsiblePerson &&
+        (editableResponsible && onResponsibleUpdate ? (
+          <PickerWrapper>
+            <AssigneePicker
+              assigneeType="member"
+              assigneeId={issue.responsible_user_id!}
+              onUpdate={(updates) =>
+                onResponsibleUpdate({ responsible_user_id: updates.assignee_id ?? null })
+              }
+              trigger={responsiblePerson}
+              triggerRender={
+                <span className="inline-flex cursor-pointer overflow-visible rounded px-1 -mx-1 transition-colors hover:bg-accent/30" />
+              }
+              allowedTypes={["member"]}
+              allowUnassigned={false}
+            />
+          </PickerWrapper>
+        ) : (
+          responsiblePerson
+        ))}
+      {assigneePerson && (
+        editableAssignee && onAssigneeUpdate ? (
+          <PickerWrapper>
+            <AssigneePicker
+              assigneeType={issue.assignee_type}
+              assigneeId={issue.assignee_id}
+              onUpdate={onAssigneeUpdate}
+              trigger={assigneePerson}
+              triggerRender={
+                <span className="inline-flex cursor-pointer overflow-visible rounded px-1 -mx-1 transition-colors hover:bg-accent/30" />
+              }
+            />
+          </PickerWrapper>
+        ) : (
+          assigneePerson
+        )
       )}
     </span>
   );
 
-  const trigger = (
+  return (
     <span className="inline-flex shrink-0 items-center">
       {rolePeople}
     </span>
   );
-
-  if (editableAssignee && onAssigneeUpdate && hasAssignee) {
-    return (
-      <PickerWrapper>
-        <AssigneePicker
-          assigneeType={issue.assignee_type}
-          assigneeId={issue.assignee_id}
-          onUpdate={onAssigneeUpdate}
-          trigger={trigger}
-          triggerRender={
-            <span className="inline-flex cursor-pointer overflow-visible rounded px-1 -mx-1 transition-colors hover:bg-accent/30" />
-          }
-        />
-      </PickerWrapper>
-    );
-  }
-
-  return trigger;
 }
