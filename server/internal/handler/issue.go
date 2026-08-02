@@ -2122,17 +2122,18 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 }
 
 type UpdateIssueRequest struct {
-	Title         *string  `json:"title"`
-	Description   *string  `json:"description"`
-	Status        *string  `json:"status"`
-	Priority      *string  `json:"priority"`
-	AssigneeType  *string  `json:"assignee_type"`
-	AssigneeID    *string  `json:"assignee_id"`
-	Position      *float64 `json:"position"`
-	StartDate     *string  `json:"start_date"`
-	DueDate       *string  `json:"due_date"`
-	ParentIssueID *string  `json:"parent_issue_id"`
-	ProjectID     *string  `json:"project_id"`
+	Title             *string  `json:"title"`
+	Description       *string  `json:"description"`
+	Status            *string  `json:"status"`
+	Priority          *string  `json:"priority"`
+	AssigneeType      *string  `json:"assignee_type"`
+	AssigneeID        *string  `json:"assignee_id"`
+	ResponsibleUserID *string  `json:"responsible_user_id"`
+	Position          *float64 `json:"position"`
+	StartDate         *string  `json:"start_date"`
+	DueDate           *string  `json:"due_date"`
+	ParentIssueID     *string  `json:"parent_issue_id"`
+	ProjectID         *string  `json:"project_id"`
 	// AttachmentIDs lets the description editor bind newly uploaded files to
 	// this issue so they surface in `GET /api/issues/:id/attachments` and the
 	// editor's preview Eye keeps working past a refresh. Existing bindings
@@ -2233,16 +2234,17 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 
 	// Pre-fill nullable fields (bare sqlc.narg) with current values
 	params := db.UpdateIssueParams{
-		ID:            prevIssue.ID,
-		AssigneeType:  prevIssue.AssigneeType,
-		AssigneeID:    prevIssue.AssigneeID,
-		StartDate:     prevIssue.StartDate,
-		DueDate:       prevIssue.DueDate,
-		ParentIssueID: prevIssue.ParentIssueID,
-		ProjectID:     prevIssue.ProjectID,
-		WorkflowID:    prevIssue.WorkflowID,
-		WorkflowRunID: prevIssue.WorkflowRunID,
-		StageID:       prevIssue.StageID,
+		ID:                prevIssue.ID,
+		AssigneeType:      prevIssue.AssigneeType,
+		AssigneeID:        prevIssue.AssigneeID,
+		StartDate:         prevIssue.StartDate,
+		DueDate:           prevIssue.DueDate,
+		ParentIssueID:     prevIssue.ParentIssueID,
+		ProjectID:         prevIssue.ProjectID,
+		WorkflowID:        prevIssue.WorkflowID,
+		WorkflowRunID:     prevIssue.WorkflowRunID,
+		StageID:           prevIssue.StageID,
+		ResponsibleUserID: prevIssue.ResponsibleUserID,
 	}
 
 	// COALESCE fields — only set when explicitly provided
@@ -2278,6 +2280,25 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 			params.AssigneeID = id
 		} else {
 			params.AssigneeID = pgtype.UUID{Valid: false} // explicit null = unassign
+		}
+	}
+	if _, ok := rawFields["responsible_user_id"]; ok {
+		if req.ResponsibleUserID != nil && *req.ResponsibleUserID != "" {
+			id, ok := parseUUIDOrBadRequest(w, *req.ResponsibleUserID, "responsible_user_id")
+			if !ok {
+				return
+			}
+			// Mirror CreateIssue's guard: the responsible owner must be a workspace member.
+			if _, err := h.Queries.GetMemberByUserAndWorkspace(r.Context(), db.GetMemberByUserAndWorkspaceParams{
+				UserID:      id,
+				WorkspaceID: prevIssue.WorkspaceID,
+			}); err != nil {
+				writeError(w, http.StatusBadRequest, "responsible user must be a workspace member")
+				return
+			}
+			params.ResponsibleUserID = id
+		} else {
+			params.ResponsibleUserID = pgtype.UUID{Valid: false} // explicit null = clear
 		}
 	}
 	if _, ok := rawFields["start_date"]; ok {

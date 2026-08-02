@@ -70,7 +70,7 @@
     "sort_title": "标题",
     "card_priority": "优先级",
     "card_description": "描述",
-    "card_assignee": "负责人",
+    "card_assignee": "负责人/处理人",
     "card_start_date": "开始日期",
     "card_due_date": "截止日期",
     "card_project": "项目",
@@ -212,7 +212,8 @@
     "pull_request_card_show_less": "收起",
     "prop_status": "状态",
     "prop_priority": "优先级",
-    "prop_assignee": "负责人",
+    "prop_responsible": "负责人",
+    "prop_assignee": "处理人",
     "prop_stage": "阶段",
     "stage_placeholder": "选择阶段",
     "stage_no_stage": "无阶段",
@@ -399,7 +400,9 @@
     "cancel": "取消"
   },
   "card": {
-    "update_failed": "更新任务失败"
+    "update_failed": "更新任务失败",
+    "responsible": "负责人",
+    "assignee": "处理人"
   },
   "actions": {
     "status": "状态",
