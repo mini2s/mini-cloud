@@ -47,7 +47,7 @@ const baseIssue: Issue = {
 };
 
 describe("IssuePeopleBadges", () => {
-  it("renders responsible and assignee names inside hover-expand badges", () => {
+  it("renders responsible and assignee names in hover-expand badges", () => {
     render(
       <IssuePeopleBadges
         issue={baseIssue}
