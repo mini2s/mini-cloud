@@ -114,8 +114,9 @@ export function MyIssuesHeader({ allIssues }: { allIssues: Issue[] }) {
   const { t: tIssues } = useT("issues");
   const SCOPES: { value: MyIssuesScope; label: string; description: string }[] = [
     { value: "all", label: t(($) => $.header.scope.all_label), description: t(($) => $.header.scope.all_description) },
-    { value: "assigned", label: t(($) => $.header.scope.assigned_label), description: t(($) => $.header.scope.assigned_description) },
     { value: "created", label: t(($) => $.header.scope.created_label), description: t(($) => $.header.scope.created_description) },
+    { value: "responsible", label: t(($) => $.header.scope.responsible_label), description: t(($) => $.header.scope.responsible_description) },
+    { value: "assigned", label: t(($) => $.header.scope.assigned_label), description: t(($) => $.header.scope.assigned_description) },
     { value: "agents", label: t(($) => $.header.scope.agents_label), description: t(($) => $.header.scope.agents_description) },
   ];
   const viewMode = useStore(myIssuesViewStore, (s) => s.viewMode);

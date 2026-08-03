@@ -301,7 +301,7 @@ func TestClient_CreateUserToken(t *testing.T) {
 		t.Errorf("scopes = %#v, want write:repository + read:user", got.body["scopes"])
 	}
 	// Gitea's /users/{name}/tokens rejects token auth (401); it requires basic
-	// auth with the admin token as the password.
+	// auth with the configured token as the password.
 	if !strings.HasPrefix(got.auth, "Basic ") {
 		t.Errorf("auth = %q, want Basic (token endpoint requires basic-auth)", got.auth)
 	}

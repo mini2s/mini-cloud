@@ -144,7 +144,7 @@
           fmt.Sprintf("%s/repos/%s/%s/pulls/%d", c.baseURL, owner, repo, index), bytes.NewReader(body))
       req.Header.Set("Authorization", "token "+c.token)
       req.Header.Set("Content-Type", "application/json")
-      resp, err := c.do(req) // 复用现有 (*Client).do（含 admin token + error decode）
+      resp, err := c.do(req) // 复用现有 (*Client).do（含 configured token + error decode）
       if err != nil { return err }
       defer resp.Body.Close()
       if resp.StatusCode >= 200 && resp.StatusCode < 300 { return nil }
@@ -174,7 +174,7 @@
 
 **Files:** `internal/service/workflow_deliverable_repo.go:808-851`; `internal/service/workflow_deliverable_repo_test.go`
 
-**背景：** 现状 `gitea.ParsePullRequestIndex`（:842）是 Gitea-only 门槛，GitLab MR URL → error → blocked。改成按 URL 分派：Gitea PR → `s.Gitea`（admin token）；GitLab MR → 一次性 `gitlab.Client`（workspace PAT + URL host）。
+**背景：** 现状 `gitea.ParsePullRequestIndex`（:842）是 Gitea-only 门槛，GitLab MR URL → error → blocked。改成按 URL 分派：Gitea PR → workspace bot token；GitLab MR → 一次性 `gitlab.Client`（workspace PAT + URL host）。
 
 - [ ] **Step 1: 写失败测试** — `workflow_deliverable_repo_test.go` 仿 `TestReviewNodeRun_MergesDocumentDeliverablePRs`（:905）：建一个 `pull_request` kind 的 submission，`pull_request_url = fakeGitlabServer.URL + "/root/repo/-/merge_requests/7"`，approve → 断言 fakeGitlabServer 收到 `PUT /api/v4/projects/root%2Frepo/merge_requests/7/merge`（计数器+1）、node-run `completed`、submission approved。workspace.settings 带非空 `gitlab_access_token`。再加一个冲突用例（GitLab 返 405 → blocked）。
 
@@ -197,7 +197,7 @@
   func (s *WorkflowService) mergeReviewURL(ctx context.Context, workspaceID pgtype.UUID, rawURL string) error {
       // Gitea PR?
       if index, err := gitea.ParsePullRequestIndex(rawURL); err == nil {
-          // existing Gitea path (admin token, computed owner/repo)
+          // existing Gitea path (workspace bot token, computed owner/repo)
           run, _ := s.Queries.GetWorkflowRun(ctx, ...) // 复用已加载的 run/workflow——见下注
           owner := gitea.OrgName(util.UUIDToString(workspaceID))
           repo := DeliverableRepoNameForWorkflow(workflow)

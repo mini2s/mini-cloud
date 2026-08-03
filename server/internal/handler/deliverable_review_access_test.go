@@ -8,20 +8,19 @@ import (
 )
 
 // canReviewDeliverable gates deliverable approve/reject on a workspace
-// owner/admin, the issue's creator, the issue's assignee, or the node-run's
-// designated critic. creator/assignee/critic ids are user_id under their
-// member/human forms (see task.go creator mapping and workflow.go critic
-// default = issue.CreatorID).
+// owner/admin, the issue's responsible member, or the node-run's designated
+// critic.
 func TestCanReviewDeliverable(t *testing.T) {
 	const me = "11111111-1111-1111-1111-111111111111"
 	const someone = "22222222-2222-2222-2222-222222222222"
 
 	// Issue created and assigned to someone else.
 	issueOwnedByOthers := db.MulticaIssue{
-		CreatorType:  "member",
-		CreatorID:    parseUUID(someone),
-		AssigneeType: pgtype.Text{String: "member", Valid: true},
-		AssigneeID:   parseUUID(someone),
+		CreatorType:       "member",
+		CreatorID:         parseUUID(someone),
+		AssigneeType:      pgtype.Text{String: "member", Valid: true},
+		AssigneeID:        parseUUID(someone),
+		ResponsibleUserID: parseUUID(someone),
 	}
 	// Node-run whose critic is someone else.
 	nodeRunCriticOther := db.MulticaWorkflowNodeRun{
@@ -39,19 +38,22 @@ func TestCanReviewDeliverable(t *testing.T) {
 	}{
 		{"workspace owner", "owner", me, issueOwnedByOthers, nodeRunCriticOther, true},
 		{"workspace admin", "admin", me, issueOwnedByOthers, nodeRunCriticOther, true},
-		{"issue creator", "member", me,
-			db.MulticaIssue{CreatorType: "member", CreatorID: parseUUID(me)},
+		{"issue creator without ownership rejected", "member", me,
+			db.MulticaIssue{CreatorType: "member", CreatorID: parseUUID(me), AssigneeType: pgtype.Text{String: "member", Valid: true}, AssigneeID: parseUUID(someone), ResponsibleUserID: parseUUID(someone)},
+			nodeRunCriticOther, false},
+		{"issue responsible member", "member", me,
+			db.MulticaIssue{CreatorType: "member", CreatorID: parseUUID(someone), AssigneeType: pgtype.Text{String: "member", Valid: true}, AssigneeID: parseUUID(someone), ResponsibleUserID: parseUUID(me)},
 			nodeRunCriticOther, true},
-		{"issue assignee", "member", me,
-			db.MulticaIssue{CreatorType: "member", CreatorID: parseUUID(someone), AssigneeType: pgtype.Text{String: "member", Valid: true}, AssigneeID: parseUUID(me)},
-			nodeRunCriticOther, true},
+		{"issue assignee without responsibility rejected", "member", me,
+			db.MulticaIssue{CreatorType: "member", CreatorID: parseUUID(someone), AssigneeType: pgtype.Text{String: "member", Valid: true}, AssigneeID: parseUUID(me), ResponsibleUserID: parseUUID(someone)},
+			nodeRunCriticOther, false},
 		{"designated critic", "member", me,
 			issueOwnedByOthers,
 			db.MulticaWorkflowNodeRun{CriticType: "human", CriticID: parseUUID(me)}, true},
 		{"unrelated member rejected", "member", me, issueOwnedByOthers, nodeRunCriticOther, false},
 		{"empty role rejected", "", me, issueOwnedByOthers, nodeRunCriticOther, false},
 		{"agent assignee does not match human user", "member", me,
-			db.MulticaIssue{CreatorType: "member", CreatorID: parseUUID(someone), AssigneeType: pgtype.Text{String: "agent", Valid: true}, AssigneeID: parseUUID(me)},
+			db.MulticaIssue{CreatorType: "member", CreatorID: parseUUID(someone), AssigneeType: pgtype.Text{String: "agent", Valid: true}, AssigneeID: parseUUID(me), ResponsibleUserID: parseUUID(someone)},
 			nodeRunCriticOther, false},
 		{"agent critic does not match via critic rule", "member", me,
 			issueOwnedByOthers,

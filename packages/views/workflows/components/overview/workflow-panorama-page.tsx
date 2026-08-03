@@ -39,6 +39,7 @@ import { runtimeListOptions } from "@multica/core/runtimes/queries";
 import { useActorName } from "@multica/core/workspace/hooks";
 import { useWorkspacePresenceMap, type AgentAvailability } from "@multica/core/agents";
 import { useWorkflowEditorStore } from "@multica/core/workflows/store";
+import { isEditableWorkflowNodeRunStatus } from "@multica/core/workflows/node-run-status";
 import { useNavigation } from "../../../navigation";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useT } from "../../../i18n";
@@ -502,6 +503,7 @@ function PanoramaContent({
               nodes={apiNodes}
               stages={stages}
               recentNodeRun={recentNodeRun}
+              disabled={!isEditableWorkflowNodeRunStatus(recentNodeRun?.status)}
 						incomingCount={apiEdges.filter((edge) => edge.target_node_id === selectedNode.id).length}
 						outgoingCount={apiEdges.filter((edge) => edge.source_node_id === selectedNode.id).length}
 						onTrialRun={() => void onTestRun()}

@@ -4,13 +4,14 @@ import { useState } from "react";
 import { Puzzle, Plus, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import type { Agent } from "@multica/core/types";
-import { builtinPluginListOptions, pluginDetailOptions } from "@multica/core/workspace/queries";
+import { builtinPluginListOptions } from "@multica/core/workspace/queries";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@multica/ui/components/ui/popover";
 import { useT } from "../../../i18n";
+import { useBoundPlugin } from "../../hooks/use-bound-plugin";
 import { PluginPickerList, useDebouncedPluginSearch } from "../plugin-picker-list";
 
 interface PluginAttachProps {
@@ -36,14 +37,7 @@ export function PluginAttach({ agent, canEdit, onChange }: PluginAttachProps) {
   const [open, setOpen] = useState(false);
 
   const items = plugins?.items ?? [];
-  const listSelected = items.find((p) => p.id === agent.plugin_id) ?? null;
-  const shouldHydrateSelected = !!agent.plugin_id && !listSelected;
-  const { data: hydratedSelected, isFetching: isHydratingSelected } = useQuery({
-    ...pluginDetailOptions(agent.plugin_id ?? ""),
-    enabled: shouldHydrateSelected,
-  });
-  const selected = listSelected ?? (hydratedSelected?.id ? hydratedSelected : null);
-  const stale = !selected && !!agent.plugin_id && !isHydratingSelected;
+  const { selected, stale } = useBoundPlugin(agent);
 
   // --- Read-only display ---
   if (!canEdit) {

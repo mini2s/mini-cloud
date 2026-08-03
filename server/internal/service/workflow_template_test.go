@@ -539,3 +539,135 @@ func TestCanManageWorkflows(t *testing.T) {
 		t.Fatal("expected can_manage_workflows=false for regular user")
 	}
 }
+
+// TestCloneWorkflowFromTemplate_RemapRolesToTargetWorkspace verifies that when
+// a template node carries a worker/critic role, cloning into a different
+// workspace remaps the role to the target workspace's role with the same
+// normalized name. Without remap, the cloned node would keep pointing at the
+// template workspace's role (a foreign workspace), breaking role resolution.
+func TestCloneWorkflowFromTemplate_RemapRolesToTargetWorkspace(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	suffix := fmt.Sprintf("rolemap-%d-%d", os.Getpid(), time.Now().UnixNano())
+
+	// Template workspace (A) and clone target workspace (B).
+	var wsA, wsB string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workspace (name, slug, description, issue_prefix)
+		VALUES ('Role Map A ` + suffix + `', 'rolemap-a-` + suffix + `', 'A', 'RA')
+		RETURNING id`).Scan(&wsA); err != nil {
+		t.Fatalf("create workspace A: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workspace (name, slug, description, issue_prefix)
+		VALUES ('Role Map B ` + suffix + `', 'rolemap-b-` + suffix + `', 'B', 'RB')
+		RETURNING id`).Scan(&wsB); err != nil {
+		t.Fatalf("create workspace B: %v", err)
+	}
+
+	// Seed a "developer" role into each workspace. The two rows get distinct
+	// UUIDs (gen_random_uuid), which is what makes verbatim copy wrong.
+	var roleA, roleB string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_role (workspace_id, name, normalized_name, description, is_builtin, needs_description)
+		VALUES ($1, 'developer', 'developer', 'dev', true, false) RETURNING id`, wsA).Scan(&roleA); err != nil {
+		t.Fatalf("seed role A: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_role (workspace_id, name, normalized_name, description, is_builtin, needs_description)
+		VALUES ($1, 'developer', 'developer', 'dev', true, false) RETURNING id`, wsB).Scan(&roleB); err != nil {
+		t.Fatalf("seed role B: %v", err)
+	}
+	if roleA == roleB {
+		t.Fatalf("setup invariant failed: role A and B share UUID %s", roleA)
+	}
+
+	// Clone creator (a member of the target workspace B).
+	var creator string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_user (name, email)
+		VALUES ('Role Map Creator ` + suffix + `', 'rolemap-` + suffix + `@multica.ai')
+		RETURNING id`).Scan(&creator); err != nil {
+		t.Fatalf("create creator: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_member (workspace_id, user_id, role) VALUES ($1, $2, 'owner')`, wsB, creator); err != nil {
+		t.Fatalf("create member in B: %v", err)
+	}
+
+	// Template in A: start -> Node 1 (critic = developer role) -> end.
+	var tmpl, start, n1, end string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow (workspace_id, title, description, status, max_retries, created_by_type, is_template)
+		VALUES ($1, 'Role Map Template', '', 'active', 3, 'system', TRUE) RETURNING id`, wsA).Scan(&tmpl); err != nil {
+		t.Fatalf("create template: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node (workflow_id, title, description, position_x, position_y, format_schema, worker_type, critic_type, sort_order)
+		VALUES ($1, 'Start', '', -150, 50, '{"type":"start"}'::jsonb, 'human', 'human', 0) RETURNING id`, tmpl).Scan(&start); err != nil {
+		t.Fatalf("create start: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node (workflow_id, title, description, position_x, position_y, worker_type, critic_type, critic_role_id, sort_order)
+		VALUES ($1, 'Node 1', 'role critic node', 100, 50, 'human', 'human', $2, 1) RETURNING id`, tmpl, roleA).Scan(&n1); err != nil {
+		t.Fatalf("create node 1: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node (workflow_id, title, description, position_x, position_y, format_schema, worker_type, critic_type, sort_order)
+		VALUES ($1, 'End', '', 350, 50, '{"type":"end"}'::jsonb, 'human', 'human', 2) RETURNING id`, tmpl).Scan(&end); err != nil {
+		t.Fatalf("create end: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO multica_workflow_edge (workflow_id, source_node_id, target_node_id) VALUES
+		($1, $2, $3), ($1, $3, $4)`, tmpl, start, n1, end); err != nil {
+		t.Fatalf("create edges: %v", err)
+	}
+
+	tmplUUID, _ := util.ParseUUID(tmpl)
+	wsBUUID, _ := util.ParseUUID(wsB)
+	creatorUUID, _ := util.ParseUUID(creator)
+	roleAUUID, _ := util.ParseUUID(roleA)
+	roleBUUID, _ := util.ParseUUID(roleB)
+
+	t.Cleanup(func() {
+		for _, wid := range []string{wsA, wsB} {
+			pool.Exec(ctx, `DELETE FROM multica_workflow_edge WHERE workflow_id IN (SELECT id FROM multica_workflow WHERE workspace_id = $1)`, wid)
+			pool.Exec(ctx, `DELETE FROM multica_workflow_node WHERE workflow_id IN (SELECT id FROM multica_workflow WHERE workspace_id = $1)`, wid)
+			pool.Exec(ctx, `DELETE FROM multica_workflow WHERE workspace_id = $1`, wid)
+			pool.Exec(ctx, `DELETE FROM multica_workflow_role WHERE workspace_id = $1`, wid)
+			pool.Exec(ctx, `DELETE FROM multica_member WHERE workspace_id = $1`, wid)
+			pool.Exec(ctx, `DELETE FROM multica_workspace WHERE id = $1`, wid)
+		}
+		pool.Exec(ctx, `DELETE FROM multica_user WHERE email LIKE 'rolemap-%'`)
+	})
+
+	svc := NewWorkflowService(db.New(pool), pool, nil, nil)
+	cloned, clonedNodes, _, err := svc.CloneWorkflowFromTemplate(ctx, tmplUUID, wsBUUID, "Cloned", "", "member", creatorUUID)
+	if err != nil {
+		t.Fatalf("CloneWorkflowFromTemplate: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM multica_workflow_edge WHERE workflow_id = $1`, cloned.ID)
+		pool.Exec(ctx, `DELETE FROM multica_workflow_node WHERE workflow_id = $1`, cloned.ID)
+		pool.Exec(ctx, `DELETE FROM multica_workflow WHERE id = $1`, cloned.ID)
+	})
+
+	for _, node := range clonedNodes {
+		if node.Title != "Node 1" {
+			continue
+		}
+		if !node.CriticRoleID.Valid {
+			t.Fatal("cloned Node 1 critic_role_id is NULL; expected remapped target role")
+		}
+		if util.UUIDToString(node.CriticRoleID) == util.UUIDToString(roleAUUID) {
+			t.Fatal("cloned Node 1 critic_role_id was copied verbatim from the template workspace (role A); remap to target workspace is missing")
+		}
+		if util.UUIDToString(node.CriticRoleID) != util.UUIDToString(roleBUUID) {
+			t.Fatalf("cloned Node 1 critic_role_id = %s, want target workspace role %s",
+				util.UUIDToString(node.CriticRoleID), util.UUIDToString(roleBUUID))
+		}
+		return
+	}
+	t.Fatal("cloned workflow has no 'Node 1'")
+}

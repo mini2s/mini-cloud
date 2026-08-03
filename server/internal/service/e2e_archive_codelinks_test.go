@@ -7,7 +7,7 @@
 // code never creates or shares a PR.
 //
 //	DATABASE_URL="postgres://root@localhost:5432/multica?sslmode=disable" \
-//	GITEA_ADMIN_TOKEN=... GITEA_PUBLIC_BASE_URL=http://localhost:23000 \
+//	GITEA_BOT_TOKEN=... GITEA_PUBLIC_BASE_URL=http://localhost:23000 \
 //	go test -tags=e2eauth -run TestE2ECodeAuditOnInstAndDocPR -v ./internal/service/
 package service
 
@@ -23,7 +23,6 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -36,9 +35,9 @@ func TestE2ECodeAuditOnInstAndDocPR(t *testing.T) {
 	if giteaBase == "" {
 		giteaBase = "http://localhost:23000"
 	}
-	token := os.Getenv("GITEA_ADMIN_TOKEN")
+	token := os.Getenv("GITEA_BOT_TOKEN")
 	if token == "" {
-		t.Skip("GITEA_ADMIN_TOKEN not set")
+		t.Skip("GITEA_BOT_TOKEN not set")
 	}
 	if os.Getenv("GITEA_BASE_URL") == "" {
 		os.Setenv("GITEA_BASE_URL", giteaBase) // for isArchiveGiteaURL host match
@@ -89,7 +88,7 @@ func TestE2ECodeAuditOnInstAndDocPR(t *testing.T) {
 	}
 	defer pool.Exec(ctx, `DELETE FROM multica_workflow_node_deliverable_submission WHERE workflow_node_run_id=$1`, nodeRunID)
 
-	svc := &WorkflowService{Queries: db.New(pool), Gitea: gitea.NewClient(gitea.Config{BaseURL: giteaBase, Token: token})}
+	svc := &WorkflowService{Queries: db.New(pool), RepositoryProvider: testGiteaProvider(giteaBase, token)}
 
 	countPRs := func() int {
 		u := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls?state=open", giteaBase, owner, repo)

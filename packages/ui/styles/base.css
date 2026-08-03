@@ -151,8 +151,7 @@
 
 /* Border beam: a brand-tinted highlight sweeps continuously around the
  * element's rounded border, drawing the eye to a CTA that would otherwise
- * blend into the chrome (e.g. the "switch to agent" affordance in manual
- * create). Built with a conic-gradient on a ::before whose mask carves out a
+ * blend into the chrome. Built with a conic-gradient on a ::before whose mask carves out a
  * 1px ring; an animated @property angle drives the rotation so only the
  * gradient repaints, not layout. The ring respects `border-radius: inherit`,
  * so any rounded host picks up the right curvature for free. Pair with a

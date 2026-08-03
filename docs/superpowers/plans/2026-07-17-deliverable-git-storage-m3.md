@@ -100,14 +100,14 @@ func seedDocumentDeliverableNodeRun(t *testing.T) (string, string) {
 // TestSubmitNodeRunDeliverable_RejectsDocumentContentUpload asserts that a
 // content upload for a document deliverable is rejected with 422 — but ONLY
 // when Gitea is configured. (When dormant, legacy content upload still works.)
-// Requires GITEA_BASE_URL + GITEA_ADMIN_TOKEN set in the test env to exercise
+// Requires GITEA_BASE_URL + GITEA_BOT_TOKEN set in the test env to exercise
 // the configured path; unset them in a sibling test for the dormant path.
 func TestSubmitNodeRunDeliverable_RejectsDocumentContentUpload(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
 	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
-	t.Setenv("GITEA_ADMIN_TOKEN", "admin-tok")
+	t.Setenv("GITEA_BOT_TOKEN", "bot-tok")
 
 	nodeRunID, docID := seedDocumentDeliverableNodeRun(t)
 	t.Cleanup(func() {
@@ -135,7 +135,7 @@ func TestSubmitNodeRunDeliverable_AllowsDocumentPullRequestURL(t *testing.T) {
 		t.Skip("database not available")
 	}
 	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
-	t.Setenv("GITEA_ADMIN_TOKEN", "admin-tok")
+	t.Setenv("GITEA_BOT_TOKEN", "bot-tok")
 
 	nodeRunID, docID := seedDocumentDeliverableNodeRun(t)
 	t.Cleanup(func() {
@@ -322,7 +322,7 @@ func TestBuildGiteaDeliverableContext_Configured(t *testing.T) {
 		t.Skip("database not available")
 	}
 	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
-	t.Setenv("GITEA_ADMIN_TOKEN", "admin-tok")
+	t.Setenv("GITEA_BOT_TOKEN", "bot-tok")
 
 	ctx := context.Background()
 	wfID := uuid.NewString()
@@ -376,7 +376,7 @@ func TestBuildGiteaDeliverableContext_Dormant(t *testing.T) {
 		t.Skip("database not available")
 	}
 	t.Setenv("GITEA_BASE_URL", "")
-	t.Setenv("GITEA_ADMIN_TOKEN", "")
+	t.Setenv("GITEA_BOT_TOKEN", "")
 	task := dbTaskWithNodeRun(t, uuid.NewString())
 	if got := testHandler.buildGiteaDeliverableContext(context.Background(), task); got != nil {
 		t.Fatalf("expected nil when dormant, got %+v", got)

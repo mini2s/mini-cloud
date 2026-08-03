@@ -82,8 +82,8 @@ func newSquadCommentTriggerFixture(t *testing.T) squadCommentTriggerFixture {
 
 	var issueID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO multica_issue (workspace_id, creator_type, creator_id, title, assignee_type, assignee_id)
-		VALUES ($1, 'member', $2, $3, 'squad', $4)
+		INSERT INTO multica_issue (workspace_id, creator_type, creator_id, title, status, assignee_type, assignee_id)
+		VALUES ($1, 'member', $2, $3, 'in_progress', 'squad', $4)
 		RETURNING id
 	`, testWorkspaceID, testUserID, "squad comment trigger", squadID).Scan(&issueID); err != nil {
 		t.Fatalf("create issue: %v", err)
@@ -612,5 +612,37 @@ func TestCreateComment_SquadMentionTriggersLeader(t *testing.T) {
 	// The squad's leader should have a queued task.
 	if got := countQueued(leaderID); got != 1 {
 		t.Fatalf("after @squad mention: expected 1 leader task, got %d", got)
+	}
+}
+
+func TestShouldEnqueueSquadLeaderOnComment_OnlyWhenInProgress(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	fx := newSquadCommentTriggerFixture(t)
+	ctx := context.Background()
+
+	for _, status := range []string{"backlog", "todo"} {
+		if _, err := testPool.Exec(ctx, `UPDATE multica_issue SET status = $1 WHERE id = $2`, status, fx.Issue.ID); err != nil {
+			t.Fatalf("set issue status to %s: %v", status, err)
+		}
+		issue, err := testHandler.Queries.GetIssue(ctx, fx.Issue.ID)
+		if err != nil {
+			t.Fatalf("reload issue after setting %s: %v", status, err)
+		}
+		if got := testHandler.shouldEnqueueSquadLeaderOnComment(ctx, issue, "noted", "member", testUserID); got {
+			t.Fatalf("shouldEnqueueSquadLeaderOnComment() = true for status %q, want false", status)
+		}
+	}
+
+	if _, err := testPool.Exec(ctx, `UPDATE multica_issue SET status = 'in_progress' WHERE id = $1`, fx.Issue.ID); err != nil {
+		t.Fatalf("set issue status to in_progress: %v", err)
+	}
+	issue, err := testHandler.Queries.GetIssue(ctx, fx.Issue.ID)
+	if err != nil {
+		t.Fatalf("reload issue after setting in_progress: %v", err)
+	}
+	if got := testHandler.shouldEnqueueSquadLeaderOnComment(ctx, issue, "noted", "member", testUserID); !got {
+		t.Fatal("shouldEnqueueSquadLeaderOnComment() = false for status in_progress, want true")
 	}
 }

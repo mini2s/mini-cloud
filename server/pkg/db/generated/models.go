@@ -410,6 +410,7 @@ type MulticaIssue struct {
 	WorkflowID         pgtype.UUID        `json:"workflow_id"`
 	WorkflowRunID      pgtype.UUID        `json:"workflow_run_id"`
 	StageID            pgtype.UUID        `json:"stage_id"`
+	ResponsibleUserID  pgtype.UUID        `json:"responsible_user_id"`
 }
 
 type MulticaIssueConversation struct {

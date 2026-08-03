@@ -766,7 +766,7 @@ type giteaDeliverableRefJSON = repositoryDeliverableRefJSON
 // for this task (by design).
 func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.MulticaAgentTaskQueue) map[string]string {
 	base := strings.TrimSpace(os.Getenv("GITEA_BASE_URL"))
-	if strings.TrimSpace(os.Getenv("GITEA_ADMIN_TOKEN")) == "" || base == "" || !task.WorkflowNodeRunID.Valid {
+	if base == "" || !task.WorkflowNodeRunID.Valid {
 		return nil
 	}
 	nr, err := s.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID)
@@ -813,8 +813,8 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 	refsJSON, _ := json.Marshal(refs)
 	// Bot PAT + Gitea base URL are pushed down so cs-cloud's `deliverable submit`
 	// can push the document + open a PR against Gitea directly, without relaying
-	// back through multica to fetch credentials. The PAT lives in workspace
-	// settings (minted by the team-namespace provisioning flow).
+	// back through multica to fetch credentials. The PAT must come from this
+	// workspace's settings (minted by the team-namespace provisioning flow).
 	// We ALSO read gitea_clone_url / last_instance_branch / gitea_web_url from
 	// the SAME settings bundle and prefer them over the GITEA_PUBLIC_BASE_URL
 	// self-assembly below. This is a cross-repo contract: cs-cloud's lookupRepoRole
@@ -833,7 +833,7 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 		settingsMap := map[string]any{}
 		if json.Unmarshal(ws.Settings, &settingsMap) == nil {
 			if v, ok := settingsMap["gitea_pat"].(string); ok {
-				pat = v
+				pat = strings.TrimSpace(v)
 			}
 			if v, ok := settingsMap["gitea_bot_username"].(string); ok {
 				botUser = v
@@ -848,6 +848,9 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 				settingsWebURL = v
 			}
 		}
+	}
+	if pat == "" {
+		return nil
 	}
 	// Clone URL: prefer settings value (== repos[].URL) so cs-cloud's role lookup
 	// matches; fall back to self-assembly only when pre-provisioning.

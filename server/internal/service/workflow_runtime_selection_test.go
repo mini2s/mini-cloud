@@ -90,7 +90,7 @@ func TestChooseWorkflowRuntimeUsesLeastLoadedIssueCreatorRuntime(t *testing.T) {
 		t.Fatalf("choose runtime: %v", err)
 	}
 	if selection.RuntimeID != leastLoadedID || selection.Reason != RuntimeSelectionIssueCreator {
-		t.Fatalf("got runtime=%v reason=%q, want issue creator runtime", selection.RuntimeID, selection.Reason)
+		t.Fatalf("got runtime=%v reason=%q, want issue owner runtime", selection.RuntimeID, selection.Reason)
 	}
 }
 
@@ -112,7 +112,7 @@ func TestChooseWorkflowRuntimeIssueCreatorFirstPrecedesIdle(t *testing.T) {
 		t.Fatalf("choose runtime: %v", err)
 	}
 	if selection.RuntimeID != ownerBusyID || selection.Reason != RuntimeSelectionIssueCreator {
-		t.Fatalf("got runtime=%v reason=%q, want issue creator runtime", selection.RuntimeID, selection.Reason)
+		t.Fatalf("got runtime=%v reason=%q, want issue owner runtime", selection.RuntimeID, selection.Reason)
 	}
 }
 

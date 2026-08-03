@@ -1,5 +1,5 @@
 // Package gitlab issues server-side GitLab API calls for the critic review
-// flow. Unlike Gitea (which has a server-level admin token), GitLab has only a
+// flow. Unlike the workspace-owned Gitea deliverable repo, GitLab has only a
 // per-workspace user PAT, so the client is stateless and the token is supplied
 // per call by the service layer.
 package gitlab

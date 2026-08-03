@@ -19,7 +19,6 @@ type mention struct {
 	ID   string // user_id, agent_id, issue_id, or "all"
 }
 
-
 // statusLabels maps DB status values to human-readable labels for notifications.
 var statusLabels = map[string]string{
 	"backlog":     "Backlog",
@@ -78,19 +77,19 @@ var parentBubbleNotifTypes = map[string]bool{
 // notifTypeToGroup maps each InboxItemType to a user-configurable preference
 // group. Types not in this map are always delivered (not configurable).
 var notifTypeToGroup = map[string]string{
-	"issue_assigned":  "assignments",
-	"unassigned":      "assignments",
-	"assignee_changed": "assignments",
-	"status_changed":  "status_changes",
-	"new_comment":     "comments",
-	"mentioned":       "comments",
-	"priority_changed": "updates",
+	"issue_assigned":     "assignments",
+	"unassigned":         "assignments",
+	"assignee_changed":   "assignments",
+	"status_changed":     "status_changes",
+	"new_comment":        "comments",
+	"mentioned":          "comments",
+	"priority_changed":   "updates",
 	"start_date_changed": "updates",
-	"due_date_changed": "updates",
-	"task_completed":  "agent_activity",
-	"task_failed":     "agent_activity",
-	"agent_blocked":   "agent_activity",
-	"agent_completed": "agent_activity",
+	"due_date_changed":   "updates",
+	"task_completed":     "agent_activity",
+	"task_failed":        "agent_activity",
+	"agent_blocked":      "agent_activity",
+	"agent_completed":    "agent_activity",
 }
 
 // isNotifMuted returns true if the given notification type is muted for a user
@@ -386,7 +385,7 @@ func notifyDirect(
 		return
 	}
 
-		// workflow and other non-person types cannot receive notifications
+	// workflow and other non-person types cannot receive notifications
 	if recipientType != "member" && recipientType != "agent" {
 		return
 	}
@@ -563,11 +562,10 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 		// Track who already got notified to avoid duplicates
 		skip := map[string]bool{e.ActorID: true}
 
-		// Direct notification to assignee
-		if issue.AssigneeType != nil && issue.AssigneeID != nil {
-			skip[*issue.AssigneeID] = true
+		if issue.ResponsibleUserID != nil && *issue.ResponsibleUserID != "" {
+			skip[*issue.ResponsibleUserID] = true
 			notifyDirect(ctx, queries, bus,
-				*issue.AssigneeType, *issue.AssigneeID,
+				"member", *issue.ResponsibleUserID,
 				issue.WorkspaceID, e, issue.ID, issue.Status,
 				"issue_assigned", "action_required",
 				issue.Title,
@@ -812,7 +810,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 		}
 	})
 
-	// issue_reaction:added — notify the issue creator
+	// issue_reaction:added — notify the issue assignee
 	bus.Subscribe(protocol.EventIssueReactionAdded, func(e events.Event) {
 		payload, ok := e.Payload.(map[string]any)
 		if !ok {
@@ -824,13 +822,12 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 			return
 		}
 
-		creatorType, _ := payload["creator_type"].(string)
-		creatorID, _ := payload["creator_id"].(string)
+		responsibleUserID, _ := payload["responsible_user_id"].(string)
 		issueID, _ := payload["issue_id"].(string)
 		issueTitle, _ := payload["issue_title"].(string)
 		issueStatus, _ := payload["issue_status"].(string)
 
-		if creatorType == "" || creatorID == "" {
+		if responsibleUserID == "" {
 			return
 		}
 
@@ -839,7 +836,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 		})
 
 		notifyDirect(ctx, queries, bus,
-			creatorType, creatorID,
+			"member", responsibleUserID,
 			e.WorkspaceID, e, issueID, issueStatus,
 			"reaction_added", "info",
 			issueTitle, "",

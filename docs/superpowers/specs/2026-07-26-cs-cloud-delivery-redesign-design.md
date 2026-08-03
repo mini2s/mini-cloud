@@ -317,7 +317,7 @@ critic 节点评审 worker 提交的交付物，按结论合并/关闭。合并/
 - 评审意见归档到交付物仓库（复用 `ArchiveReviewComment`，写 `nodes/<NN>-.../reviews/<RR>-<reviewer>-<通过|驳回>.md` 到 inst 分支）。
 
 **approved → 合并对应 MR/PR**：
-- Gitea PR：复用 `mergeDeliverablePRs`（`workflow_deliverable_repo.go:773`，Gitea admin token，已实现）。
+- Gitea PR：复用 `mergeDeliverablePRs`（`workflow_deliverable_repo.go:773`，workspace bot token，已实现）。
 - **GitLab MR：扩展支持**（现状真空）——新增 GitLab merge（用 GitLab PAT 调 `PUT /api/v4/projects/{id}/merge_requests/{iid}/merge`），让 worker 的代码 MR 也能被 critic 批准后自动合并。
 - 合并失败 → node-run 置 `blocked`（对齐现状）。
 

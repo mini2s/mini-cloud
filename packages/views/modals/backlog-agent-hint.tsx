@@ -25,10 +25,10 @@ export function BacklogAgentHintModal({
       onDismissPermanently={() => {
         localStorage.setItem("multica:backlog-agent-hint-dismissed", "true");
       }}
-      onMoveToTodo={() => {
+      onMoveToInProgress={() => {
         if (issueId) {
           updateIssue.mutate(
-            { id: issueId, status: "todo" },
+            { id: issueId, status: "in_progress" },
             {
               onError: (err) =>
                 toast.error(

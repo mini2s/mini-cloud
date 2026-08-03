@@ -90,13 +90,14 @@ func newWorkflowSyncFixture(t *testing.T, issueStatus string, withParent bool) w
 			t.Fatalf("increment issue counter: %v", err)
 		}
 		parent, err := testHandler.Queries.CreateIssueWithOrigin(ctx, db.CreateIssueWithOriginParams{
-			WorkspaceID: parseUUID(testWorkspaceID),
-			Title:       "sync-test parent " + suffix,
-			Status:      "in_progress",
-			Priority:    "medium",
-			CreatorType: "member",
-			CreatorID:   parseUUID(testUserID),
-			Number:      number,
+			WorkspaceID:       parseUUID(testWorkspaceID),
+			Title:             "sync-test parent " + suffix,
+			Status:            "in_progress",
+			Priority:          "medium",
+			ResponsibleUserID: parseUUID(testUserID),
+			CreatorType:       "member",
+			CreatorID:         parseUUID(testUserID),
+			Number:            number,
 		})
 		if err != nil {
 			t.Fatalf("create parent issue: %v", err)
@@ -110,18 +111,19 @@ func newWorkflowSyncFixture(t *testing.T, issueStatus string, withParent bool) w
 		t.Fatalf("increment issue counter: %v", err)
 	}
 	subIssue, err := testHandler.Queries.CreateIssueWithOrigin(ctx, db.CreateIssueWithOriginParams{
-		WorkspaceID:   parseUUID(testWorkspaceID),
-		Title:         "sync-test sub-issue " + suffix,
-		Status:        issueStatus,
-		Priority:      "medium",
-		CreatorType:   "member",
-		CreatorID:     parseUUID(testUserID),
-		ParentIssueID: parentUUID,
-		Number:        number,
-		OriginType:    pgtype.Text{String: "workflow", Valid: true},
-		OriginID:      nodeRun.ID,
-		WorkflowID:    parseUUID(workflowID),
-		WorkflowRunID: parseUUID(runID),
+		WorkspaceID:       parseUUID(testWorkspaceID),
+		Title:             "sync-test sub-issue " + suffix,
+		Status:            issueStatus,
+		Priority:          "medium",
+		ResponsibleUserID: parseUUID(testUserID),
+		CreatorType:       "member",
+		CreatorID:         parseUUID(testUserID),
+		ParentIssueID:     parentUUID,
+		Number:            number,
+		OriginType:        pgtype.Text{String: "workflow", Valid: true},
+		OriginID:          nodeRun.ID,
+		WorkflowID:        parseUUID(workflowID),
+		WorkflowRunID:     parseUUID(runID),
 	})
 	if err != nil {
 		t.Fatalf("create sub-issue: %v", err)
@@ -440,13 +442,14 @@ func TestCancelSplitNodePublishesChildIssueCancelled(t *testing.T) {
 		t.Fatalf("increment issue counter: %v", err)
 	}
 	childIssue, err := testHandler.Queries.CreateIssueWithOrigin(ctx, db.CreateIssueWithOriginParams{
-		WorkspaceID: parseUUID(testWorkspaceID),
-		Title:       "split child " + time.Now().Format(time.RFC3339Nano),
-		Status:      "in_progress",
-		Priority:    "medium",
-		CreatorType: "member",
-		CreatorID:   parseUUID(testUserID),
-		Number:      number,
+		WorkspaceID:       parseUUID(testWorkspaceID),
+		Title:             "split child " + time.Now().Format(time.RFC3339Nano),
+		Status:            "in_progress",
+		Priority:          "medium",
+		ResponsibleUserID: parseUUID(testUserID),
+		CreatorType:       "member",
+		CreatorID:         parseUUID(testUserID),
+		Number:            number,
 	})
 	if err != nil {
 		t.Fatalf("create split child issue: %v", err)

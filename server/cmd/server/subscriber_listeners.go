@@ -27,13 +27,8 @@ func registerSubscriberListeners(bus *events.Bus, queries *db.Queries) {
 			return
 		}
 
-		// Subscribe the creator
-		addSubscriber(bus, queries, e.WorkspaceID, issue.ID, issue.CreatorType, issue.CreatorID, "creator")
-
-		// Subscribe the assignee if exists and different from creator
-		if issue.AssigneeType != nil && issue.AssigneeID != nil &&
-			!(*issue.AssigneeType == issue.CreatorType && *issue.AssigneeID == issue.CreatorID) {
-			addSubscriber(bus, queries, e.WorkspaceID, issue.ID, *issue.AssigneeType, *issue.AssigneeID, "assignee")
+		if issue.ResponsibleUserID != nil && *issue.ResponsibleUserID != "" {
+			addSubscriber(bus, queries, e.WorkspaceID, issue.ID, "member", *issue.ResponsibleUserID, "responsible")
 		}
 
 		// Subscribe @mentioned users in description
@@ -137,6 +132,7 @@ func extractIssueFields(v any) (handler.IssueResponse, bool) {
 	issue.CreatorID, _ = m["creator_id"].(string)
 	issue.AssigneeType, _ = m["assignee_type"].(*string)
 	issue.AssigneeID, _ = m["assignee_id"].(*string)
+	issue.ResponsibleUserID, _ = m["responsible_user_id"].(*string)
 	issue.Description, _ = m["description"].(*string)
 	if issue.ID == "" || issue.CreatorID == "" {
 		return handler.IssueResponse{}, false

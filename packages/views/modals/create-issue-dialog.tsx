@@ -89,7 +89,6 @@ export function CreateIssueDialog({
         ) : (
           <ManualCreatePanel
             onClose={onClose}
-            onSwitchMode={switchTo("agent")}
             data={panelData}
             isExpanded={isExpanded}
             setIsExpanded={setIsExpanded}

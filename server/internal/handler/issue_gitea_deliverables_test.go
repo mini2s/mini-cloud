@@ -16,7 +16,6 @@ func TestHandleGetIssueGiteaDeliverablesAcceptsWorkspaceHeader(t *testing.T) {
 		t.Skip("database not available")
 	}
 	t.Setenv("GITEA_BASE_URL", "https://gitea.example.com")
-	t.Setenv("GITEA_ADMIN_TOKEN", "admin-tok")
 
 	ctx := context.Background()
 	nodeRunID, deliverableID := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
@@ -70,7 +69,6 @@ func TestGiteaContextForRun_DefaultWorkflowUsesArchiveRepo(t *testing.T) {
 		t.Skip("database not available")
 	}
 	t.Setenv("GITEA_BASE_URL", "https://gitea.example.com")
-	t.Setenv("GITEA_ADMIN_TOKEN", "admin-tok")
 
 	ctx := context.Background()
 	nodeRunID, _ := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
@@ -109,7 +107,6 @@ func TestGiteaContextForRun_IncludesPullRequestKindDeliverables(t *testing.T) {
 		t.Skip("database not available")
 	}
 	t.Setenv("GITEA_BASE_URL", "https://gitea.example.com")
-	t.Setenv("GITEA_ADMIN_TOKEN", "admin-tok")
 
 	ctx := context.Background()
 	nodeRunID, _ := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
@@ -169,7 +166,6 @@ func TestGiteaContextForNodeRun_IncludesPullRequestKindDeliverables(t *testing.T
 		t.Skip("database not available")
 	}
 	t.Setenv("GITEA_BASE_URL", "https://gitea.example.com")
-	t.Setenv("GITEA_ADMIN_TOKEN", "admin-tok")
 
 	ctx := context.Background()
 	nodeRunID, _ := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)

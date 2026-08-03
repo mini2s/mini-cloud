@@ -4,7 +4,8 @@
     "breadcrumb_workspace_fallback": "Workspace",
     "empty_title": "No issues yet",
     "empty_hint": "Create an issue to get started.",
-    "move_failed": "Failed to move issue"
+    "move_failed": "Failed to move issue",
+    "assign_first": "Please assign the task first."
   },
   "status": {
     "backlog": "Backlog",
@@ -71,7 +72,7 @@
     "sort_title": "Title",
     "card_priority": "Priority",
     "card_description": "Description",
-    "card_assignee": "Assignee",
+    "card_assignee": "People",
     "card_start_date": "Start date",
     "card_due_date": "Due date",
     "card_project": "Project",
@@ -213,6 +214,7 @@
     "pull_request_card_show_less": "Show less",
     "prop_status": "Status",
     "prop_priority": "Priority",
+    "prop_responsible": "Responsible",
     "prop_assignee": "Assignee",
     "prop_stage": "Stage",
     "stage_placeholder": "Select stage",
@@ -409,7 +411,15 @@
     "cancel": "Cancel"
   },
   "card": {
-    "update_failed": "Failed to update issue"
+    "update_failed": "Failed to update issue",
+    "responsible": "Owner",
+    "assignee": "Assignee",
+    "actor_types": {
+      "member": "Member",
+      "agent": "Digital Human",
+      "squad": "Squad",
+      "workflow": "Workflow"
+    }
   },
   "actions": {
     "status": "Status",
@@ -676,13 +686,13 @@
   },
   "backlog_hint": {
     "title": "Digital Human is paused in Backlog",
-    "description": "This issue is parked, so the assigned digital human will wait. Move it to Todo when you want the digital human to start.",
+    "description": "This issue is parked, so the assigned digital human will wait. Move it to In Progress when you want the digital human to start.",
     "row_backlog_label": "Backlog",
     "row_backlog_hint": "keeps the digital human paused",
-    "row_todo_label": "Todo",
-    "row_todo_hint": "starts the digital human",
+    "row_in_progress_label": "In Progress",
+    "row_in_progress_hint": "starts the digital human",
     "dont_show_again": "Don't show this again",
     "keep_in_backlog": "Keep in Backlog",
-    "move_to_todo": "Move to Todo"
+    "move_to_in_progress": "Move to In Progress"
   }
 }

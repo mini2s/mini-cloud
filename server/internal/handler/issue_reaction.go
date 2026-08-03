@@ -73,12 +73,11 @@ func (h *Handler) AddIssueReaction(w http.ResponseWriter, r *http.Request) {
 
 	resp := issueReactionToResponse(reaction)
 	h.publish(protocol.EventIssueReactionAdded, workspaceID, actorType, actorID, map[string]any{
-		"reaction":     resp,
-		"issue_id":     uuidToString(issue.ID),
-		"issue_title":  issue.Title,
-		"issue_status": issue.Status,
-		"creator_type": issue.CreatorType,
-		"creator_id":   uuidToString(issue.CreatorID),
+		"reaction":            resp,
+		"issue_id":            uuidToString(issue.ID),
+		"issue_title":         issue.Title,
+		"issue_status":        issue.Status,
+		"responsible_user_id": uuidToString(issue.ResponsibleUserID),
 	})
 	writeJSON(w, http.StatusCreated, resp)
 }

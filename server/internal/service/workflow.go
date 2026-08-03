@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/coderepo"
 	"github.com/multica-ai/multica/server/internal/events"
-	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/teamnamespace"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/internal/workflowmeta"
@@ -37,14 +36,7 @@ type WorkflowService struct {
 	// repository file, branch, review-request, and merge operations.
 	RepositoryProvider coderepo.RepositoryProvider
 
-	// Gitea is the platform Gitea admin client, used (in M2 Tasks 4-5) for
-	// run-start scaffolding and approve-time PR merging of document deliverables.
-	// Dormant (scaffold + merge are skipped) when GITEA_BASE_URL/GITEA_ADMIN_TOKEN
 	// are unset — the client is always non-nil post-construction; dormancy is
-	// gated by Client.Configured(), not by a nil pointer. nil only in tests that
-	// construct WorkflowService without going through the router.
-	Gitea *gitea.Client
-
 	// TeamNamespace is the costrict-web-backend internal API client for team
 	// namespace lifecycle, membership sync, bot credentials, and workflow repo
 	// initialization. When configured, it is the source of truth for every
@@ -105,6 +97,9 @@ const (
 	RunStatusCompleted             = "completed"
 	RunStatusFailed                = "failed"
 	RunStatusCancelled             = "cancelled"
+
+	ManualTerminationReason = "manual_terminated"
+	ManualCompletionReason  = "manual_completed"
 )
 
 // validTransitions defines the allowed status transitions for a node run.
@@ -153,6 +148,24 @@ func isTerminalNodeRunStatus(s string) bool {
 	switch s {
 	case NodeRunStatusCompleted, NodeRunStatusFailed, NodeRunStatusSkipped,
 		NodeRunStatusFormatFailed, NodeRunStatusCancelled:
+		return true
+	}
+	return false
+}
+
+func isManuallyStoppableNodeRunStatus(s string) bool {
+	if isTerminalNodeRunStatus(s) || s == NodeRunStatusBlocked {
+		return false
+	}
+	return true
+}
+
+func isExecutingNodeRunStatus(s string) bool {
+	switch s {
+	case NodeRunStatusFormatChecking, NodeRunStatusFormatOk, NodeRunStatusWorkerAssigned,
+		NodeRunStatusWorking, NodeRunStatusAwaitingInput, NodeRunStatusAwaitingCritic,
+		NodeRunStatusCriticReviewing, NodeRunStatusCriticApproved, NodeRunStatusCriticRework,
+		NodeRunStatusSplitting, NodeRunStatusAwaitingSplitReview, NodeRunStatusSplitActive:
 		return true
 	}
 	return false
@@ -317,6 +330,10 @@ func (s *WorkflowService) resolveWorkflowUser(
 	return pgtype.UUID{}
 }
 
+func (s *WorkflowService) issueResponsibleUser(ctx context.Context, issue db.MulticaIssue) pgtype.UUID {
+	return issue.ResponsibleUserID
+}
+
 // StartRun creates a workflow_run and node_runs for every node, then
 // kicks off root nodes (nodes with no incoming edges).
 func (s *WorkflowService) StartRun(ctx context.Context, workflow db.MulticaWorkflow, triggeredByType, triggeredByID string, input json.RawMessage, runtimeID pgtype.UUID) (*db.MulticaWorkflowRun, error) {
@@ -427,7 +444,7 @@ func (s *WorkflowService) StartRunForIssueWithRuntimeSelection(
 	}
 	run, err := s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, runtimeSelectionPolicy, runtimeID, "", workflowRunRuntimeContext{
 		SourceIssueID:       issue.ID,
-		ResponsibleUserID:   s.resolveWorkflowUser(ctx, issue.CreatorType, issue.CreatorID),
+		ResponsibleUserID:   s.issueResponsibleUser(ctx, issue),
 		RuntimeAuthorizerID: s.resolveWorkflowUser(ctx, triggeredByType, triggeredByUUID),
 	})
 	if err != nil {
@@ -523,10 +540,10 @@ func (s *WorkflowService) StartDefaultRunForIssue(ctx context.Context, issue db.
 	}
 	prepared, err := s.PrepareWorkflowRunSnapshot(ctx, wf.ID, PrepareWorkflowRunParams{
 		TriggeredByType: issue.CreatorType, TriggeredByID: issue.CreatorID, Input: input,
-		SourceIssueID: issue.ID, ResponsibleUserID: s.resolveWorkflowUser(ctx, issue.CreatorType, issue.CreatorID),
-		RuntimeAuthorizerID: s.resolveWorkflowUser(ctx, issue.CreatorType, issue.CreatorID),
+		SourceIssueID: issue.ID, ResponsibleUserID: s.issueResponsibleUser(ctx, issue),
+		RuntimeAuthorizerID: s.issueResponsibleUser(ctx, issue),
 		defaultWorkerType:   defaultRunWorkerType(issue), defaultWorkerID: issue.AssigneeID,
-		defaultCriticType: defaultRunCriticType(issue), defaultCriticID: issue.CreatorID,
+		defaultCriticType: defaultRunCriticType(issue), defaultCriticID: issue.AssigneeID,
 	})
 	if err != nil {
 		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("start default run: %w", err)
@@ -555,14 +572,14 @@ func defaultRunWorkerType(issue db.MulticaIssue) string {
 	return issue.AssigneeType.String // "agent" | "squad"
 }
 
-// defaultRunCriticType maps an issue's creator to a node-run critic type. The
+// defaultRunCriticType maps an issue's assignee to a node-run critic type. The
 // critic type drives dispatchCritic's switch (human/agent/squad/api/role), so a
-// member creator — who reviews via the multica UI — maps to "human".
+// member assignee — who reviews via the multica UI — maps to "human".
 func defaultRunCriticType(issue db.MulticaIssue) string {
-	if issue.CreatorType == "member" {
+	if issue.AssigneeType.Valid && issue.AssigneeType.String == "member" {
 		return "human"
 	}
-	return issue.CreatorType // "agent"
+	return issue.AssigneeType.String // "agent" | "squad"
 }
 func (s *WorkflowService) StartRunForIssueWithDispatchKey(
 	ctx context.Context,
@@ -587,7 +604,7 @@ func (s *WorkflowService) StartRunForIssueWithDispatchKey(
 	}
 	run, err := s.startRun(ctx, workflow, triggeredByType, triggeredByID, input, "", runtimeID, dispatchKey, workflowRunRuntimeContext{
 		SourceIssueID:       issue.ID,
-		ResponsibleUserID:   s.resolveWorkflowUser(ctx, issue.CreatorType, issue.CreatorID),
+		ResponsibleUserID:   s.issueResponsibleUser(ctx, issue),
 		RuntimeAuthorizerID: s.resolveWorkflowUser(ctx, triggeredByType, triggeredByUUID),
 	})
 	if err != nil {
@@ -680,6 +697,138 @@ func (s *WorkflowService) CancelRun(ctx context.Context, runID pgtype.UUID) erro
 }
 
 // ── State machine ────────────────────────────────────────────────────────────
+
+// BlockRunManually stops a workflow because the parent issue was moved to
+// blocked. Nodes already doing work become blocked; unstarted nodes are
+// cancelled so the run cannot continue in the background.
+func (s *WorkflowService) BlockRunManually(ctx context.Context, runID pgtype.UUID) error {
+	changedNodeRuns := make([]db.MulticaWorkflowNodeRun, 0)
+	var terminalRun db.MulticaWorkflowRun
+	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		run, err := qtx.GetWorkflowRun(ctx, runID)
+		if err != nil {
+			return fmt.Errorf("get workflow run: %w", err)
+		}
+		terminalRun = run
+
+		if _, err := qtx.CancelWorkflowTasksByRun(ctx, runID); err != nil {
+			return fmt.Errorf("cancel workflow tasks: %w", err)
+		}
+		if err := qtx.CancelWorkflowRoleResolutionJobs(ctx, runID); err != nil {
+			return fmt.Errorf("cancel role resolution jobs: %w", err)
+		}
+
+		nodeRuns, err := qtx.ListWorkflowNodeRunsByRun(ctx, runID)
+		if err != nil {
+			return fmt.Errorf("list node runs: %w", err)
+		}
+		for _, nr := range nodeRuns {
+			if !isManuallyStoppableNodeRunStatus(nr.Status) {
+				continue
+			}
+			nextStatus := NodeRunStatusCancelled
+			reason := "workflow_cancelled"
+			if isExecutingNodeRunStatus(nr.Status) {
+				nextStatus = NodeRunStatusBlocked
+				reason = ManualTerminationReason
+			}
+			updated, err := qtx.FailWorkflowNodeRun(ctx, db.FailWorkflowNodeRunParams{
+				ID:            nr.ID,
+				Status:        nextStatus,
+				FailureReason: pgtype.Text{String: reason, Valid: true},
+			})
+			if err != nil {
+				return fmt.Errorf("stop node run: %w", err)
+			}
+			changedNodeRuns = append(changedNodeRuns, updated)
+		}
+
+		updatedRun, err := qtx.UpdateWorkflowRunStatus(ctx, db.UpdateWorkflowRunStatusParams{
+			ID:     runID,
+			Status: RunStatusCancelled,
+		})
+		if err != nil {
+			return fmt.Errorf("cancel workflow run: %w", err)
+		}
+		terminalRun = updatedRun
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	for _, nodeRun := range changedNodeRuns {
+		if s.OnNodeStatusChanged != nil {
+			s.OnNodeStatusChanged(ctx, nodeRun)
+		}
+	}
+	if s.OnRunTerminal != nil {
+		s.OnRunTerminal(ctx, terminalRun, RunStatusCancelled)
+	}
+	return nil
+}
+
+// CompleteRunManually stops a workflow because the parent issue was moved to
+// done. Every node run is marked completed so the workflow mirrors the manual
+// completion decision.
+func (s *WorkflowService) CompleteRunManually(ctx context.Context, runID pgtype.UUID) error {
+	changedNodeRuns := make([]db.MulticaWorkflowNodeRun, 0)
+	var terminalRun db.MulticaWorkflowRun
+	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		run, err := qtx.GetWorkflowRun(ctx, runID)
+		if err != nil {
+			return fmt.Errorf("get workflow run: %w", err)
+		}
+		terminalRun = run
+
+		if _, err := qtx.CancelWorkflowTasksByRun(ctx, runID); err != nil {
+			return fmt.Errorf("cancel workflow tasks: %w", err)
+		}
+		if err := qtx.CancelWorkflowRoleResolutionJobs(ctx, runID); err != nil {
+			return fmt.Errorf("cancel role resolution jobs: %w", err)
+		}
+
+		nodeRuns, err := qtx.ListWorkflowNodeRunsByRun(ctx, runID)
+		if err != nil {
+			return fmt.Errorf("list node runs: %w", err)
+		}
+		for _, nr := range nodeRuns {
+			if nr.Status == NodeRunStatusCompleted {
+				continue
+			}
+			updated, err := qtx.FailWorkflowNodeRun(ctx, db.FailWorkflowNodeRunParams{
+				ID:            nr.ID,
+				Status:        NodeRunStatusCompleted,
+				FailureReason: pgtype.Text{String: ManualCompletionReason, Valid: true},
+			})
+			if err != nil {
+				return fmt.Errorf("complete node run: %w", err)
+			}
+			changedNodeRuns = append(changedNodeRuns, updated)
+		}
+
+		updatedRun, err := qtx.UpdateWorkflowRunStatus(ctx, db.UpdateWorkflowRunStatusParams{
+			ID:     runID,
+			Status: RunStatusCompleted,
+		})
+		if err != nil {
+			return fmt.Errorf("complete workflow run: %w", err)
+		}
+		terminalRun = updatedRun
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	for _, nodeRun := range changedNodeRuns {
+		if s.OnNodeStatusChanged != nil {
+			s.OnNodeStatusChanged(ctx, nodeRun)
+		}
+	}
+	if s.OnRunTerminal != nil {
+		s.OnRunTerminal(ctx, terminalRun, RunStatusCompleted)
+	}
+	return nil
+}
 
 // TransitionNodeRun validates the transition and updates the node run status.
 func (s *WorkflowService) TransitionNodeRun(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, newStatus string) (*db.MulticaWorkflowNodeRun, error) {
@@ -2128,12 +2277,24 @@ func (s *WorkflowService) CloneWorkflowFromTemplate(
 		if err != nil {
 			return fmt.Errorf("list template nodes: %w", err)
 		}
+
+		// Roles are workspace-scoped with per-workspace UUIDs, so a role carried
+		// by a template node cannot be copied verbatim into another workspace.
+		// Remap each role to the target workspace's same-named role; builtin
+		// roles (developer/qa/tech_lead) are seeded into every workspace, so they
+		// always resolve. A role with no target counterpart is left unchanged.
+		remapRole, err := buildCloneRoleRemap(ctx, qtx, tmpl.WorkspaceID, workspaceID)
+		if err != nil {
+			return fmt.Errorf("build role remap: %w", err)
+		}
+
 		oldToNew := make(map[string]pgtype.UUID, len(tmplNodes))
 		for _, node := range tmplNodes {
 			criticType := node.CriticType
 			criticID := node.CriticID
-			criticRoleID := node.CriticRoleID
+			criticRoleID := remapRole(node.CriticRoleID)
 			criticAPIURL := node.CriticApiUrl
+			workerRoleID := remapRole(node.WorkerRoleID)
 			if workflowmeta.KindOf(node.FormatSchema) == workflowmeta.KindSplit &&
 				criticType == "human" && !criticID.Valid && !criticRoleID.Valid && !criticAPIURL.Valid {
 				criticType = "human"
@@ -2150,7 +2311,7 @@ func (s *WorkflowService) CloneWorkflowFromTemplate(
 				FormatSchema: node.FormatSchema,
 				WorkerType:   node.WorkerType,
 				WorkerID:     node.WorkerID,
-				WorkerRoleID: node.WorkerRoleID,
+				WorkerRoleID: workerRoleID,
 				CriticType:   criticType,
 				CriticID:     criticID,
 				CriticRoleID: criticRoleID,
@@ -2210,6 +2371,51 @@ func (s *WorkflowService) CloneWorkflowFromTemplate(
 		return db.MulticaWorkflow{}, nil, nil, err
 	}
 	return newWorkflow, newNodes, newEdges, nil
+}
+
+// buildCloneRoleRemap returns a function that translates a workflow role ID
+// from the source (template) workspace into the equivalent role ID in the
+// target workspace, matched by normalized name. A role with no same-named
+// counterpart in the target workspace is left unchanged (the caller still
+// receives a valid, non-remapped ID). Builtin roles (developer/qa/tech_lead)
+// are seeded into every workspace on creation, so they always remap.
+func buildCloneRoleRemap(
+	ctx context.Context,
+	qtx *db.Queries,
+	sourceWorkspaceID, targetWorkspaceID pgtype.UUID,
+) (func(pgtype.UUID) pgtype.UUID, error) {
+	if !sourceWorkspaceID.Valid || !targetWorkspaceID.Valid {
+		return func(id pgtype.UUID) pgtype.UUID { return id }, nil
+	}
+	sourceRoles, err := qtx.ListWorkflowRoles(ctx, sourceWorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	sourceName := make(map[string]string, len(sourceRoles))
+	for _, r := range sourceRoles {
+		sourceName[util.UUIDToString(r.ID)] = r.NormalizedName
+	}
+	targetRoles, err := qtx.ListWorkflowRoles(ctx, targetWorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	targetID := make(map[string]pgtype.UUID, len(targetRoles))
+	for _, r := range targetRoles {
+		targetID[r.NormalizedName] = r.ID
+	}
+	return func(id pgtype.UUID) pgtype.UUID {
+		if !id.Valid {
+			return id
+		}
+		name, ok := sourceName[util.UUIDToString(id)]
+		if !ok {
+			return id
+		}
+		if tgt, ok := targetID[name]; ok {
+			return tgt
+		}
+		return id
+	}, nil
 }
 
 // SetWorkflowTemplate toggles the is_template flag on a workflow.

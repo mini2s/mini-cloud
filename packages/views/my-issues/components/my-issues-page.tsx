@@ -71,6 +71,8 @@ export function MyIssuesPage() {
         return { assignee_id: user.id };
       case "created":
         return { creator_id: user.id };
+      case "responsible":
+        return { responsible_user_id: user.id };
       case "agents":
         return { involves_user_id: user.id };
       case "all":

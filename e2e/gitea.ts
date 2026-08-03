@@ -2,17 +2,16 @@
  * Helpers for the deliverable git-storage E2E test (PR #88).
  *
  * - giteaApi: read state from the REAL platform Gitea (org/repo/branch/PR/
- *   members) via the admin token — no mock. The feature only activates when
- *   the backend has GITEA_BASE_URL + GITEA_ADMIN_TOKEN, so this whole suite
- *   skips when those are unset or Gitea is unreachable.
+ *   members) via a workspace bot token. The suite skips when GITEA_BASE_URL or
+ *   GITEA_BOT_TOKEN are unset, or Gitea is unreachable.
  * - runCsWorkflowSubmit: spawn the REAL `cs-workflow gitea submit` CLI inside
  *   a container on the multica network (so it reaches gitea:3000 + backend:8080
  *   by container DNS, exactly like a daemon-spawned agent). Cross-compiles the
  *   linux binary once and mounts it, so each invocation only runs `git` ops +
- *   HTTP — no per-test `go build`.
+ *   HTTP - no per-test `go build`.
  * - dbQuery / setNodeRunStatus / getWorkspaceSettings / getSubmission: direct
  *   pg access for the state-machine bridge (node-run has no API path from
- *   format_checking → awaiting_critic) and for asserting on server-side state.
+ *   format_checking -> awaiting_critic) and for asserting on server-side state.
  */
 import { execSync, execFileSync } from "child_process";
 import fs from "fs";
@@ -22,7 +21,7 @@ import { fileURLToPath } from "url";
 
 const E2E_DIR = path.dirname(fileURLToPath(import.meta.url));
 const GITEA_URL = process.env.GITEA_BASE_URL || "http://127.0.0.1:23000";
-const GITEA_ADMIN_TOKEN = process.env.GITEA_ADMIN_TOKEN || "";
+const GITEA_BOT_TOKEN = process.env.GITEA_BOT_TOKEN || "";
 const DATABASE_URL = process.env.DATABASE_URL || "postgres://multica:multica@localhost:5432/multica?sslmode=disable";
 const REPO_ROOT = path.resolve(E2E_DIR, "..");
 const SERVER_DIR = path.join(REPO_ROOT, "server");
@@ -35,25 +34,83 @@ const GO_MOD_CACHE = process.env.GITEA_E2E_GO_MOD_CACHE || ""; // optional host 
  *  inside the tests (a down Gitea surfaces as a real failure, not a silent
  *  skip). Kept sync because it runs at module load. */
 export function giteaE2eEnabled(): boolean {
-  return !!(process.env.GITEA_BASE_URL && GITEA_ADMIN_TOKEN);
+  return !!(process.env.GITEA_BASE_URL && GITEA_BOT_TOKEN);
 }
 
 async function giteaFetch(p: string, init: RequestInit = {}) {
   const res = await fetch(`${GITEA_URL}/api/v1${p}`, {
     ...init,
-    headers: { Authorization: `token ${GITEA_ADMIN_TOKEN}`, ...(init.headers as Record<string, string>) },
+    headers: { Authorization: `token ${GITEA_BOT_TOKEN}`, ...(init.headers as Record<string, string>) },
   });
   return { status: res.status, body: await res.json().catch(() => null) };
 }
 
 export const giteaApi = {
-  orgExists: (org: string) => giteaFetch(`/orgs/${org}`),
+  currentUser: () => giteaFetch("/user"),
   repoExists: (org: string, repo: string) => giteaFetch(`/repos/${org}/${repo}`),
   branchExists: (org: string, repo: string, branch: string) =>
     giteaFetch(`/repos/${org}/${repo}/branches/${branch}`),
   getPR: (org: string, repo: string, index: number) => giteaFetch(`/repos/${org}/${repo}/pulls/${index}`),
-  orgMembers: async (org: string) => (await giteaFetch(`/orgs/${org}/members`)).body as Array<{ login: string }>,
 };
+
+async function requireGiteaOK(action: string, res: Awaited<ReturnType<typeof giteaFetch>>) {
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(`${action}: status ${res.status}: ${JSON.stringify(res.body)}`);
+  }
+  return res.body;
+}
+
+export async function createGiteaDocumentPR(opts: {
+  owner: string;
+  repo: string;
+  instBranch: string;
+  nodeBranch: string;
+  path: string;
+  content: string;
+  title: string;
+}): Promise<string> {
+  const branchRes = await giteaFetch(`/repos/${opts.owner}/${opts.repo}/branches`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      new_branch_name: opts.nodeBranch,
+      old_branch_name: opts.instBranch,
+    }),
+  });
+  if (branchRes.status !== 409) {
+    await requireGiteaOK("create branch", branchRes);
+  }
+
+  await requireGiteaOK("create file", await giteaFetch(
+    `/repos/${opts.owner}/${opts.repo}/contents/${encodeURIComponent(opts.path)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        branch: opts.nodeBranch,
+        message: `deliverable: ${opts.title}`,
+        content: Buffer.from(opts.content, "utf8").toString("base64"),
+      }),
+    },
+  ));
+
+  const pull = await requireGiteaOK("create pull request", await giteaFetch(
+    `/repos/${opts.owner}/${opts.repo}/pulls`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        base: opts.instBranch,
+        head: opts.nodeBranch,
+        title: opts.title,
+      }),
+    },
+  )) as { html_url?: string; url?: string };
+  if (!pull.html_url && !pull.url) {
+    throw new Error(`create pull request: missing URL in ${JSON.stringify(pull)}`);
+  }
+  return pull.html_url ?? pull.url!;
+}
 
 export async function dbQuery<T = unknown>(sql: string, params: unknown[] = []): Promise<T[]> {
   const client = new pg.Client(DATABASE_URL);
@@ -110,7 +167,7 @@ function cryptoRandomUuid(): string {
 }
 
 /** Cross-compile the cs-workflow linux binary once (mounted into the run
- *  container so each submit is fast — no per-test go build). Always (re)writes
+ *  container so each submit is fast - no per-test go build). Always (re)writes
  *  the doc file: docker -v turns a missing host path into a directory, which
  *  breaks cs-workflow's --file read. */
 export function ensureCsWorkflowBinary() {
@@ -160,6 +217,7 @@ export function runCsWorkflowSubmit(opts: {
     "-e", `MULTICA_NODE_RUN_ID=${opts.nodeRunId}`,
     "-e", `MULTICA_GITEA_OWNER=${opts.owner}`,
     "-e", `MULTICA_GITEA_REPO=${opts.repo}`,
+    "-e", `MULTICA_GITEA_CLONE_URL=http://gitea:3000/${opts.owner}/${opts.repo}.git`,
     "-e", `MULTICA_GITEA_INST_BRANCH=${opts.instBranch}`,
     "-e", `MULTICA_GITEA_NODE_BRANCH=${opts.nodeBranch}`,
     "-e", `MULTICA_GITEA_DELIVERABLES=${opts.deliverablesJson}`,
@@ -169,7 +227,7 @@ export function runCsWorkflowSubmit(opts: {
       `${opts.deliverableId} --file /work/cs-e2e-doc.md`,
   );
   // execFileSync (not execSync+join) so Windows doesn't run the args through a
-  // shell — the long -v paths and the sh -c "apk ... && cs-workflow ..." command
+  // shell - the long -v paths and the sh -c "apk ... && cs-workflow ..." command
   // break cmd.exe parsing ("system cannot find the path").
   const out = execFileSync("docker", dockerArgs.slice(1), {
     encoding: "utf-8",

@@ -21,6 +21,7 @@ const mockExecutionPanoramaProps = vi.hoisted(() => ({
     fillAvailableHeight?: boolean;
   },
 }));
+const mockWorkspaceAgents = vi.hoisted(() => [] as any[]);
 
 vi.mock("@multica/ui/hooks/use-mobile", () => ({
   useIsMobile: () => mockViewport.isMobile,
@@ -75,7 +76,7 @@ vi.mock("@multica/core/workspace/queries", () => ({
   }),
   agentListOptions: () => ({
     queryKey: ["workspaces", "ws-1", "agents"],
-    queryFn: () => Promise.resolve([]),
+    queryFn: () => Promise.resolve(mockWorkspaceAgents),
   }),
   squadListOptions: () => ({
     queryKey: ["workspaces", "ws-1", "squads"],
@@ -559,6 +560,7 @@ describe("IssueDetail (shared)", () => {
       { user_id: "user-1", name: "Test User", email: "test@test.com", role: "admin" },
     ]);
     mockApiObj.listAgents.mockResolvedValue([]);
+    mockWorkspaceAgents.length = 0;
     // Reset project mock — individual tests override per case. Default fixture
     // has project_id: null so getProject is not invoked.
     mockApiObj.getProject.mockReset();
@@ -582,6 +584,40 @@ describe("IssueDetail (shared)", () => {
     });
 
     expect(screen.getByDisplayValue("Add JWT auth to the backend")).toBeInTheDocument();
+  });
+
+  it("limits the responsible picker to workspace members", async () => {
+    mockWorkspaceAgents.push({
+      id: "agent-1",
+      workspace_id: "ws-1",
+      name: "Claude Worker",
+      description: "",
+      instructions: "",
+      status: "idle",
+      runtime_id: null,
+      owner_id: "user-1",
+      avatar_url: null,
+      visibility: "workspace",
+      is_builtin: false,
+      archived_at: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    });
+
+    renderIssueDetail();
+
+    await screen.findByDisplayValue("Implement authentication");
+
+    const responsibleRow = screen.getByText("Responsible").closest("div");
+    const responsibleTrigger = responsibleRow?.querySelector("button");
+    expect(responsibleTrigger).not.toBeNull();
+
+    fireEvent.click(responsibleTrigger!);
+
+    expect(await screen.findByText("Members")).toBeInTheDocument();
+    expect(screen.getAllByText("Test User").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Agents")).not.toBeInTheDocument();
+    expect(screen.queryByText("Claude Worker")).not.toBeInTheDocument();
   });
 
   it("renders workspace name as breadcrumb link", async () => {

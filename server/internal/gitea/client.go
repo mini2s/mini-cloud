@@ -26,16 +26,15 @@ var ErrNotConfigured = errors.New("gitea is not configured")
 // created.
 var ErrAlreadyExists = errors.New("gitea resource already exists")
 
-// Config configures the admin-token Gitea client used for scaffolding,
-// provisioning, and (in M2) merging. The token is a server-level admin PAT
-// kept in env (GITEA_ADMIN_TOKEN) — it is NEVER stored in workspace.settings.
+// Config configures the Gitea client. Production write paths pass the current
+// workspace's bot PAT; tests may inject any token accepted by their fake server.
 type Config struct {
 	BaseURL string
 	Token   string
 	Timeout time.Duration
 }
 
-// Client talks to a platform-owned Gitea instance using the admin token.
+// Client talks to a platform-owned Gitea instance using the configured token.
 // Mirrors server/internal/deptsync/client.go's shape.
 type Client struct {
 	baseURL    string
@@ -376,14 +375,14 @@ func (c *Client) AdminCreateUser(ctx context.Context, username, email string) er
 	return decodeError(resp)
 }
 
-// CreateUserToken mints a PAT for the user. Requires admin token (admin can
+// CreateUserToken mints a PAT for the user. Requires a token that can
 // create tokens for any user). Returns the raw token (sha1).
 //
 // Gitea's POST /users/{username}/tokens endpoint REJECTS token auth with 401
-// ("auth required") — it only accepts HTTP basic auth. The admin token works
+// ("auth required") — it only accepts HTTP basic auth. The configured token works
 // as the basic-auth password (Gitea resolves the user from the token itself;
 // the basic-auth username is ignored), so we send Basic with an arbitrary
-// username and the admin token as the password. This is Gitea 1.22 behavior.
+// username and the configured token as the password. This is Gitea 1.22 behavior.
 func (c *Client) CreateUserToken(ctx context.Context, username, tokenName string) (string, error) {
 	body, err := json.Marshal(map[string]any{
 		"name":   tokenName,
@@ -398,7 +397,7 @@ func (c *Client) CreateUserToken(ctx context.Context, username, tokenName string
 		return "", err
 	}
 	// Basic-auth, NOT "token <admin>": the /users/{name}/tokens endpoint
-	// requires it. Username is arbitrary; password is the admin token.
+	// requires it. Username is arbitrary; password is the configured token.
 	req.SetBasicAuth("token", c.token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.httpClient.Do(req)

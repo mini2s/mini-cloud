@@ -25,12 +25,9 @@ func TestE2EAuthedCloneURL(t *testing.T) {
 	if dbURL == "" {
 		t.Skip("DATABASE_URL not set")
 	}
-	// giteaDeliverableEnv gates on these (non-empty) but does not contact Gitea.
+	// giteaDeliverableEnv gates on GITEA_BASE_URL but does not contact Gitea.
 	if os.Getenv("GITEA_BASE_URL") == "" {
 		os.Setenv("GITEA_BASE_URL", "http://gitea:3000")
-	}
-	if os.Getenv("GITEA_ADMIN_TOKEN") == "" {
-		os.Setenv("GITEA_ADMIN_TOKEN", "set")
 	}
 	if os.Getenv("GITEA_PUBLIC_BASE_URL") == "" {
 		os.Setenv("GITEA_PUBLIC_BASE_URL", "http://localhost:23000")

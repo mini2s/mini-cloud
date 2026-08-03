@@ -3946,14 +3946,15 @@ func createUpstreamStageContextFixture(t *testing.T, ctx context.Context, suffix
 
 	// Sub-issue for upstream node run 1
 	issue1, err := testHandler.Queries.CreateIssueWithOrigin(ctx, db.CreateIssueWithOriginParams{
-		WorkspaceID: parseUUID(testWorkspaceID),
-		Title:       "Upstream issue " + suffix,
-		Description: pgtype.Text{String: "", Valid: true},
-		Status:      "done",
-		Priority:    "none",
-		CreatorType: "member",
-		CreatorID:   parseUUID(testUserID),
-		Position:    0,
+		WorkspaceID:       parseUUID(testWorkspaceID),
+		Title:             "Upstream issue " + suffix,
+		Description:       pgtype.Text{String: "", Valid: true},
+		Status:            "done",
+		Priority:          "none",
+		ResponsibleUserID: parseUUID(testUserID),
+		CreatorType:       "member",
+		CreatorID:         parseUUID(testUserID),
+		Position:          0,
 		Number: func() int32 {
 			var n int32
 			_ = testPool.QueryRow(ctx, `SELECT COALESCE(MAX(number), 90000) + 1 FROM multica_issue WHERE workspace_id = $1`, testWorkspaceID).Scan(&n)
@@ -3969,14 +3970,15 @@ func createUpstreamStageContextFixture(t *testing.T, ctx context.Context, suffix
 
 	// Sub-issue for downstream node run 2 (task's issue_id)
 	issue2, err := testHandler.Queries.CreateIssueWithOrigin(ctx, db.CreateIssueWithOriginParams{
-		WorkspaceID: parseUUID(testWorkspaceID),
-		Title:       "Downstream issue " + suffix,
-		Description: pgtype.Text{String: "", Valid: true},
-		Status:      "todo",
-		Priority:    "none",
-		CreatorType: "member",
-		CreatorID:   parseUUID(testUserID),
-		Position:    0,
+		WorkspaceID:       parseUUID(testWorkspaceID),
+		Title:             "Downstream issue " + suffix,
+		Description:       pgtype.Text{String: "", Valid: true},
+		Status:            "todo",
+		Priority:          "none",
+		ResponsibleUserID: parseUUID(testUserID),
+		CreatorType:       "member",
+		CreatorID:         parseUUID(testUserID),
+		Position:          0,
 		Number: func() int32 {
 			var n int32
 			_ = testPool.QueryRow(ctx, `SELECT COALESCE(MAX(number), 90000) + 1 FROM multica_issue WHERE workspace_id = $1`, testWorkspaceID).Scan(&n)

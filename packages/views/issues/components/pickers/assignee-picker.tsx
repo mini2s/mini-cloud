@@ -66,6 +66,7 @@ export function AssigneePicker({
   onOpenChange: controlledOnOpenChange,
   align,
   skipBuiltinRuntimeSelection = false,
+  skipRuntimeSelection = false,
   includeWorkflows = true,
   role,
   onRoleChange,
@@ -78,6 +79,7 @@ export function AssigneePicker({
   agentFilter,
   allowUnassigned = true,
   ariaLabel,
+  emptyTriggerLabel,
 }: {
   assigneeType: IssueAssigneeType | null;
   assigneeId: string | null;
@@ -92,6 +94,10 @@ export function AssigneePicker({
   /** When true, selecting a built-in agent will NOT show the runtime selection dialog.
    *  Use this in contexts like workflow editor where runtime is chosen at execution time. */
   skipBuiltinRuntimeSelection?: boolean;
+  /** When true, selecting a workflow OR built-in agent will NOT show the runtime
+   *  selection dialog — runtime is chosen later, when the issue is run (moved to
+   *  in_progress or via a "run" action). Implies skipBuiltinRuntimeSelection. */
+  skipRuntimeSelection?: boolean;
   /** Workflow node actor pickers only support members, agents, squads, and role placeholders. */
   includeWorkflows?: boolean;
   /** When provided, role options appear as the first section in the dropdown. */
@@ -111,6 +117,8 @@ export function AssigneePicker({
   allowUnassigned?: boolean;
   /** Accessible label for an embedded picker trigger. */
   ariaLabel?: string;
+  /** Optional trigger label shown when no assignee is selected. */
+  emptyTriggerLabel?: string;
 }) {
   const { t } = useT("issues");
   const [internalOpen, setInternalOpen] = useState(false);
@@ -285,18 +293,19 @@ export function AssigneePicker({
   const isSelected = (type: string, id: string) =>
     assigneeType === type && assigneeId === id;
 
+  const emptyLabel = emptyTriggerLabel ?? t(($) => $.pickers.assignee.trigger_unassigned);
   const triggerLabel =
     role && roleLabels
       ? (roleLabels[role] ?? role)
       : assigneeType && assigneeId
         ? getActorName(assigneeType, assigneeId)
-        : t(($) => $.pickers.assignee.trigger_unassigned);
+        : emptyLabel;
 
   // Handle clicking a built-in agent: show runtime dialog if >1 runtimes,
   // auto-select if exactly 1, fall through without runtime if 0.
   // When skipBuiltinRuntimeSelection is true, just assign the agent directly.
   const handleBuiltinAgentClick = (agent: Agent) => {
-    if (skipBuiltinRuntimeSelection) {
+    if (skipBuiltinRuntimeSelection || skipRuntimeSelection) {
       guardedUpdate({
         assignee_type: "agent",
         assignee_id: agent.id,
@@ -339,6 +348,14 @@ export function AssigneePicker({
   };
 
   const handleWorkflowClick = (workflow: Workflow) => {
+    if (skipRuntimeSelection) {
+      guardedUpdate({
+        assignee_type: "workflow",
+        assignee_id: workflow.id,
+      });
+      setOpen(false);
+      return;
+    }
     setPendingWorkflowRuntime({
       workflowId: workflow.id,
       workflowTitle: workflow.title,
@@ -385,7 +402,7 @@ export function AssigneePicker({
             <span className="truncate">{triggerLabel}</span>
           </>
         ) : (
-          <span className="text-muted-foreground">{t(($) => $.pickers.assignee.trigger_unassigned)}</span>
+          <span className="text-muted-foreground">{emptyLabel}</span>
         )}
         </span>
       }

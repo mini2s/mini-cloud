@@ -97,11 +97,13 @@ Multica 的产品名词分两类：
 
 ### 实体词的混合规则（`issue` / `skill` / `task`）
 
-`issue` / `skill` / `task` 是 Multica 的核心实体。schema 字段、API 字段、产品 UI 标签都用英文。中文里采用**混合规则** —— 词出现在哪里决定怎么写：
+`issue` / `skill` / `task` 是 Multica 的核心实体。schema 字段、API 字段、路由和代码标识保持英文。中文 UI 中，面向用户的 `issue` 统一显示为「任务」；英文 UI 仍显示为 `Issue` / `issue`。其他实体中文里采用**混合规则** —— 词出现在哪里决定怎么写：
 
 | 场景 | 写法 | 例 |
 | --- | --- | --- |
-| **UI 短句 / 状态名 / 代码上下文** | 小写英文 | "排队中的 task"、"创建子 issue"、"为数智人注入 skill" |
+| **中文 UI 短句中的 issue** | 中文术语 | "新建任务"、"创建子任务"、"任务列表" |
+| **状态名 / 代码上下文 / API 或路由引用** | 小写英文 | "`issue_status`"、"`/{slug}/issues`"、"`task_id`" |
+| **其他实体的 UI 短句** | 小写英文 | "排队中的 task"、"为数智人注入 skill" |
 | **doc 标题 / 章节标题** | 首字母大写英文，**或**对应中文术语 | "Issue 与 project"、"Skills"、"执行任务" |
 | **doc 正文长篇讨论中作为主语** | 中文术语，首次出现配括号英文 | "**执行任务**（task）是数智人每一次工作的单位" |
 | **API / DB 字段** | 永远 `task` / `issue` / `skill` | `task_id`、`issue_status`、`skill_uuid` |
@@ -109,12 +111,14 @@ Multica 的产品名词分两类：
 中文术语对照：
 
 - `task` ↔ `执行任务`（上下文清楚后可简写为「任务」）
-- `issue` 没有公认中文译法 —— 保留英文；标题可大写为 `Issue`
+- `issue` ↔ 中文 UI 用 `任务`；英文 UI 和代码/API/路由上下文保留 `Issue` / `issue`
 - `skill` 没有公认中文译法 —— 保留英文；标题可大写为 `Skills`
 
-**为什么 `issue` / `skill` / `task` 不强制译，而 `project` / `autopilot` 必译**：
+**为什么中文 UI 中 `issue` 改为「任务」，而代码上下文仍保留 `issue`**：
 
-- **`issue` / `task`**：dev 团队习惯说英文，"任务"在中文里和"工作"几乎同义太空泛，"工单"是 IT 工单语义，"议题"是 GitHub 风格但用户场景不匹配 —— 三个候选都不如 `issue` 准确。**但**在长篇 doc 正文里，重复 50 次 `task` 节奏不顺，所以正文允许用 `执行任务`，UI 短句、状态名仍保持小写英文。
+- **`issue`**：产品中文界面面向最终用户，统一叫「任务」更直白；英文界面仍使用 `Issue`，代码、API、DB、路由和 CLI 命令仍使用 `issue`，避免把实体名和技术契约混在一起改。
+- **`task`**：表示数智人的执行单元，正式写法是「执行任务」，上下文清楚时可简称「任务」。当同一界面同时出现 issue 和 task 时，优先通过上下文或更具体的短语区分。
+- **`skill`**：Multica 特有概念，没有公认中文译法，保留英文。
 - **`skill`**：Multica 特有概念，没有公认中文译法。
 - **`project` 翻成「项目」**：中文里早就稳定的日常词。飞书 / Tower / Teambition / PingCode / GitHub Projects 中文版 0 例外都翻译成「项目」，没有产品保留 `project`。
 - **`autopilot` 翻成「自动化」**：autopilot 在中文里联想到特斯拉的「自动驾驶」，跟产品功能（按周期跑 task）对应不上。Notion / 飞书都用「自动化」，是行业共识。
@@ -191,7 +195,7 @@ UI 里展示这些值时保持英文（必要时用 code-style 包起来）：
 
 英文词（实体名 + 品牌名 + 缩写）与中文之间**加单空格**：
 
-- "Create new issue" → "新建 issue"
+- "Create new issue" → "新建任务"
 - "Assign to digital human" → "分配给数智人"
 - "Configure runtime" → "配置运行时"
 - "Stop daemon" → "停止守护进程"
@@ -209,13 +213,13 @@ i18next 用 `_one` / `_other`；中文不区分语法单复数，只填 `_other`
 
 // zh-Hans/issues.json
 {
-  "issue_count_other": "{{count}} 个 issue"
+  "issue_count_other": "{{count}} 个任务"
 }
 ```
 
 常见计数格式：
 
-- `{{count}} issues` → `{{count}} 个 issue`
+- `{{count}} issues` → `{{count}} 个任务`
 - `{{count}} digital humans` → `{{count}} 个数智人`
 - `{{count}} workspaces` → `{{count}} 个工作区`
 - `{{count}} comments` → `{{count}} 条评论`
@@ -280,7 +284,7 @@ i18next 用 `_one` / `_other`；中文不区分语法单复数，只填 `_other`
 - **错误信息**：温和但明确，"无法保存修改" 优于 "保存修改失败了！"
 - **按钮**：动词开头，2-4 字最佳。"取消"、"保存修改"、"立即同步"
 - **Tooltip**：完整短句。"复制链接到剪贴板"
-- **placeholder**：示例性提示。"输入 issue 标题..."
+- **placeholder**：示例性提示。"输入任务标题..."
 
 ### 拿不准的时候去哪查
 

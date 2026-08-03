@@ -24,12 +24,11 @@ type RecipientStore interface {
 
 // ResolveInput carries everything the resolver needs about the issue event.
 type ResolveInput struct {
-	IssueID     string
-	Description string // issue description markdown
-	CreatorType string // "member" | "agent" | ...
-	CreatorID   string // user ID when CreatorType == "member"
-	ActorType   string // "member" | "agent" | "system"
-	ActorID     string // user ID when ActorType == "member"
+	IssueID           string
+	Description       string // issue description markdown
+	ResponsibleUserID string // user ID for the issue's responsible member
+	ActorType         string // "member" | "agent" | "system"
+	ActorID           string // user ID when ActorType == "member"
 }
 
 // ResolveRecipients returns the email addresses the outbound channel should
@@ -38,7 +37,7 @@ type ResolveInput struct {
 //
 //  1. Member mentions in the issue description and comments win.
 //  2. With no member mentions (none at all, or only agent/squad mentions),
-//     fall back to the issue creator when the creator is a member.
+//     fall back to the issue assignee when the assignee is a member.
 //  3. The actor is excluded (people don't get notified about their own
 //     action). A system actor excludes nobody.
 //  4. Users without a usable email are skipped; an empty result means "skip
@@ -67,8 +66,8 @@ func ResolveRecipients(ctx context.Context, store RecipientStore, in ResolveInpu
 		for id := range mentioned {
 			userIDs = append(userIDs, id)
 		}
-	} else if in.CreatorType == "member" && in.CreatorID != "" {
-		userIDs = append(userIDs, in.CreatorID)
+	} else if in.ResponsibleUserID != "" {
+		userIDs = append(userIDs, in.ResponsibleUserID)
 	}
 
 	var emails []string

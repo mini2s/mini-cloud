@@ -267,6 +267,7 @@ export function WorkflowsPage() {
         </Button>
       </PageHeader>
 
+      <div className="flex-1 min-h-0 overflow-y-auto">
       {/* Template cards — driven by backend templates */}
       {backendTemplates.length > 0 && (
       <div className="px-5 py-3 border-b">
@@ -296,7 +297,6 @@ export function WorkflowsPage() {
       </div>
       )}
 
-      <div className="flex-1 overflow-y-auto">
         {isLoading ? (
           <>
             <div className="sticky top-0 z-[1] hidden h-8 items-center gap-2 border-b bg-muted/30 px-5 sm:flex">

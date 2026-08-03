@@ -11,6 +11,7 @@ export interface CreateIssueRequest {
   priority?: IssuePriority;
   assignee_type?: IssueAssigneeType;
   assignee_id?: string;
+  responsible_user_id: string;
   /** Optional preferred runtime when the assignee starts a workflow. */
   runtime_id?: string | null;
   runtime_selection_policy?: WorkflowRuntimeSelectionPolicy;
@@ -31,6 +32,8 @@ export interface UpdateIssueRequest {
   priority?: IssuePriority;
   assignee_type?: IssueAssigneeType | null;
   assignee_id?: string | null;
+  /** Responsible owner (accountable member) of the issue. */
+  responsible_user_id?: string | null;
   position?: number;
   start_date?: string | null;
   due_date?: string | null;
@@ -57,6 +60,8 @@ export interface ListIssuesParams {
   assignee_id?: string;
   assignee_ids?: string[];
   creator_id?: string;
+  /** Filter to issues whose responsible user (accountable owner) is this user. */
+  responsible_user_id?: string;
   project_id?: string;
   /**
    * Widen the assignee filter to issues where the user is the *indirect*
@@ -97,6 +102,8 @@ export interface ListGroupedIssuesParams {
   assignee_id?: string;
   assignee_ids?: string[];
   creator_id?: string;
+  /** Filter to issues whose responsible user (accountable owner) is this user. */
+  responsible_user_id?: string;
   project_id?: string;
   /** See `ListIssuesParams.involves_user_id` — same semantics. */
   involves_user_id?: string;

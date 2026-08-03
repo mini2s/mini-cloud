@@ -6,7 +6,7 @@
 -- because that is already the meaning of the `assignee_id` filter (tab 1
 -- "Assigned to me"), and the two filters must produce disjoint result sets.
 SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
-       i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
+       i.assignee_type, i.assignee_id, i.responsible_user_id, i.creator_type, i.creator_id,
        i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.workflow_id, i.workflow_run_id, i.stage_id, i.metadata, i.origin_type, i.origin_id
 FROM multica_issue i
 WHERE i.workspace_id = $1
@@ -18,6 +18,7 @@ WHERE i.workspace_id = $1
   AND (sqlc.narg('assignee_id')::uuid IS NULL OR i.assignee_id = sqlc.narg('assignee_id'))
   AND (sqlc.narg('assignee_ids')::uuid[] IS NULL OR i.assignee_id = ANY(sqlc.narg('assignee_ids')::uuid[]))
   AND (sqlc.narg('creator_id')::uuid IS NULL OR i.creator_id = sqlc.narg('creator_id'))
+  AND (sqlc.narg('responsible_user_id')::uuid IS NULL OR i.responsible_user_id = sqlc.narg('responsible_user_id'))
   AND (sqlc.narg('project_id')::uuid IS NULL OR i.project_id = sqlc.narg('project_id'))
   AND (sqlc.narg('scheduled')::bool IS NULL OR (i.start_date IS NOT NULL OR i.due_date IS NOT NULL))
   AND (sqlc.narg('metadata_filter')::jsonb IS NULL OR i.metadata @> sqlc.narg('metadata_filter')::jsonb)
@@ -86,11 +87,11 @@ WHERE id = $1 AND workspace_id = $2;
 -- name: CreateIssue :one
 INSERT INTO multica_issue (
     workspace_id, title, description, status, priority,
-    assignee_type, assignee_id, creator_type, creator_id,
+    assignee_type, assignee_id, responsible_user_id, creator_type, creator_id,
     parent_issue_id, position, start_date, due_date, number, project_id,
     workflow_id, workflow_run_id, stage_id
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+    $1, $2, $3, $4, $5, $6, $7, sqlc.arg('responsible_user_id'), $8, $9, $10, $11, $12, $13, $14, $15,
     sqlc.narg('workflow_id'), sqlc.narg('workflow_run_id'), sqlc.narg('stage_id')
 ) RETURNING *;
 
@@ -106,6 +107,7 @@ UPDATE multica_issue SET
     priority = COALESCE(sqlc.narg('priority'), priority),
     assignee_type = sqlc.narg('assignee_type'),
     assignee_id = sqlc.narg('assignee_id'),
+    responsible_user_id = sqlc.narg('responsible_user_id'),
     position = COALESCE(sqlc.narg('position'), position),
     start_date = sqlc.narg('start_date'),
     due_date = sqlc.narg('due_date'),
@@ -129,11 +131,11 @@ RETURNING *;
 -- name: CreateIssueWithOrigin :one
 INSERT INTO multica_issue (
     workspace_id, title, description, status, priority,
-    assignee_type, assignee_id, creator_type, creator_id,
+    assignee_type, assignee_id, responsible_user_id, creator_type, creator_id,
     parent_issue_id, position, start_date, due_date, number, project_id,
     origin_type, origin_id, workflow_id, workflow_run_id, stage_id
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+    $1, $2, $3, $4, $5, $6, $7, sqlc.arg('responsible_user_id'), $8, $9, $10, $11, $12, $13, $14, $15,
     sqlc.narg('origin_type'), sqlc.narg('origin_id'),
     sqlc.narg('workflow_id'), sqlc.narg('workflow_run_id'), sqlc.narg('stage_id')
 ) RETURNING *;
@@ -172,7 +174,7 @@ DELETE FROM multica_issue WHERE id = $1 AND workspace_id = $2;
 -- See ListIssues for the semantics of involves_user_id (mirrors the 4-branch
 -- filter; multica_member-direct assignment is intentionally excluded).
 SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
-       i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
+       i.assignee_type, i.assignee_id, i.responsible_user_id, i.creator_type, i.creator_id,
        i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.workflow_id, i.workflow_run_id, i.stage_id, i.metadata, i.origin_type, i.origin_id
 FROM multica_issue i
 WHERE i.workspace_id = $1
@@ -184,6 +186,7 @@ WHERE i.workspace_id = $1
   AND (sqlc.narg('assignee_id')::uuid IS NULL OR i.assignee_id = sqlc.narg('assignee_id'))
   AND (sqlc.narg('assignee_ids')::uuid[] IS NULL OR i.assignee_id = ANY(sqlc.narg('assignee_ids')::uuid[]))
   AND (sqlc.narg('creator_id')::uuid IS NULL OR i.creator_id = sqlc.narg('creator_id'))
+  AND (sqlc.narg('responsible_user_id')::uuid IS NULL OR i.responsible_user_id = sqlc.narg('responsible_user_id'))
   AND (sqlc.narg('project_id')::uuid IS NULL OR i.project_id = sqlc.narg('project_id'))
   AND (sqlc.narg('metadata_filter')::jsonb IS NULL OR i.metadata @> sqlc.narg('metadata_filter')::jsonb)
   AND (
@@ -232,6 +235,7 @@ WHERE i.workspace_id = $1
   AND (sqlc.narg('assignee_id')::uuid IS NULL OR i.assignee_id = sqlc.narg('assignee_id'))
   AND (sqlc.narg('assignee_ids')::uuid[] IS NULL OR i.assignee_id = ANY(sqlc.narg('assignee_ids')::uuid[]))
   AND (sqlc.narg('creator_id')::uuid IS NULL OR i.creator_id = sqlc.narg('creator_id'))
+  AND (sqlc.narg('responsible_user_id')::uuid IS NULL OR i.responsible_user_id = sqlc.narg('responsible_user_id'))
   AND (sqlc.narg('project_id')::uuid IS NULL OR i.project_id = sqlc.narg('project_id'))
   AND (sqlc.narg('scheduled')::bool IS NULL OR (i.start_date IS NOT NULL OR i.due_date IS NOT NULL))
   AND (sqlc.narg('metadata_filter')::jsonb IS NULL OR i.metadata @> sqlc.narg('metadata_filter')::jsonb)
