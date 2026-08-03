@@ -161,3 +161,70 @@ var errInvalidPRURL = &parseError{msg: "gitea: not a valid gitea pull request UR
 type parseError struct{ msg string }
 
 func (e *parseError) Error() string { return e.msg }
+
+// PullRequestRef identifies a Gitea PR by owner/repo/index, parsed from its web
+// URL. Used to fetch PR metadata (e.g. title) for a stored pull_request_url.
+type PullRequestRef struct {
+	Owner string
+	Repo  string
+	Index int
+}
+
+// ParsePullRequestURL parses a Gitea PR web URL
+// (e.g. https://gitea.example.com/t-7f3c9a1e/wf-11111111/pulls/42) into owner,
+// repo, and numeric index. Returns errInvalidPRURL if the URL is not a valid
+// Gitea PR URL (wrong shape, missing owner/repo, non-positive index).
+func ParsePullRequestURL(raw string) (PullRequestRef, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return PullRequestRef{}, errInvalidPRURL
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return PullRequestRef{}, errInvalidPRURL
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	pullsIdx := -1
+	for i, p := range parts {
+		if p == "pulls" {
+			pullsIdx = i
+			break
+		}
+	}
+	// need at least "<owner>/<repo>/pulls/<index>"
+	if pullsIdx < 2 || pullsIdx+1 >= len(parts) {
+		return PullRequestRef{}, errInvalidPRURL
+	}
+	owner := parts[pullsIdx-2]
+	repo := parts[pullsIdx-1]
+	if owner == "" || repo == "" {
+		return PullRequestRef{}, errInvalidPRURL
+	}
+	index, err := strconv.Atoi(parts[pullsIdx+1])
+	if err != nil || index <= 0 {
+		return PullRequestRef{}, errInvalidPRURL
+	}
+	return PullRequestRef{Owner: owner, Repo: repo, Index: index}, nil
+}
+
+// GetPRTitle fetches the title of a pull request by index. Used by the
+// deliverable-submission path to cache the PR title at submit time so the
+// submissions list can render it without a live Gitea call on every read.
+// Callers treat failure as best-effort (empty title).
+func (c *Client) GetPRTitle(ctx context.Context, owner, repo string, index int) (string, error) {
+	resp, err := c.do(ctx, http.MethodGet, "/repos/"+owner+"/"+repo+"/pulls/"+strconv.Itoa(index), nil)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", decodeError(resp)
+	}
+	var pr struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&pr); err != nil {
+		return "", fmt.Errorf("parse PR response: %w", err)
+	}
+	return pr.Title, nil
+}

@@ -884,6 +884,10 @@ func (s *spyRepoProvider) ListOrgMembers(ctx context.Context, org string) ([]cod
 	return nil, nil
 }
 
+func (s *spyRepoProvider) FetchReviewRequestTitleByURL(ctx context.Context, prURL string) (string, error) {
+	return "", nil
+}
+
 func (s *spyRepoProvider) snapshot() []spyUpsertCall {
 	s.mu.Lock()
 	defer s.mu.Unlock()

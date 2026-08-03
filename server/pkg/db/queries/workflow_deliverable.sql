@@ -74,11 +74,11 @@ ORDER BY created_at ASC;
 -- which is also the rework-resubmit contract).
 INSERT INTO multica_workflow_node_deliverable_submission (
     workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id,
-    status, content, attachment_id, pull_request_url
+    status, content, attachment_id, pull_request_url, pull_request_title
 ) SELECT
     sqlc.arg('workflow_node_run_id'), requirement.id, sqlc.arg('submitted_by_type'),
     sqlc.narg('submitted_by_id'), 'submitted', sqlc.arg('content'),
-    sqlc.narg('attachment_id'), sqlc.arg('pull_request_url')
+    sqlc.narg('attachment_id'), sqlc.arg('pull_request_url'), sqlc.arg('pull_request_title')
 FROM multica_workflow_node_run_deliverable requirement
 WHERE requirement.id = sqlc.arg('deliverable_id')
   AND requirement.workflow_node_run_id = sqlc.arg('workflow_node_run_id')
@@ -90,6 +90,7 @@ DO UPDATE SET
     content = EXCLUDED.content,
     attachment_id = EXCLUDED.attachment_id,
     pull_request_url = EXCLUDED.pull_request_url,
+    pull_request_title = EXCLUDED.pull_request_title,
     submitted_at = now(),
     updated_at = now()
 RETURNING *;

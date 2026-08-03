@@ -800,6 +800,7 @@ type MulticaWorkflowNodeDeliverableSubmission struct {
 	ReviewedAt        pgtype.Timestamptz `json:"reviewed_at"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	PullRequestTitle  string             `json:"pull_request_title"`
 }
 
 type MulticaWorkflowNodeRun struct {

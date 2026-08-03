@@ -24,6 +24,12 @@ type RepositoryProvider interface {
 	MergeReviewRequest(ctx context.Context, owner, repo string, index int) error
 	CloseReviewRequest(ctx context.Context, owner, repo string, index int) error
 	ListOrgMembers(ctx context.Context, org string) ([]OrgMember, error)
+	// FetchReviewRequestTitleByURL resolves a PR/MR web URL to its title
+	// (cached at submit time so the submissions list needn't fan out to the
+	// code host on every read). Returns an empty title (no error) when the URL
+	// does not belong to this provider; other failures surface as errors so the
+	// caller can decide whether to block or treat as best-effort.
+	FetchReviewRequestTitleByURL(ctx context.Context, prURL string) (string, error)
 }
 
 type FactoryConfig struct {
@@ -89,4 +95,15 @@ func (a GiteaAdapter) ListOrgMembers(ctx context.Context, org string) ([]OrgMemb
 		out = append(out, OrgMember{Login: m.Login})
 	}
 	return out, nil
+}
+
+// FetchReviewRequestTitleByURL resolves a Gitea PR web URL to its title. A
+// non-Gitea URL yields an empty title (no error) so callers can stay
+// best-effort across providers.
+func (a GiteaAdapter) FetchReviewRequestTitleByURL(ctx context.Context, prURL string) (string, error) {
+	ref, err := gitea.ParsePullRequestURL(prURL)
+	if err != nil {
+		return "", nil // not a Gitea PR URL — best-effort empty title
+	}
+	return a.Client.GetPRTitle(ctx, ref.Owner, ref.Repo, ref.Index)
 }
