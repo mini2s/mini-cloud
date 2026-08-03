@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { WorkflowNode, WorkflowNodeRun } from "@multica/core/types";
 import { ApiError } from "@multica/core/api";
@@ -77,7 +77,7 @@ export function SplitReviewPanel({
   const { t } = useT("workflows");
   const nodeRunId = nodeRun?.id;
   const { data, isLoading } = useQuery(splitTasksOptions(wsId, nodeRunId));
-  const { data: currentDeliverableData } = useQuery({
+  const { data: currentDeliverableData, refetch: refetchCurrentDeliverables } = useQuery({
     ...nodeRunDeliverableSubmissionsOptions(wsId, nodeRunId ?? ""),
     enabled: !!nodeRunId,
   });
@@ -102,6 +102,16 @@ export function SplitReviewPanel({
   const awaitingReview = status === "awaiting_split_review" && generation > 0 && !!submissionId;
   const materializing = status === "materializing";
   const active = status === "split_active";
+
+  // Status can arrive through node-run polling even if the corresponding
+  // lifecycle WebSocket event was missed. Refetch on the review transition so
+  // the just-committed submission and pull-request URL cannot remain hidden in
+  // an older, empty deliverables cache until a hard refresh.
+  useEffect(() => {
+    if (status === "awaiting_split_review" && nodeRunId) {
+      void refetchCurrentDeliverables();
+    }
+  }, [nodeRunId, refetchCurrentDeliverables, status]);
 
   const statusMeta = status === "awaiting_split_review"
     ? { tone: "amber" as DrawerTone, label: t(($) => $.detail_panel.split_drawer_status_review), line: t(($) => $.detail_panel.split_drawer_line_review), spin: false }

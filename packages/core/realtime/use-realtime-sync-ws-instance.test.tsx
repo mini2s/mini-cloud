@@ -175,6 +175,35 @@ describe("useRealtimeSync — ws instance change", () => {
     }
   });
 
+  it("invalidates split review data when the split plan becomes reviewable", () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const ws = {
+      on: vi.fn((event: string, handler: (payload: unknown) => void) => {
+        handlers.set(event, handler);
+        return () => handlers.delete(event);
+      }),
+      onAny: vi.fn(() => () => {}),
+      onReconnect: vi.fn(() => () => {}),
+    } as unknown as WSClient;
+
+    renderHook(() => useRealtimeSync(ws, stores), {
+      wrapper: createWrapper(qc),
+    });
+    invalidateSpy.mockClear();
+
+    handlers.get("split_review_ready")?.({
+      workflow_node_run_id: "node-run-1",
+      workflow_run_id: "run-1",
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: workflowKeys.nodeRunDeliverables("node-run-1"),
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: workflowKeys.splitTasks("ws-1", "node-run-1"),
+    });
+  });
+
   it("invalidates workflow cache when a workflow update event arrives", async () => {
     vi.useFakeTimers();
     const { ws, anyHandlers } = createCapturingWs();

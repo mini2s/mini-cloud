@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   generate: vi.fn(),
   retry: vi.fn(),
   cancel: vi.fn(),
+  refetchDeliverables: vi.fn(),
   deliverableData: {
     deliverables: [] as WorkflowNodeDeliverable[],
     submissions: [] as WorkflowNodeDeliverableSubmission[],
@@ -25,15 +26,16 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: (options: { kind?: string }) => ({
+  useQuery: (options: { kind?: string; nodeRunId?: string }) => ({
     data: options.kind === "split" ? mocks.data : mocks.deliverableData,
     isLoading: false,
+    refetch: options.nodeRunId === "run-node-1" ? mocks.refetchDeliverables : vi.fn(),
   }),
 }));
 
 vi.mock("@multica/core/workflows/queries", () => ({
   splitTasksOptions: () => ({ kind: "split" }),
-  nodeRunDeliverableSubmissionsOptions: () => ({ kind: "deliverables" }),
+  nodeRunDeliverableSubmissionsOptions: (_wsId: string, nodeRunId: string) => ({ kind: "deliverables", nodeRunId }),
   useApproveSplitTasks: () => ({ mutate: mocks.approve, isPending: false }),
   useRejectSplitTasks: () => ({ mutate: mocks.reject, isPending: false }),
   useGenerateSplitTasks: () => ({ mutate: mocks.generate, isPending: false }),
@@ -158,6 +160,29 @@ describe("SplitReviewPanel", () => {
     render(<SplitReviewPanel node={node} nodeRun={baseRun} wsId="ws-1" onClose={vi.fn()} />);
 
     expect(screen.getByRole("button", { name: "PR#42" })).toBeInTheDocument();
+  });
+
+  it("refetches deliverables when the node enters split review", () => {
+    const { rerender } = render(
+      <SplitReviewPanel
+        node={node}
+        nodeRun={{ ...baseRun, status: "splitting" }}
+        wsId="ws-1"
+        onClose={vi.fn()}
+      />,
+    );
+    mocks.refetchDeliverables.mockClear();
+
+    rerender(
+      <SplitReviewPanel
+        node={node}
+        nodeRun={baseRun}
+        wsId="ws-1"
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(mocks.refetchDeliverables).toHaveBeenCalledTimes(1);
   });
 
   it("approves the exact generation and submission", () => {

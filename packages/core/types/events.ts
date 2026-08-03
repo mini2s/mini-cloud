@@ -101,6 +101,7 @@ export type WSEventType =
   | "workflow:node_run_reviewed"
   | "workflow:node_run_resumed"
   | "workflow:node_run_updated"
+  | "split_review_ready"
   | "workflow_role_resolution_updated"
   | "workflow_run_updated";
 
@@ -383,4 +384,13 @@ export interface MergeRequestUpdatedPayload {
 
 export interface GitlabSettingsChangedPayload {
   workspace_id: string;
+}
+
+export interface SplitReviewReadyPayload {
+  workflow_node_run_id: string;
+  workflow_run_id: string;
+  agent_task_id?: string;
+  planner_agent_id?: string;
+  elapsed_ms?: number;
+  split_plan_generation?: number;
 }
