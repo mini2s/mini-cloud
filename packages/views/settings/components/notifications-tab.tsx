@@ -13,13 +13,13 @@ import { useT } from "../../i18n";
 // Inbox event groups rendered in the per-event toggle list. `system_notifications`
 // is a sibling preference key but lives in its own section below.
 const INBOX_GROUP_KEYS = [
+  "responsible_changes",
   "assignments",
-  "workflow_roles",
+  "workflow_executor",
+  "workflow_reviewer",
   "status_changes",
   "workflow_node_status",
   "comments",
-  "updates",
-  "agent_activity",
 ] as const;
 type InboxGroupKey = (typeof INBOX_GROUP_KEYS)[number];
 

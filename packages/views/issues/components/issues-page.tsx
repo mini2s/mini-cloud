@@ -31,7 +31,7 @@ import { ListView } from "./list-view";
 import { IssueGraphView } from "./issue-graph-view";
 import { BatchActionToolbar } from "./batch-action-toolbar";
 import { useT } from "../../i18n";
-import { useRuntimeStartDialogs } from "../hooks/use-runtime-start-dialogs";
+import { useBoardMoveIssue } from "../hooks/use-board-move-issue";
 
 export function IssuesPage() {
   const { t } = useT("issues");
@@ -156,7 +156,6 @@ export function IssuesPage() {
   }, [visibleStatuses]);
 
   const updateIssueMutation = useUpdateIssue();
-  const { maybeSelectRuntimeThen, dialogs: runtimeDialogs } = useRuntimeStartDialogs(wsId);
   const commitIssueMove = useCallback(
     (
       issueId: string,
@@ -176,51 +175,16 @@ export function IssuesPage() {
     },
     [updateIssueMutation, t],
   );
-  const handleMoveIssue = useCallback(
-    (issueId: string, updates: Pick<UpdateIssueRequest, "status" | "assignee_type" | "assignee_id" | "position">) => {
-      const issue = (usesAssigneeBoard ? assigneeIssues : allIssues).find((item) => item.id === issueId);
-      if (
-        issue &&
-        issue.status === "backlog" &&
-        !issue.assignee_type &&
-        !issue.assignee_id &&
-        updates.status &&
-        updates.status !== "backlog"
-      ) {
-        toast.error(t(($) => $.page.assign_first));
-        return false;
-      }
-      const normalizedUpdates =
-        updates.status === "backlog"
-          ? { ...updates, assignee_type: null, assignee_id: null }
-          : updates;
-      if (issue && normalizedUpdates.status === "in_progress" && issue.assignee_type && issue.assignee_id) {
-        // Unified with create-issue's "Run now": workflow / built-in agent /
-        // squad all open WorkflowRuntimeStrategyDialog; member / non-builtin
-        // agent commit directly. maybeSelectRuntimeThen returns true when it
-        // already committed (no dialog), false when it opened the dialog (the
-        // move is committed on confirm) — return that boolean either way so we
-        // never double-commit the no-dialog path.
-        return maybeSelectRuntimeThen(
-          issue.assignee_type,
-          issue.assignee_id,
-          { issueId, updates: normalizedUpdates },
-          (p) => {
-            commitIssueMove(p.issueId, {
-              ...p.updates,
-              ...(p.runtime_id !== undefined ? { runtime_id: p.runtime_id } : {}),
-              ...(p.runtime_selection_policy !== undefined
-                ? { runtime_selection_policy: p.runtime_selection_policy }
-                : {}),
-            });
-          },
-        );
-      }
-      commitIssueMove(issueId, normalizedUpdates);
-      return true;
-    },
-    [allIssues, assigneeIssues, commitIssueMove, maybeSelectRuntimeThen, usesAssigneeBoard],
+  const findIssueForMove = useCallback(
+    (id: string) => (usesAssigneeBoard ? assigneeIssues : allIssues).find((item) => item.id === id),
+    [usesAssigneeBoard, assigneeIssues, allIssues],
   );
+  const { handleMoveIssue, runtimeDialogs } = useBoardMoveIssue({
+    wsId,
+    findIssue: findIssueForMove,
+    commitMove: commitIssueMove,
+    assignFirstMessage: t(($) => $.page.assign_first),
+  });
 
   if (loading) {
     return (

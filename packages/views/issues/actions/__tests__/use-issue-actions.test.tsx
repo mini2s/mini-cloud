@@ -144,6 +144,8 @@ describe("useIssueActions", () => {
 
     expect(mockOpenModal).toHaveBeenCalledWith("issue-backlog-agent-hint", {
       issueId: "issue-1",
+      assigneeType: "agent",
+      assigneeId: "agent-1",
     });
   });
 

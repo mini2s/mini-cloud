@@ -64,7 +64,8 @@
     "no_issues_yet": "No issues yet",
     "toast_link_copied": "Link copied",
     "toast_project_deleted": "Project deleted",
-    "toast_move_issue_failed": "Failed to move issue"
+    "toast_move_issue_failed": "Failed to move issue",
+    "assign_first": "Please assign the task first."
   },
   "resources": {
     "section_header": "Code repositories",

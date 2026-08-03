@@ -539,27 +539,27 @@ func TestAppendDeliverablePrompt_CheckoutAndSubmit(t *testing.T) {
 	refs := []giteaDeliverableRefJSON{{ID: "d1", Title: "Doc1", Path: "nodes/01-x/d1.md"}}
 	got := appendDeliverablePrompt("base prompt", refs)
 	for _, want := range []string{
-		"git clone $CS_CLOUD_REPO_CLONE_URL_AUTHED",             // native git clone (agent does it itself)
-		"CS_CLOUD_REPO_NODE_BRANCH",                             // per-node branch the agent checks out
-		"CS_CLOUD_REPO_INST_BRANCH",                             // inst branch context (read path)
-		"cs-cloud workflow deliverable submit --deliverable d1", // per-deliverable submit path
-		"cs-workflow issue deliverables",                        // self-service read command
+		".cs-cloud.repos",
+		".cs-cloud.env",
+		"Before submitting, clone the delivery repository listed in `.cs-cloud.repos`",
+		"check out the listed node branch",
+		"cs-cloud workflow deliverable submit --deliverable <id> --file <path>",
 		"Document Deliverables",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("prompt missing %q:\n%s", want, got)
 		}
 	}
-	// The dedicated `cs-cloud repo checkout` command is gone — the agent clones
-	// with native git now.
-	if strings.Contains(got, "cs-cloud repo checkout") {
-		t.Errorf("prompt must NOT reference removed `cs-cloud repo checkout` command:\n%s", got)
-	}
-	if strings.Contains(got, "deliverable fetch") {
-		t.Errorf("prompt must NOT reference fetch (command removed):\n%s", got)
-	}
-	if strings.Contains(got, "ask the user") {
-		t.Errorf("prompt must NOT ask the user (use read commands instead):\n%s", got)
+	for _, forbidden := range []string{
+		"CS_CLOUD_REPO_CLONE_URL_AUTHED",
+		"CS_CLOUD_REPO_TOKEN",
+		"CS_CLOUD_GITEA_TOKEN",
+		"git clone",
+		"nodes/01-x/d1.md",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Errorf("prompt must not embed repository credentials or clone details %q:\n%s", forbidden, got)
+		}
 	}
 }
 
@@ -890,11 +890,14 @@ func TestAppendCodeRepoPrompt_MultiRepo(t *testing.T) {
 	}
 	got := appendCodeRepoPrompt("base", repos)
 	// Both repos must be listed.
-	if !strings.Contains(got, "后端") || !strings.Contains(got, "frontend.git") {
-		t.Fatalf("prompt missing repo listing:\n%s", got)
+	if !strings.Contains(got, ".cs-cloud.repos") || !strings.Contains(got, ".cs-cloud.env") {
+		t.Fatalf("prompt missing local file instructions:\n%s", got)
+	}
+	if !strings.Contains(got, "Clone code repositories on demand") || !strings.Contains(got, "Do not clone every repository by default") {
+		t.Fatalf("prompt missing on-demand clone instruction:\n%s", got)
 	}
 	// Must instruct CLI-based MR, not platform auto-MR.
-	if !strings.Contains(got, "cs-cloud workflow deliverable submit --repo") {
+	if !strings.Contains(got, "cs-cloud workflow deliverable submit") {
 		t.Fatalf("prompt missing CLI submit instruction:\n%s", got)
 	}
 	if strings.Contains(got, "--mr") {
@@ -910,8 +913,8 @@ func TestAppendCodeRepoPrompt_NoAliasFallsBackToURL(t *testing.T) {
 		{URL: "https://gitlab.example.com/a/r.git"},
 	}
 	got := appendCodeRepoPrompt("", repos)
-	if !strings.Contains(got, "https://gitlab.example.com/a/r.git") {
-		t.Fatalf("prompt missing URL when no alias:\n%s", got)
+	if strings.Contains(got, "https://gitlab.example.com/a/r.git") {
+		t.Fatalf("prompt must not embed repo URL when no alias:\n%s", got)
 	}
 }
 
@@ -920,8 +923,8 @@ func TestAppendCodeRepoPrompt_GitlabAuth(t *testing.T) {
 		{URL: "https://gitlab.example.com/a/backend.git", Provider: "gitlab", Role: "code"},
 	}
 	got := appendCodeRepoPrompt("", repos)
-	if !strings.Contains(got, "oauth2:${CS_CLOUD_GITLAB_TOKEN}@") {
-		t.Fatalf("gitlab prompt missing oauth2 auth hint:\n%s", got)
+	if strings.Contains(got, "oauth2:${CS_CLOUD_GITLAB_TOKEN}@") || strings.Contains(got, "CS_CLOUD_GITLAB_TOKEN") {
+		t.Fatalf("gitlab prompt must not include token hints:\n%s", got)
 	}
 }
 
@@ -930,8 +933,8 @@ func TestAppendCodeRepoPrompt_GithubAuth(t *testing.T) {
 		{URL: "https://github.com/org/repo.git", Provider: "github", Role: "code"},
 	}
 	got := appendCodeRepoPrompt("", repos)
-	if !strings.Contains(got, "x-access-token:${CS_CLOUD_GITHUB_TOKEN}@") {
-		t.Fatalf("github prompt missing x-access-token auth hint:\n%s", got)
+	if strings.Contains(got, "x-access-token:${CS_CLOUD_GITHUB_TOKEN}@") || strings.Contains(got, "CS_CLOUD_GITHUB_TOKEN") {
+		t.Fatalf("github prompt must not include token hints:\n%s", got)
 	}
 }
 
@@ -1400,6 +1403,33 @@ func TestRepositoryDeliverableEnv_RequiresWorkspaceBotToken(t *testing.T) {
 	}
 }
 
+func TestRepositoryDeliverableEnv_IncludesEmptyDeliverableListForWorkflowNode(t *testing.T) {
+	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://gitea.test")
+
+	mdb := newEnsureRepoTestDB()
+	mdb.nodeRunDeliverables = nil
+	mdb.workspace.Settings = []byte(`{` +
+		`"gitea_clone_url":"https://gitea.test/t-ws/wf-docworkflow.git",` +
+		`"last_instance_branch":"inst-run",` +
+		`"gitea_pat":"pat-workspace-bot",` +
+		`"gitea_bot_username":"multica-bot-ws"}`)
+
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{WorkflowNodeRunID: mdb.nodeRun.ID}
+
+	env := svc.repositoryDeliverableEnv(context.Background(), task)
+	if env == nil {
+		t.Fatal("expected env for workflow node even when it has no deliverable rows")
+	}
+	if got := env["CS_CLOUD_REPO_DELIVERABLES"]; got != "[]" {
+		t.Errorf("CS_CLOUD_REPO_DELIVERABLES = %q, want []", got)
+	}
+	if got := env["CS_CLOUD_GITEA_DELIVERABLES"]; got != "[]" {
+		t.Errorf("CS_CLOUD_GITEA_DELIVERABLES = %q, want []", got)
+	}
+}
+
 func TestCsCloudPayloadSerializesReposAndDeliverables(t *testing.T) {
 	payload := csCloudTaskRunPayload{
 		TaskID: "t-1", WorkspaceID: "ws", Agent: "csc", Prompt: "p",
@@ -1801,6 +1831,7 @@ func (m *ensureRepoTestDB) QueryRow(_ context.Context, sql string, args ...inter
 				m.mu.Lock()
 				m.updateCount++
 				m.lastSettings = append([]byte(nil), settings...)
+				m.workspace.Settings = append([]byte(nil), settings...)
 				m.mu.Unlock()
 			}
 		}
@@ -2169,6 +2200,9 @@ func newTeamNamespaceTestServer(t *testing.T) (*httptest.Server, *teamNamespaceR
 }
 
 func TestBuildCSCloudPayload_DocDeliverableSafetyNet_TriggersInitWorkflow(t *testing.T) {
+	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://gitea.test")
+
 	srv, rec := newTeamNamespaceTestServer(t)
 	defer srv.Close()
 
@@ -2232,6 +2266,9 @@ func TestBuildCSCloudPayload_DocDeliverableSafetyNet_TriggersInitWorkflow(t *tes
 }
 
 func TestBuildCSCloudPayload_DocDeliverableSafetyNet_SkipsWhenSettingsHaveGiteaData(t *testing.T) {
+	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://gitea.test")
+
 	srv, rec := newTeamNamespaceTestServer(t)
 	defer srv.Close()
 
@@ -2282,6 +2319,84 @@ func TestBuildCSCloudPayload_DocDeliverableSafetyNet_SkipsWhenSettingsHaveGiteaD
 	}
 }
 
+func TestBuildCSCloudPayload_FailsWhenWorkflowWorkerLacksGiteaEnv(t *testing.T) {
+	mdb := newEnsureRepoTestDB()
+	svc := &TaskService{
+		Queries: db.New(mdb),
+		Bus:     events.New(),
+	}
+
+	task := db.MulticaAgentTaskQueue{
+		ID:                testUUID(11),
+		AgentID:           mdb.agent.ID,
+		IssueID:           mdb.issue.ID,
+		RuntimeID:         mdb.runtime.ID,
+		WorkflowNodeRunID: mdb.nodeRun.ID,
+		Status:            "queued",
+		Context:           []byte(`{"phase":"worker"}`),
+	}
+
+	_, err := svc.buildCSCloudPayload(context.Background(), task, mdb.runtime)
+	if err == nil {
+		t.Fatalf("expected buildCSCloudPayload to fail instead of dispatching a workflow worker without Gitea env")
+	}
+	if !strings.Contains(err.Error(), "missing Gitea deliverable env") {
+		t.Fatalf("error = %v, want missing Gitea deliverable env", err)
+	}
+}
+
+func TestBuildCSCloudPayload_FailsWhenWorkflowCriticLacksGiteaEnv(t *testing.T) {
+	mdb := newEnsureRepoTestDB()
+	svc := &TaskService{
+		Queries: db.New(mdb),
+		Bus:     events.New(),
+	}
+
+	task := db.MulticaAgentTaskQueue{
+		ID:                testUUID(11),
+		AgentID:           mdb.agent.ID,
+		IssueID:           mdb.issue.ID,
+		RuntimeID:         mdb.runtime.ID,
+		WorkflowNodeRunID: mdb.nodeRun.ID,
+		Status:            "queued",
+		Context:           []byte(`{"phase":"critic"}`),
+	}
+
+	_, err := svc.buildCSCloudPayload(context.Background(), task, mdb.runtime)
+	if err == nil {
+		t.Fatalf("expected buildCSCloudPayload to fail instead of dispatching a workflow critic without Gitea env")
+	}
+	if !strings.Contains(err.Error(), "missing Gitea deliverable env") {
+		t.Fatalf("error = %v, want missing Gitea deliverable env", err)
+	}
+}
+
+func TestBuildCSCloudPayload_FailsWhenWorkflowNodeTaskLacksGiteaEnvRegardlessOfPhase(t *testing.T) {
+	mdb := newEnsureRepoTestDB()
+	svc := &TaskService{
+		Queries: db.New(mdb),
+		Bus:     events.New(),
+	}
+
+	task := db.MulticaAgentTaskQueue{
+		ID:                testUUID(11),
+		AgentID:           mdb.agent.ID,
+		IssueID:           mdb.issue.ID,
+		RuntimeID:         mdb.runtime.ID,
+		WorkflowNodeRunID: mdb.nodeRun.ID,
+		Status:            "queued",
+		Context:           []byte(`{"phase":"format_checking"}`),
+	}
+
+	_, err := svc.buildCSCloudPayload(context.Background(), task, mdb.runtime)
+	if err == nil {
+		t.Fatalf("expected buildCSCloudPayload to fail for a workflow node runtime task without Gitea env")
+	}
+	if !strings.Contains(err.Error(), "missing Gitea deliverable env") {
+		t.Fatalf("error = %v, want missing Gitea deliverable env", err)
+	}
+}
+
 // --- buildCSCloudPayload delivery repo + RepoAlias (M2.5 Task 3) tests ---
 //
 // When the workspace settings carry the Gitea provisioning bundle, the payload
@@ -2292,6 +2407,9 @@ func TestBuildCSCloudPayload_DocDeliverableSafetyNet_SkipsWhenSettingsHaveGiteaD
 // to a code repo). See docs/superpowers/cs-cloud-delivery-m2.5-plan.md §Task 3.
 
 func TestBuildCSCloudPayload_DeliveryRepoAndAlias_WhenSettingsHaveGiteaData(t *testing.T) {
+	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://gitea.test")
+
 	srv, _ := newTeamNamespaceTestServer(t)
 	defer srv.Close()
 
@@ -2372,7 +2490,54 @@ func TestBuildCSCloudPayload_DeliveryRepoAndAlias_WhenSettingsHaveGiteaData(t *t
 	}
 }
 
-func TestBuildCSCloudPayload_NoDeliveryRepo_WhenSettingsLackGiteaData(t *testing.T) {
+func TestBuildCSCloudPayload_GitlabCodeRepoIncludesBaseURL(t *testing.T) {
+	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://gitea.test")
+
+	mdb := newEnsureRepoTestDB()
+	wsRepos, _ := json.Marshal([]struct{ URL string }{
+		{URL: "https://gitlab.local/root/demo.git"},
+	})
+	mdb.workspace.Repos = wsRepos
+	mdb.workspace.Settings = []byte(`{` +
+		`"gitlab_access_token":"gitlab-pat",` +
+		`"gitea_clone_url":"https://gitea.test/t-ws/wf-docworkflow.git",` +
+		`"last_instance_branch":"inst-run-abc",` +
+		`"gitea_pat":"pat-bot-xyz",` +
+		`"gitea_bot_username":"multica-bot-ws"}`)
+
+	svc := &TaskService{
+		Queries: db.New(mdb),
+		Bus:     events.New(),
+	}
+
+	task := db.MulticaAgentTaskQueue{
+		ID:                testUUID(11),
+		AgentID:           mdb.agent.ID,
+		IssueID:           mdb.issue.ID,
+		RuntimeID:         mdb.runtime.ID,
+		WorkflowNodeRunID: mdb.nodeRun.ID,
+		Status:            "queued",
+		Context:           []byte(`{"phase":"worker"}`),
+	}
+
+	payload, err := svc.buildCSCloudPayload(context.Background(), task, mdb.runtime)
+	if err != nil {
+		t.Fatalf("buildCSCloudPayload: %v", err)
+	}
+
+	if got := payload.Env["CS_CLOUD_GITLAB_TOKEN"]; got != "gitlab-pat" {
+		t.Fatalf("CS_CLOUD_GITLAB_TOKEN = %q, want gitlab-pat", got)
+	}
+	if got := payload.Env["CS_CLOUD_GITLAB_BASE_URL"]; got != "https://gitlab.local" {
+		t.Fatalf("CS_CLOUD_GITLAB_BASE_URL = %q, want https://gitlab.local", got)
+	}
+}
+
+func TestBuildCSCloudPayload_AddsDeliveryRepoAfterSafetyNet(t *testing.T) {
+	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://gitea.test")
+
 	srv, _ := newTeamNamespaceTestServer(t)
 	defer srv.Close()
 
@@ -2413,18 +2578,27 @@ func TestBuildCSCloudPayload_NoDeliveryRepo_WhenSettingsLackGiteaData(t *testing
 		t.Fatalf("buildCSCloudPayload: %v", err)
 	}
 
+	found := false
 	for _, r := range payload.Repos {
 		if r.Role == "delivery" {
-			t.Errorf("did not expect a delivery repo when settings lack Gitea data; got %+v", r)
+			found = true
+			if r.BotToken == "" {
+				t.Errorf("delivery repo missing bot token: %+v", r)
+			}
 		}
+	}
+	if !found {
+		t.Fatalf("expected delivery repo after safety net populated workspace settings; got %+v", payload.Repos)
 	}
 }
 
-// TestBuildCSCloudPayload_NonWorkerPhaseHasNoDeliverables is a regression guard
-// for the Task-3 restructure (hoisting deliverables assembly out of the worker
-// block). Non-worker (critic) phases MUST keep Deliverables empty — critic tasks
-// don't submit, they review. Also no delivery repo should be emitted for them.
-func TestBuildCSCloudPayload_NonWorkerPhaseHasNoDeliverables(t *testing.T) {
+// TestBuildCSCloudPayload_NonWorkerPhaseHasRepoContextButNoDeliverables is a regression guard
+// for runtime node tasks: critic/checking phases do not submit deliverables, but
+// they still need the same code and delivery repository context in cs-cloud.
+func TestBuildCSCloudPayload_NonWorkerPhaseHasRepoContextButNoDeliverables(t *testing.T) {
+	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://gitea.test")
+
 	srv, _ := newTeamNamespaceTestServer(t)
 	defer srv.Close()
 
@@ -2435,7 +2609,12 @@ func TestBuildCSCloudPayload_NonWorkerPhaseHasNoDeliverables(t *testing.T) {
 	})
 
 	mdb := newEnsureRepoTestDB()
+	wsRepos, _ := json.Marshal([]struct{ URL string }{
+		{URL: "https://gitlab.local/root/demo.git"},
+	})
+	mdb.workspace.Repos = wsRepos
 	mdb.workspace.Settings = []byte(`{` +
+		`"gitlab_access_token":"gitlab-pat",` +
 		`"gitea_clone_url":"https://gitea.test/t-ws/wf-x.git",` +
 		`"last_instance_branch":"inst-x",` +
 		`"gitea_pat":"pat-x",` +
@@ -2464,10 +2643,39 @@ func TestBuildCSCloudPayload_NonWorkerPhaseHasNoDeliverables(t *testing.T) {
 	if len(payload.Deliverables) != 0 {
 		t.Errorf("critic phase must not emit deliverables; got %+v", payload.Deliverables)
 	}
-	for _, r := range payload.Repos {
-		if r.Role == "delivery" {
-			t.Errorf("critic phase must not emit a delivery repo; got %+v", r)
+	for _, key := range []string{
+		"CS_CLOUD_GITEA_OWNER",
+		"CS_CLOUD_GITEA_TOKEN",
+		"CS_CLOUD_GITEA_DELIVERABLES",
+	} {
+		if payload.Env[key] == "" {
+			t.Errorf("critic phase missing %s in env: %+v", key, payload.Env)
 		}
+	}
+	if got := payload.Env["CS_CLOUD_GITLAB_TOKEN"]; got != "gitlab-pat" {
+		t.Fatalf("CS_CLOUD_GITLAB_TOKEN = %q, want gitlab-pat", got)
+	}
+	if got := payload.Env["CS_CLOUD_GITLAB_BASE_URL"]; got != "https://gitlab.local" {
+		t.Fatalf("CS_CLOUD_GITLAB_BASE_URL = %q, want https://gitlab.local", got)
+	}
+	if got := payload.Env["CS_CLOUD_CODE_PROVIDER"]; got != "gitlab" {
+		t.Fatalf("CS_CLOUD_CODE_PROVIDER = %q, want gitlab", got)
+	}
+	foundCode := false
+	foundDelivery := false
+	for _, r := range payload.Repos {
+		if r.Role == "code" && r.Provider == "gitlab" && r.URL == "https://gitlab.local/root/demo.git" {
+			foundCode = true
+		}
+		if r.Role == "delivery" {
+			foundDelivery = true
+		}
+	}
+	if !foundCode {
+		t.Fatalf("critic phase missing code repo context: %+v", payload.Repos)
+	}
+	if !foundDelivery {
+		t.Fatalf("critic phase missing delivery repo context: %+v", payload.Repos)
 	}
 }
 

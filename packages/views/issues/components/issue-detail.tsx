@@ -84,6 +84,8 @@ import { BatchActionToolbar } from "./batch-action-toolbar";
 import { useIssueTimeline } from "../hooks/use-issue-timeline";
 import { useIssueReactions } from "../hooks/use-issue-reactions";
 import { useIssueSubscribers } from "../hooks/use-issue-subscribers";
+import { useIssueStatusChange } from "../hooks/use-issue-status-change";
+import type { BoardMoveUpdates } from "../hooks/use-board-move-issue";
 import { ReactionBar } from "@multica/ui/components/common/reaction-bar";
 import { useFileUpload } from "@multica/core/hooks/use-file-upload";
 import { api } from "@multica/core/api";
@@ -1264,6 +1266,15 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // Called before the `if (!issue)` early return so hook order stays stable.
   const actions = useIssueActions(issue);
   const handleUpdateField = actions.updateField;
+  // Status changes go through the same three rules as the board (runtime
+  // dialog on in_progress, backlog guard, clear-assignee on backlog) so the
+  // detail StatusPicker matches dragging a card.
+  const { requestChange: requestStatusChange, runtimeDialogs: statusRuntimeDialogs } = useIssueStatusChange({
+    wsId,
+    issue,
+    commit: (updates) => actions.updateField(updates),
+    assignFirstMessage: t(($) => $.page.assign_first),
+  });
 
   // Labels live in their own query (not on the issue body) — fetch the count
   // here so seeding can decide whether the "Labels" optional row should be
@@ -1415,7 +1426,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
         {propertiesOpen && <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 pl-2" data-testid="issue-detail-properties">
           {/* Core props — always rendered. */}
           <PropRow label={t(($) => $.detail.prop_status)}>
-            <StatusPicker status={issue.status} onUpdate={handleUpdateField} align="start" />
+            <StatusPicker status={issue.status} onUpdate={(updates) => requestStatusChange(updates as BoardMoveUpdates)} align="start" />
           </PropRow>
           <PropRow label={t(($) => $.detail.prop_responsible)}>
             <AssigneePicker
@@ -2272,6 +2283,8 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   }
 
   return (
+    <>
+    {statusRuntimeDialogs}
     <ResizablePanelGroup orientation="horizontal" className="flex-1 min-h-0" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged}>
       <ResizablePanel id="content" minSize="50%">
         {detailContent}
@@ -2294,5 +2307,6 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
       </div>
       </ResizablePanel>
     </ResizablePanelGroup>
+    </>
   );
 }

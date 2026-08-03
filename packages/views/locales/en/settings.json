@@ -57,33 +57,33 @@
     "description": "Control which events generate inbox notifications. Muted event types are silently filtered — you can still see them by visiting the issue directly.",
     "toast_failed": "Failed to update notification settings",
     "groups": {
-      "assignments": {
-        "label": "Assignments",
-        "description": "When you become the responsible owner or assignee of an issue"
+      "responsible_changes": {
+        "label": "Responsible",
+        "description": "When you become the responsible owner of an issue or are removed"
       },
-      "workflow_roles": {
-        "label": "Workflow roles",
-        "description": "When you are assigned as a workflow node executor or reviewer"
+      "assignments": {
+        "label": "Assignee",
+        "description": "When you become the assignee of an issue or are removed"
+      },
+      "workflow_executor": {
+        "label": "Executor",
+        "description": "When you're assigned or removed as a workflow node executor"
+      },
+      "workflow_reviewer": {
+        "label": "Reviewer",
+        "description": "When you're assigned or removed as a workflow node reviewer"
       },
       "status_changes": {
-        "label": "Status changes",
-        "description": "When an issue you own, handle, or follow changes status"
+        "label": "Task status changes",
+        "description": "When an issue you subscribe to, own, or handle changes status"
       },
       "workflow_node_status": {
-        "label": "Workflow node status",
+        "label": "Workflow node status changes",
         "description": "When a workflow node where you are executor or reviewer changes status"
       },
       "comments": {
         "label": "Comments & Mentions",
         "description": "New comments on issues you follow, or when someone @mentions you"
-      },
-      "updates": {
-        "label": "Priority & Due date",
-        "description": "When priority or due date changes on issues you follow"
-      },
-      "agent_activity": {
-        "label": "Digital Human activity",
-        "description": "When a digital human task completes or fails"
       }
     },
     "system": {

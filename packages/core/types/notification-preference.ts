@@ -1,11 +1,11 @@
 export type NotificationGroupKey =
+  | "responsible_changes"
   | "assignments"
-  | "workflow_roles"
+  | "workflow_executor"
+  | "workflow_reviewer"
   | "status_changes"
   | "workflow_node_status"
   | "comments"
-  | "updates"
-  | "agent_activity"
   | "system_notifications";
 
 export type NotificationGroupValue = "all" | "muted";

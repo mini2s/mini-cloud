@@ -206,6 +206,49 @@ func TestSubscriberIssueCreated_ResponsibleSubscribed(t *testing.T) {
 	}
 }
 
+// TestSubscriberIssueCreated_SelfResponsible verifies the responsible-user
+// subscription path when the creator is also the responsible user. The listener
+// has no self-skip, so the creator lands as a "responsible" subscriber — this
+// guards that boundary against a future self-skip optimization that would
+// silently drop the only subscriber on self-created issues.
+func TestSubscriberIssueCreated_SelfResponsible(t *testing.T) {
+	queries := db.New(testPool)
+	bus := events.New()
+	registerSubscriberListeners(bus, queries)
+
+	issueID := createTestIssue(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() { cleanupTestIssue(t, issueID) })
+
+	// Creator is also the responsible user.
+	responsibleID := testUserID
+	bus.Publish(events.Event{
+		Type:        protocol.EventIssueCreated,
+		WorkspaceID: testWorkspaceID,
+		ActorType:   "member",
+		ActorID:     testUserID,
+		Payload: map[string]any{
+			"issue": handler.IssueResponse{
+				ID:                issueID,
+				WorkspaceID:       testWorkspaceID,
+				Title:             "test issue",
+				Status:            "todo",
+				Priority:          "medium",
+				CreatorType:       "member",
+				CreatorID:         testUserID,
+				ResponsibleUserID: &responsibleID,
+			},
+		},
+	})
+
+	// Should have the responsible subscriber record.
+	if count := subscriberCount(t, queries, issueID); count != 1 {
+		t.Fatalf("expected 1 subscriber for self-responsible, got %d", count)
+	}
+	if !isSubscribed(t, queries, issueID, "member", testUserID) {
+		t.Fatal("expected responsible user to be subscribed")
+	}
+}
+
 func TestSubscriberIssueCreated_SelfAssign(t *testing.T) {
 	queries := db.New(testPool)
 	bus := events.New()
