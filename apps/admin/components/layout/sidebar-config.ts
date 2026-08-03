@@ -15,7 +15,7 @@ import {
   Workflow,
   Users,
   Send,
-  BookOpen,
+  // BookOpen,
   Wrench,
   // Brain,
   Gauge,
@@ -99,7 +99,7 @@ export const NAV_GROUPS: NavGroup[] = [
     labelZh: "知识中心",
     labelEn: "Repository",
     items: [
-      { href: "/wiki", labelZh: "知识", labelEn: "Wiki", icon: BookOpen },
+      // { href: "/wiki", labelZh: "知识", labelEn: "Wiki", icon: BookOpen },
       { href: "/skills", labelZh: "技能", labelEn: "Skills", icon: Wrench },
       // { href: "/memory", labelZh: "记忆", labelEn: "Memory", icon: Brain },
     ],

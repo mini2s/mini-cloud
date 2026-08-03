@@ -40,7 +40,7 @@ import {
   LayoutDashboard,
   MessagesSquare,
   // ClipboardCheck,
-  FileText,
+  // FileText,
   // Brain,
   Gauge,
   Coins,
@@ -221,7 +221,7 @@ const collaborationNav: NavItem[] = [
 ];
 
 const repositoryNav: NavItem[] = [
-  { key: "wiki", labelKey: "wiki", icon: FileText },
+  // { key: "wiki", labelKey: "wiki", icon: FileText },
   { key: "skills", labelKey: "skills", icon: BookOpenText },
   // { key: "memory", labelKey: "memory", icon: Brain },
   // Single Hub entry — hub type filtering lives inside the Hub page tabs;
