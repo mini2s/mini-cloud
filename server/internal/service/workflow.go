@@ -2466,13 +2466,3 @@ func (s *WorkflowService) DeleteWorkflowDefinition(ctx context.Context, workflow
 		return nil
 	})
 }
-
-// CanManageWorkflows checks whether the given user has the
-// can_manage_workflows permission bit set (global, not workspace-scoped).
-func (s *WorkflowService) CanManageWorkflows(ctx context.Context, userID pgtype.UUID) (bool, error) {
-	user, err := s.Queries.GetUser(ctx, userID)
-	if err != nil {
-		return false, fmt.Errorf("get user: %w", err)
-	}
-	return user.CanManageWorkflows, nil
-}

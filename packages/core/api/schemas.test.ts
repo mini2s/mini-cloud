@@ -839,3 +839,34 @@ describe("workflow role response schemas", () => {
     expect(workflow.default_runtime_id).toBeNull();
   });
 });
+
+describe("UserSchema workflow-admin fields", () => {
+  const baseUser = {
+    id: "u1",
+    name: "A",
+    email: "a@x.ai",
+    created_at: "",
+    updated_at: "",
+  };
+
+  it("defaults workflow-admin fields when the backend omits them (old server)", () => {
+    const parsed = UserSchema.parse(baseUser);
+    expect(parsed.can_manage_workflows).toBe(false);
+    expect(parsed.workflow_admin_source).toBe("local");
+  });
+
+  it("passes through platform source and granted permission", () => {
+    const parsed = UserSchema.parse({
+      ...baseUser,
+      can_manage_workflows: true,
+      workflow_admin_source: "platform",
+    });
+    expect(parsed.can_manage_workflows).toBe(true);
+    expect(parsed.workflow_admin_source).toBe("platform");
+  });
+
+  it("fails closed on a wrong-typed can_manage_workflows", () => {
+    const result = UserSchema.safeParse({ ...baseUser, can_manage_workflows: "yes" });
+    expect(result.success).toBe(false);
+  });
+});

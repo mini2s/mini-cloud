@@ -122,7 +122,7 @@ func (h *Handler) CompleteOnboarding(w http.ResponseWriter, r *http.Request) {
 		))
 	}
 
-	writeJSON(w, http.StatusOK, userToResponse(user))
+	writeJSON(w, http.StatusOK, h.userResponseWithAdmin(r.Context(), user))
 }
 
 type patchOnboardingRequest struct {
@@ -260,7 +260,7 @@ func (h *Handler) PatchOnboarding(w http.ResponseWriter, r *http.Request) {
 		))
 	}
 
-	writeJSON(w, http.StatusOK, userToResponse(user))
+	writeJSON(w, http.StatusOK, h.userResponseWithAdmin(r.Context(), user))
 }
 
 type joinCloudWaitlistRequest struct {
@@ -322,5 +322,5 @@ func (h *Handler) JoinCloudWaitlist(w http.ResponseWriter, r *http.Request) {
 
 	h.Analytics.Capture(analytics.CloudWaitlistJoined(userID, reason != ""))
 
-	writeJSON(w, http.StatusOK, userToResponse(user))
+	writeJSON(w, http.StatusOK, h.userResponseWithAdmin(r.Context(), user))
 }

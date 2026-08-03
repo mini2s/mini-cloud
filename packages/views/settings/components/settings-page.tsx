@@ -33,7 +33,6 @@ import { GitlabTab } from "./gitlab-tab";
 // import { LabsTab } from "./labs-tab";
 import { NotificationsTab } from "./notifications-tab";
 import { WorkflowAdminsTab } from "./workflow-admins-tab";
-import { useWorkflowAdmins } from "@multica/core/workflows/queries";
 import { useAuthStore } from "@multica/core/auth";
 import { useT } from "../../i18n";
 
@@ -103,8 +102,11 @@ export function SettingsPage({ extraAccountTabs }: SettingsPageProps = {}) {
   const workspaceName = workspace?.name;
   const navigation = useNavigation();
   const user = useAuthStore((s) => s.user);
-  const { data: admins = [] } = useWorkflowAdmins();
-  const isWorkflowAdmin = user ? admins.some((a) => a.id === user.id) : false;
+  // The admins-management tab only exists in standalone deployments; in
+  // costrict-integrated deployments admin membership lives in costrict's
+  // console, so the tab is hidden even for platform admins.
+  const isWorkflowAdmin =
+    user?.can_manage_workflows === true && user?.workflow_admin_source === "local";
 
   // Keep existing GitHub PR integrations reachable for workspaces that already
   // use GitHub, while the Repositories tab no longer exposes platform switching.

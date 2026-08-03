@@ -112,6 +112,6 @@ describe("PluginPickerList", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Figma/i }));
 
-    expect(onSelect).toHaveBeenCalledWith("figma");
+    expect(onSelect).toHaveBeenCalledWith("figma", "figma");
   });
 });
