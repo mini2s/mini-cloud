@@ -10,7 +10,7 @@ export function BuiltinReadOnlyBanner() {
     >
       <Info className="h-3.5 w-3.5 shrink-0 text-amber-500" />
       <span className="text-amber-700 dark:text-amber-400">
-        内置 Agent — 仅管理员可编辑
+        内置数智人 — 仅管理员可编辑
       </span>
     </div>
   );

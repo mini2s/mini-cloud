@@ -1,6 +1,6 @@
 {
   "title": "用量",
-  "subtitle": "查看当前 Workspace 的 token 消耗和智能体运行情况。",
+  "subtitle": "查看当前 Workspace 的 token 消耗和数智人运行情况。",
   "filter": {
     "project_label": "项目",
     "all_projects": "全部项目",
@@ -40,17 +40,17 @@
   },
   "leaderboard": {
     "title": "排行榜",
-    "caption": "{{count}} 个智能体",
-    "header_agent": "智能体",
+    "caption": "{{count}} 个数智人",
+    "header_agent": "数智人",
     "header_tokens": "Token",
     "header_cost": "费用",
     "header_time": "运行时长",
     "header_tasks": "任务数",
-    "no_data": "所选时间范围内暂无智能体活动。"
+    "no_data": "所选时间范围内暂无数智人活动。"
   },
   "empty": {
     "title": "暂无消耗数据",
-    "body": "当智能体在这里开始执行任务后，它们的 token 消耗和运行时长将出现在此处。"
+    "body": "当数智人在这里开始执行任务后，它们的 token 消耗和运行时长将出现在此处。"
   },
   "duration": {
     "less_than_minute": "<1分钟"

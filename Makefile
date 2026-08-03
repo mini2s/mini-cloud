@@ -17,6 +17,10 @@ FRONTEND_PORT ?= 3000
 FRONTEND_ORIGIN ?= http://localhost:$(FRONTEND_PORT)
 MULTICA_APP_URL ?= $(FRONTEND_ORIGIN)
 DATABASE_URL ?= postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localhost:$(POSTGRES_PORT)/$(POSTGRES_DB)?sslmode=disable
+# `make test` runs against an isolated test DB (TEST_DB), not the dev DB above,
+# so test fixtures never pollute the database you develop and demo against.
+TEST_DB ?= $(POSTGRES_DB)_test
+TEST_DATABASE_URL ?= postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localhost:$(POSTGRES_PORT)/$(TEST_DB)?sslmode=disable
 NEXT_PUBLIC_API_URL ?= http://localhost:$(PORT)
 NEXT_PUBLIC_WS_URL ?= ws://localhost:$(PORT)/ws
 GOOGLE_REDIRECT_URI ?= $(FRONTEND_ORIGIN)/auth/callback
@@ -87,14 +91,14 @@ selfhost: ## Create .env if needed, then pull and start the official self-hosted
 		echo "  Frontend: http://localhost:$${FRONTEND_PORT:-3000}"; \
 		echo "  Backend:  http://localhost:$${PORT:-8081}"; \
 		echo ""; \
-		echo "Images: $${MULTICA_BACKEND_IMAGE:-ghcr.io/multica-ai/multica-backend}:$${MULTICA_IMAGE_TAG:-latest}"; \
-		echo "        $${MULTICA_WEB_IMAGE:-ghcr.io/multica-ai/multica-web}:$${MULTICA_IMAGE_TAG:-latest}"; \
+		echo "Images: $${MULTICA_BACKEND_IMAGE:-ghcr.io/askhz/multica-backend}:$${MULTICA_IMAGE_TAG:-latest}"; \
+		echo "        $${MULTICA_WEB_IMAGE:-ghcr.io/askhz/multica-web}:$${MULTICA_IMAGE_TAG:-latest}"; \
 		echo ""; \
 		echo "Log in: configure RESEND_API_KEY in .env for email codes,"; \
 		echo "        or read the generated code from backend logs when Resend is unset."; \
 		echo ""; \
 		echo "Next — install the CLI and connect your machine:"; \
-		echo "  brew install multica-ai/tap/multica"; \
+		echo "  curl -fsSL https://raw.githubusercontent.com/Askhz/multica/main/scripts/install.sh | bash"; \
 		echo "  cs-workflow setup self-host"; \
 	else \
 		echo ""; \
@@ -136,7 +140,7 @@ selfhost-build: ## Build backend/web from the current checkout and start the sel
 		echo "Local tags: multica-backend:dev and multica-web:dev."; \
 		echo ""; \
 		echo "Next — install the CLI and connect your machine:"; \
-		echo "  brew install multica-ai/tap/multica"; \
+		echo "  curl -fsSL https://raw.githubusercontent.com/Askhz/multica/main/scripts/install.sh | bash"; \
 		echo "  cs-workflow setup self-host"; \
 	else \
 		echo ""; \
@@ -295,11 +299,16 @@ build: ## Build the server, CLI, and migrate binaries into server/bin
 	cd server && go build -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)" -o bin/cs-workflow ./cmd/cs-workflow
 	cd server && go build -o bin/migrate ./cmd/migrate
 
-test: ## Run Go tests after ensuring the target DB exists and migrations are applied
+test: ## Run Go tests against an isolated test DB ($(TEST_DB)), never the dev DB
 	$(REQUIRE_ENV)
 	@bash scripts/ensure-postgres.sh "$(ENV_FILE)"
-	cd server && go run ./cmd/migrate up
-	cd server && go test ./...
+	@echo "==> Ensuring isolated test database '$(TEST_DB)'..."
+	@$(COMPOSE) exec -T postgres psql -U $(POSTGRES_USER) -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='$(TEST_DB)'" | grep -q 1 || \
+		$(COMPOSE) exec -T postgres psql -U $(POSTGRES_USER) -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$(TEST_DB)\";"
+	@echo "==> Migrating test database '$(TEST_DB)'..."
+	cd server && DATABASE_URL="$(TEST_DATABASE_URL)" go run ./cmd/migrate up
+	@echo "==> Running Go tests against '$(TEST_DB)' (dev DB '$(POSTGRES_DB)' is not touched)..."
+	cd server && DATABASE_URL="$(TEST_DATABASE_URL)" go test ./...
 
 # Database
 ##@ Database

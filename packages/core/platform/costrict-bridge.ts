@@ -37,6 +37,8 @@ export interface CostrictNavigateSessionMessage {
   type: "multica:navigate";
   target: "session";
   sessionId: string;
+  /** Ask the parent to open the resolved CoStrict session in a browser tab. */
+  newTab?: boolean;
   /**
    * Working directory the session ran in, when known. Best-effort only — the
    * parent opens the session by id and uses workDir merely as a hint to pick
@@ -54,6 +56,7 @@ export interface CostrictNavigateSessionMessage {
 export function postCostrictNavigateToSession(args: {
   sessionId: string;
   workDir?: string;
+  newTab?: boolean;
 }): boolean {
   if (typeof window === "undefined") return false;
   if (!args.sessionId) return false;
@@ -63,6 +66,7 @@ export function postCostrictNavigateToSession(args: {
     target: "session",
     sessionId: args.sessionId,
     ...(args.workDir ? { workDir: args.workDir } : {}),
+    ...(args.newTab === true ? { newTab: true } : {}),
   };
   // Target origin "*" mirrors the existing parent contract; the parent
   // validates event.origin on its side.

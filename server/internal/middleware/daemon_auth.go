@@ -70,7 +70,7 @@ func WithDaemonContext(ctx context.Context, workspaceID, daemonID string) contex
 //     and a daemon converges on one DB round-trip per AuthCacheTTL window.
 //
 // Cache misses fall back to the original DB-backed behavior.
-func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.DaemonTokenCache, jwks *auth.JWKSProvider, resolver SubjectResolver) func(http.Handler) http.Handler {
+func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.DaemonTokenCache, resolver SubjectResolver, cloudTrans CloudSubjectTranslator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
@@ -189,27 +189,39 @@ func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.
 				}
 			}
 
-			// Fallback: Casdoor RS256 JWT.
-			if jwks != nil && resolver != nil {
-				userInfo, err := auth.ParseCasdoorJWT(tokenString, jwks)
+			// Fallback: Casdoor JWT (signature trusted to the gateway).
+			if resolver != nil {
+				userInfo, err := auth.ParseCasdoorJWT(tokenString)
 				if err != nil {
 					slog.Warn("daemon_auth: Casdoor JWT parse failed", "path", r.URL.Path, "error", err)
 				} else {
-					multicaUserID, err := resolver(r.Context(), userInfo.SubjectID, userInfo.UniversalID, userInfo.Name, userInfo.Email)
+					// Translate the Casdoor token to the cloud-api stable subject id
+					// (keyed by Multica users) before resolving. See CasdoorAuth.
+					subjectID := userInfo.SubjectID
+					if cloudTrans != nil {
+						if sid, terr := cloudTrans.ResolveSubjectID(r.Context(), userInfo.UniversalID, tokenString); terr != nil {
+							// Warn, not Debug: see CasdoorAuth — the raw-sub
+							// fallback splits one person into multiple accounts.
+							slog.Warn("daemon_auth: cloud subject translation failed, using JWT sub", "path", r.URL.Path, "error", terr)
+						} else if sid != "" {
+							subjectID = sid
+						}
+					}
+					multicaUserID, err := resolver(r.Context(), subjectID, userInfo.UniversalID, userInfo.Name, userInfo.Email)
 					if err != nil {
-						slog.Warn("daemon_auth: Casdoor subject resolution failed", "path", r.URL.Path, "subject", userInfo.SubjectID, "error", err)
+						slog.Warn("daemon_auth: Casdoor subject resolution failed", "path", r.URL.Path, "subject", subjectID, "error", err)
 					} else if multicaUserID == "" {
-						slog.Warn("daemon_auth: Casdoor resolver returned empty user_id", "path", r.URL.Path, "subject", userInfo.SubjectID)
+						slog.Warn("daemon_auth: Casdoor resolver returned empty user_id", "path", r.URL.Path, "subject", subjectID)
 					} else {
 						r.Header.Set("X-User-ID", multicaUserID)
-						r.Header.Set("X-Subject-ID", userInfo.SubjectID)
+						r.Header.Set("X-Subject-ID", subjectID)
 						ctx := context.WithValue(r.Context(), ctxKeyDaemonAuthPath, DaemonAuthPathCasdoor)
 						next.ServeHTTP(w, r.WithContext(ctx))
 						return
 					}
 				}
 			} else {
-				slog.Debug("daemon_auth: Casdoor fallback skipped (jwks or resolver nil)", "path", r.URL.Path, "jwks_nil", jwks == nil, "resolver_nil", resolver == nil)
+				slog.Debug("daemon_auth: Casdoor fallback skipped (resolver nil)", "path", r.URL.Path)
 			}
 
 			slog.Warn("daemon_auth: invalid token", "path", r.URL.Path)

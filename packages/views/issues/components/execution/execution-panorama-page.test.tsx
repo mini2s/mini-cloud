@@ -6,6 +6,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { ExecutionPanoramaPage, decorateRuntimeEdges } from "./execution-panorama-page";
+import { RUNTIME_NODE_HEIGHT, RUNTIME_SPLIT_NODE_HEIGHT } from "./runtime-node-card";
+import { WORKER_WIDTH } from "../../../workflows/components/overview/constants";
 import type { Edge, Viewport } from "@xyflow/react";
 
 // ---------------------------------------------------------------------------
@@ -22,10 +24,19 @@ const mocks = vi.hoisted(() => ({
   membersData: undefined as unknown as unknown[],
   squadsData: undefined as unknown as unknown[],
   workflowOptionsData: undefined as unknown,
+  childIssuesData: [] as unknown[],
   splitTasksByNodeRunId: {} as Record<string, unknown>,
+  deliverableDefinitionsByNodeId: {} as Record<string, unknown>,
+  deliverableSubmissionsByNodeRunId: {} as Record<string, unknown>,
   pluginsData: undefined as unknown,
   workflowRolesData: [] as unknown[],
   roleResolutionsData: [] as unknown[],
+  chatSessionsData: [] as unknown[],
+  embedded: false,
+  postCostrictNavigateToSession: vi.fn(),
+  setChatSession: vi.fn(),
+  setChatOpen: vi.fn(),
+  setChatFabHidden: vi.fn(),
   hasOpenInNewTab: true,
   isLoading: true,
   navigationPush: vi.fn(),
@@ -38,6 +49,10 @@ const mocks = vi.hoisted(() => ({
   nodesInitialized: true,
   viewportInitialized: true,
   retryNodeRun: vi.fn(),
+  useWorkspacePresenceMap: vi.fn(() => ({
+    byAgent: new Map<string, { availability: "online" | "offline" | "unstable" }>(),
+    loading: false,
+  })),
   reactFlowProps: null as null | {
     nodes: Array<{
       id: string;
@@ -57,6 +72,16 @@ const mocks = vi.hoisted(() => ({
     onNodeDoubleClick?: (event: unknown, node: { id: string; data?: Record<string, unknown> }) => void;
     onMove?: (event: unknown, viewport: Viewport) => void;
   },
+  queryOptions: [] as Array<{ queryKey?: unknown[]; enabled?: boolean }>,
+  currentUserId: "user-1" as string | null,
+  executionDetailProps: null as null | Record<string, unknown>,
+}));
+
+vi.mock("@multica/core/auth", () => ({
+  useAuthStore: (selector: (state: { user: { id: string } | null }) => unknown) =>
+    selector({
+      user: mocks.currentUserId ? { id: mocks.currentUserId } : null,
+    }),
 }));
 
 // ---------------------------------------------------------------------------
@@ -67,6 +92,7 @@ vi.mock("@tanstack/react-query", async () => {
   return {
     ...(actual as object),
     useQuery: (opts: { queryKey?: unknown[]; enabled?: boolean }) => {
+      mocks.queryOptions.push(opts);
       const key = opts.queryKey ?? [];
       const enabled = opts.enabled !== false;
       if (!enabled) return { data: undefined, isLoading: false };
@@ -78,8 +104,24 @@ vi.mock("@tanstack/react-query", async () => {
           return { data: mocks.nodesData, isLoading: mocks.isLoading };
         if (key.includes("edges"))
           return { data: mocks.edgesData, isLoading: mocks.isLoading };
-        if (key.includes("canvas-summary"))
-          return { data: mocks.canvasSummaryData, isLoading: false };
+        if (key.includes("canvas-summary")) {
+          const source = mocks.canvasSummaryData && typeof mocks.canvasSummaryData === "object"
+            ? mocks.canvasSummaryData as Record<string, unknown>
+            : {
+                node_runs: mocks.nodeRunsData,
+                node_runtime_summaries: [],
+              };
+          const data = {
+                run: {
+                  id: "run-1",
+                  workflow_id: "wf-1",
+                  definition_schema_version: 0,
+                  definition_snapshot: null,
+                },
+                ...source,
+              };
+          return { data, isLoading: false };
+        }
         if (key.includes("node-runs"))
           return { data: mocks.nodeRunsData, isLoading: false };
         if (key.includes("agents"))
@@ -94,16 +136,37 @@ vi.mock("@tanstack/react-query", async () => {
           return { data: mocks.roleResolutionsData, isLoading: false };
         if (key.includes("roles"))
           return { data: mocks.workflowRolesData, isLoading: false };
+        if (key[0] === "chat" && key.includes("sessions"))
+          return { data: mocks.chatSessionsData, isLoading: false };
         if (key.includes("split-issue-workflow-options"))
           return { data: mocks.workflowOptionsData, isLoading: false };
+        if (key.includes("children"))
+          return { data: mocks.childIssuesData, isLoading: false };
         return { data: mocks.workflowData, isLoading: mocks.isLoading };
       }
       return { data: undefined, isLoading: true };
     },
     useQueries: ({ queries }: { queries: Array<{ queryKey?: unknown[]; enabled?: boolean }> }) =>
       queries.map((opts) => {
+        mocks.queryOptions.push(opts);
         const key = opts.queryKey ?? [];
         const enabled = opts.enabled !== false;
+        if (key.includes("node-deliverable-definitions")) {
+          const markerIndex = key.indexOf("node-deliverable-definitions");
+          const nodeId = String(key[markerIndex + 1] ?? "");
+          return {
+            data: enabled ? mocks.deliverableDefinitionsByNodeId[nodeId] : undefined,
+            isLoading: false,
+          };
+        }
+        if (key.includes("node-deliverable-submissions")) {
+          const markerIndex = key.indexOf("node-deliverable-submissions");
+          const nodeRunId = String(key[markerIndex + 1] ?? "");
+          return {
+            data: enabled ? mocks.deliverableSubmissionsByNodeRunId[nodeRunId] : undefined,
+            isLoading: false,
+          };
+        }
         const nodeRunsIndex = Array.isArray(key) ? key.indexOf("node-runs") : -1;
         const nodeRunId = nodeRunsIndex >= 0 ? String(key[nodeRunsIndex + 1] ?? "") : "";
         return {
@@ -123,7 +186,8 @@ vi.mock("@tanstack/react-query", async () => {
 // ---------------------------------------------------------------------------
 // Mock query-option modules (return keys so useQuery mock can route)
 // ---------------------------------------------------------------------------
-vi.mock("@multica/core/workflows/queries", () => ({
+vi.mock("@multica/core/workflows/queries", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@multica/core/workflows/queries")>()),
   workflowDetailOptions: (wsId: string, id: string) => ({
     queryKey: ["workflows", wsId, "detail", id],
   }),
@@ -151,6 +215,12 @@ vi.mock("@multica/core/workflows/queries", () => ({
     runId: string,
   ) => ({
     queryKey: ["workflows", wsId, workflowId, runId, "role-resolutions"],
+  }),
+  workflowNodeDeliverablesOptions: (_wsId: string, _workflowId: string, nodeId: string) => ({
+    queryKey: ["workflows", "node-deliverable-definitions", nodeId],
+  }),
+  nodeRunDeliverableSubmissionsOptions: (_wsId: string, nodeRunId: string) => ({
+    queryKey: ["workflows", "node-deliverable-submissions", nodeRunId],
   }),
   splitTasksOptions: (wsId: string, nodeRunId: string | null | undefined) => ({
     queryKey: ["workflows", wsId, "node-runs", nodeRunId ?? "", "split-tasks"],
@@ -198,15 +268,52 @@ vi.mock("@multica/core/workspace/queries", () => ({
   }),
 }));
 
+vi.mock("@multica/core/issues/queries", () => ({
+  childIssuesOptions: (wsId: string, issueId: string) => ({
+    queryKey: ["issues", wsId, issueId, "children"],
+    enabled: !!issueId,
+  }),
+}));
+
 vi.mock("@multica/core/api", () => ({
   api: {
     retryNodeRun: mocks.retryNodeRun,
   },
 }));
 
+vi.mock("@multica/core/chat/queries", () => ({
+  chatSessionsOptions: (wsId: string) => ({
+    queryKey: ["chat", wsId, "sessions"],
+  }),
+}));
+
+vi.mock("@multica/core/chat", () => ({
+  useChatStore: (selector: (state: {
+    setActiveSession: typeof mocks.setChatSession;
+    setOpen: typeof mocks.setChatOpen;
+    setFabHidden: typeof mocks.setChatFabHidden;
+  }) => unknown) => selector({
+    setActiveSession: mocks.setChatSession,
+    setOpen: mocks.setChatOpen,
+    setFabHidden: mocks.setChatFabHidden,
+  }),
+}));
+
+vi.mock("@multica/core/platform", () => ({
+  isEmbeddedInCostrict: () => mocks.embedded,
+  postCostrictNavigateToSession: (args: unknown) =>
+    mocks.postCostrictNavigateToSession(args),
+}));
+
+vi.mock("@multica/core/agents", () => ({
+  useWorkspacePresenceMap: mocks.useWorkspacePresenceMap,
+}));
+
 vi.mock("@multica/core/paths", () => ({
   useWorkspacePaths: () => ({
     issueDetail: (issueId: string) => `/demo111/issues/${issueId}`,
+    workflowRunDetail: (workflowId: string, runId: string) =>
+      `/demo111/workflows/${workflowId}/runs/${runId}`,
   }),
 }));
 
@@ -234,7 +341,39 @@ vi.mock("../../../i18n", () => ({
           qa: { name: "QA", description: "Validates changes" },
           tech_lead: { name: "Tech Lead", description: "Tech direction" },
         },
+        run: {
+          roles: {
+            unknown_node: "Unknown node",
+          },
+        },
+        panorama: {
+          card: {
+            actor_type_agent: "Digital human",
+            actor_type_member: "Member",
+            actor_type_squad: "Squad",
+            actor_type_role: "Development role",
+            actor_type_api: "API reviewer",
+            actor_online: "Online",
+            actor_offline: "Offline",
+          },
+        },
         execution: {
+          panorama: {
+            role_assignment_required: "Development role mapping needs attention",
+            role_assignment_manage_hint: "Assign workspace members, then continue the run.",
+            role_assignment_wait_hint: "Waiting for an authorized member.",
+            assign_roles_manually: "Assign roles manually",
+          },
+          card: {
+            child_issue_fallback: "Child issue",
+            child_waiting_dependencies: "Waiting for dependencies",
+            child_running: "In progress",
+            child_waiting_start: "Waiting to start",
+            child_completed: "Completed",
+            child_failed: "Failed",
+            child_cancelled: "Cancelled",
+            child_skipped: "Skipped because a dependency failed",
+          },
           display_status: {
             pending: "Pending",
             todo: "To do",
@@ -259,22 +398,37 @@ vi.mock("./execution-detail-panel", () => ({
     onClose,
     onOpenIssue,
     onRetry,
+    mayReview,
     isChildIssue,
     parentSplitTitle,
+    workerName,
+    currentUserId,
+    currentMember,
   }: {
     node: { title: string };
     nodeRun: { status: string } | null;
     onClose: () => void;
     onOpenIssue?: () => void;
     onRetry?: () => void;
+    mayReview?: boolean;
     isChildIssue?: boolean;
     parentSplitTitle?: string | null;
+    workerName?: string | null;
+    currentUserId?: string | null;
+    currentMember?: { role: string; status: string } | null;
   }) => (
-    <div data-testid="execution-detail-panel">
+    <div
+      data-testid="execution-detail-panel"
+      ref={() => {
+        mocks.executionDetailProps = { currentUserId, currentMember, mayReview };
+      }}
+    >
       <span data-testid="detail-panel-title">{node.title}</span>
       <span data-testid="detail-panel-status">{nodeRun?.status ?? "no-run"}</span>
       <span data-testid="detail-panel-is-child">{String(isChildIssue === true)}</span>
       <span data-testid="detail-panel-parent-split">{parentSplitTitle ?? "no-parent"}</span>
+      <span data-testid="detail-panel-worker-name">{workerName ?? "no-worker"}</span>
+      <span data-testid="detail-panel-may-review">{String(mayReview === true)}</span>
       {onOpenIssue ? (
         <button type="button" onClick={onOpenIssue}>
           Open issue
@@ -295,14 +449,25 @@ vi.mock("../../../workflows/components/split/split-review-panel", () => ({
     nodeRun,
     parentIssueId,
     onClose,
+    selectedDraftTaskIds,
+    onSelectedDraftTaskIdsChange,
   }: {
     nodeRun: { status: string } | null;
     parentIssueId?: string;
     onClose: () => void;
+    selectedDraftTaskIds?: string[];
+    onSelectedDraftTaskIdsChange?: (taskIds: string[]) => void;
   }) => (
     <div data-testid="execution-split-review-panel">
       <span data-testid="split-panel-status">{nodeRun?.status ?? "no-run"}</span>
       <span data-testid="split-panel-parent-issue-id">{parentIssueId ?? "no-parent-issue"}</span>
+      <span data-testid="split-panel-selection">{selectedDraftTaskIds?.join(",") ?? "uninitialized"}</span>
+      <button type="button" onClick={() => onSelectedDraftTaskIdsChange?.(["draft-2"])}>
+        Select draft 2
+      </button>
+      <button type="button" onClick={() => onSelectedDraftTaskIdsChange?.([])}>
+        Clear draft selection
+      </button>
       <button onClick={onClose}>Close split panel</button>
     </div>
   ),
@@ -596,19 +761,35 @@ describe("ExecutionPanoramaPage", () => {
     mocks.membersData = [];
     mocks.squadsData = [];
     mocks.workflowOptionsData = [];
+    mocks.childIssuesData = [];
+    mocks.chatSessionsData = [];
+    mocks.workflowRolesData = [];
+    mocks.roleResolutionsData = [];
+    mocks.currentUserId = "user-1";
+    mocks.executionDetailProps = null;
+    mocks.embedded = false;
     mocks.hasOpenInNewTab = true;
     mocks.splitTasksByNodeRunId = {};
+    mocks.deliverableDefinitionsByNodeId = {};
+    mocks.deliverableSubmissionsByNodeRunId = {};
     mocks.fitView.mockClear();
     mocks.setCenter.mockClear();
+    mocks.setChatFabHidden.mockClear();
     mocks.getViewport.mockClear();
     mocks.getViewport.mockReturnValue({ x: 0, y: 24, zoom: 0.95 });
     mocks.nodesInitialized = true;
     mocks.viewportInitialized = true;
     mocks.retryNodeRun.mockReset();
     mocks.retryNodeRun.mockResolvedValue({ id: "nr-2" });
+    mocks.useWorkspacePresenceMap.mockClear();
+    mocks.useWorkspacePresenceMap.mockReturnValue({ byAgent: new Map(), loading: false });
     mocks.navigationPush.mockReset();
     mocks.openInNewTab.mockReset();
+    mocks.postCostrictNavigateToSession.mockReset();
+    mocks.setChatSession.mockReset();
+    mocks.setChatOpen.mockReset();
     mocks.reactFlowProps = null;
+    mocks.queryOptions = [];
     mocks.pluginsData = {
       items: [],
       total: 0,
@@ -652,6 +833,64 @@ describe("ExecutionPanoramaPage", () => {
 
     expect(screen.getByTestId("execution-panorama")).toBeInTheDocument();
     expect(screen.getByTestId("panorama-canvas")).toBeInTheDocument();
+  });
+
+  it("does not create duplicate empty deliverable queries for nodes without runs", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE, { ...NODE, id: "n2", title: "second" }];
+    mocks.nodeRunsData = [];
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const deliverableQueries = mocks.queryOptions.filter((option) =>
+      option.queryKey?.includes("node-deliverable-submissions"),
+    );
+    expect(deliverableQueries).toEqual([]);
+  });
+
+  it("passes the current workspace actor context to node details", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.nodeRunsData = [{
+      ...SPLIT_NODE_RUN,
+      id: "nr-1",
+      workflow_node_id: "n1",
+      node_title: "brainstorming",
+      status: "worker_assigned",
+    }];
+    mocks.agentsData = [AGENT];
+    mocks.membersData = [{
+      user_id: "user-1",
+      name: "Alice",
+      role: "owner",
+      status: "active",
+    }];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const runtimeNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "n1");
+    expect(runtimeNode).toBeTruthy();
+    act(() => {
+      mocks.reactFlowProps?.onNodeClick?.({}, runtimeNode!);
+    });
+
+    expect(mocks.executionDetailProps).toMatchObject({
+      currentUserId: "user-1",
+      currentMember: { role: "owner", status: "active" },
+    });
   });
 
   it("gives the shared canvas an explicit height in the regular issue detail flow", () => {
@@ -730,11 +969,13 @@ describe("ExecutionPanoramaPage", () => {
     expect(screen.queryByTestId("stage-lane-stage-1")).not.toBeInTheDocument();
   });
 
-  it("builds runtime worker nodes through the shared canvas model while preserving runtime data", () => {
+  it("builds runtime worker nodes through the shared canvas model while preserving runtime data", async () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
     mocks.stagesData = [STAGE];
     mocks.nodesData = [NODE];
+    mocks.embedded = true;
+    mocks.postCostrictNavigateToSession.mockReturnValue(true);
     mocks.nodeRunsData = [
       {
         id: "nr-1",
@@ -753,7 +994,7 @@ describe("ExecutionPanoramaPage", () => {
         critic_comment: "",
         critic_agent_task_id: null,
         agent_task_id: null,
-        session_id: null,
+        session_id: "runtime-session-1",
         runtime_id: null,
         device_id: null,
         started_at: null,
@@ -791,12 +1032,316 @@ describe("ExecutionPanoramaPage", () => {
     const worker = mocks.reactFlowProps?.nodes.find((node) => node.id === "n1");
     expect(worker).toMatchObject({
       type: "runtimeNode",
-      width: 240,
-      height: 120,
+      width: WORKER_WIDTH,
+      height: RUNTIME_NODE_HEIGHT,
       data: expect.objectContaining({
         nodeRun: expect.objectContaining({ status: "completed" }),
+        onOpenSession: expect.any(Function),
       }),
     });
+
+    const onOpenSession = worker?.data?.onOpenSession as ((nodeId: string) => Promise<boolean>) | undefined;
+    let opened = false;
+    await act(async () => {
+      opened = await onOpenSession?.("n1") ?? false;
+    });
+    expect(opened).toBe(true);
+    expect(mocks.postCostrictNavigateToSession).toHaveBeenCalledWith({
+      sessionId: "runtime-session-1",
+      newTab: true,
+    });
+
+    mocks.embedded = false;
+    mocks.postCostrictNavigateToSession.mockReturnValue(false);
+    await act(async () => {
+      opened = await onOpenSession?.("n1") ?? false;
+    });
+    expect(opened).toBe(false);
+    expect(screen.queryByTestId("execution-detail-panel")).not.toBeInTheDocument();
+  });
+
+  it("passes review permission to the detail panel for the assigned critic", () => {
+    mocks.isLoading = false;
+    mocks.currentUserId = "critic-user";
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [{ ...NODE, critic_id: "critic-user" }];
+    mocks.membersData = [
+      {
+        id: "member-critic",
+        user_id: "critic-user",
+        role: "member",
+        name: "Critic",
+      },
+    ];
+    mocks.nodeRunsData = [
+      {
+        ...SPLIT_NODE_RUN,
+        id: "nr-1",
+        workflow_node_id: "n1",
+        node_title: "brainstorming",
+        status: "awaiting_critic",
+        critic_id: "critic-user",
+      },
+    ];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [],
+    };
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage
+          workflowId="wf-1"
+          runId="run-1"
+          wsId="ws-1"
+          issueId="issue-1"
+          issueCreatorType="member"
+          issueCreatorId="creator-user"
+        />
+      </Wrapper>,
+    );
+
+    act(() => {
+      mocks.reactFlowProps?.onNodeClick?.({}, { id: "n1" });
+    });
+
+    expect(screen.getByTestId("detail-panel-may-review")).toHaveTextContent("true");
+    expect(mocks.setChatFabHidden).toHaveBeenLastCalledWith(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    expect(mocks.setChatFabHidden).toHaveBeenLastCalledWith(false);
+  });
+
+  it("replays snapshot runs without enabling current workflow definition queries", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Current workflow" };
+    mocks.stagesData = [{ ...STAGE, id: "current-stage", name: "Current stage" }];
+    mocks.nodesData = [{ ...NODE, id: "current-node", title: "Current node" }];
+    mocks.edgesData = [];
+    mocks.nodeRunsData = [{
+      ...SPLIT_NODE_RUN,
+      id: "snapshot-node-run",
+      workflow_node_id: "legacy-node-alias",
+      source_workflow_node_id: "snapshot-node",
+      node_title: "Snapshot node",
+      status: "completed",
+      format_schema: {},
+    }];
+    mocks.canvasSummaryData = {
+      run: {
+        workflow_id: "wf-1",
+        definition_schema_version: 1,
+        definition_snapshot: {
+          schema_version: 1,
+          snapshot_origin: "native",
+          workflow: {
+            id: "wf-1",
+            workspace_id: "ws-1",
+            title: "Snapshot workflow",
+            description: "",
+            is_default: false,
+            max_retries: 3,
+            runtime_selection_policy: "idle_first",
+            config_revision: 4,
+          },
+          nodes: [{
+            id: "snapshot-node",
+            title: "Snapshot node",
+            description: "Frozen",
+            position_x: 48,
+            position_y: 64,
+            sort_order: 0,
+            stage_id: "snapshot-stage",
+            kind: "task",
+            worker_type: "agent",
+            worker_id: "agent-1",
+            critic_type: "human",
+          }],
+          edges: [{
+            id: "snapshot-edge",
+            source_node_id: "snapshot-node",
+            target_node_id: "snapshot-node",
+          }],
+          stages: [{
+            id: "snapshot-stage",
+            name: "Snapshot stage",
+            description: "",
+            sort_order: 0,
+          }],
+          roles: [],
+          deliverables: [],
+        },
+      },
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [],
+    };
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    expect(mocks.reactFlowProps?.nodes.map((node) => node.id)).toContain("snapshot-node");
+    expect(mocks.reactFlowProps?.nodes.map((node) => node.id)).not.toContain("current-node");
+    expect(mocks.reactFlowProps?.edges.map((edge) => edge.id)).toContain("snapshot-edge");
+    expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "snapshot-node")?.data?.nodeRun).toEqual(
+      expect.objectContaining({ id: "snapshot-node-run", status: "completed" }),
+    );
+
+    for (const marker of ["detail", "nodes", "edges", "stages"]) {
+      const query = mocks.queryOptions.find((option) => option.queryKey?.includes(marker));
+      expect(query?.enabled, `${marker} query should be disabled`).toBe(false);
+    }
+  });
+
+  it("falls back to node-run records without reading current definitions when a strict snapshot is unavailable", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Current workflow" };
+    mocks.nodesData = [{ ...NODE, id: "current-node", title: "Current node" }];
+    mocks.nodeRunsData = [{
+      ...SPLIT_NODE_RUN,
+      id: "captured-node-run",
+      workflow_node_id: "legacy-node-alias",
+      source_workflow_node_id: "captured-node",
+      node_title: "Captured node",
+      node_description: "Captured description",
+      status: "failed",
+      format_schema: {},
+    }];
+    mocks.canvasSummaryData = {
+      run: {
+        id: "run-1",
+        workflow_id: "wf-1",
+        definition_schema_version: 1,
+        definition_snapshot: null,
+      },
+      node_runs: [],
+      node_runtime_summaries: [],
+    };
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    expect(mocks.reactFlowProps?.nodes.map((node) => node.id)).toContain("captured-node");
+    expect(mocks.reactFlowProps?.nodes.map((node) => node.id)).not.toContain("current-node");
+    for (const marker of ["detail", "nodes", "edges", "stages"]) {
+      const query = mocks.queryOptions.find((option) => option.queryKey?.includes(marker));
+      expect(query?.enabled, `${marker} query should be disabled`).toBe(false);
+    }
+  });
+
+  it("passes the shared duration clock to nodes with an unfinished run", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.nodeRunsData = [{
+      ...SPLIT_NODE_RUN,
+      workflow_node_id: "n1",
+      status: "working",
+      started_at: "2026-07-25T10:00:00Z",
+      completed_at: null,
+    }];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [],
+    };
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "n1")?.data).toEqual(
+      expect.objectContaining({ nowMs: expect.any(Number) }),
+    );
+  });
+
+  it("joins deliverable definitions and submissions into runtime card summaries", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [NODE];
+    mocks.nodeRunsData = [{
+      id: "nr-1",
+      workflow_run_id: "run-1",
+      workflow_node_id: "n1",
+      node_title: "brainstorming",
+      status: "completed",
+      retry_count: 0,
+      worker_type: "agent",
+      worker_id: "agent-1",
+      worker_output: null,
+      worker_agent_task_id: null,
+      critic_type: "human",
+      critic_id: null,
+      critic_output: null,
+      critic_comment: "",
+      critic_agent_task_id: null,
+      agent_task_id: null,
+      session_id: null,
+      runtime_id: null,
+      device_id: null,
+      started_at: null,
+      completed_at: null,
+      created_at: "",
+      updated_at: "",
+    }];
+    mocks.canvasSummaryData = { node_runs: mocks.nodeRunsData, node_runtime_summaries: [] };
+    mocks.agentsData = [AGENT];
+    mocks.deliverableDefinitionsByNodeId = {
+      n1: [
+        { id: "d-current", title: "Current definition", sort_order: 1 },
+      ],
+    };
+    mocks.deliverableSubmissionsByNodeRunId = {
+      "nr-1": {
+        deliverables: [
+          { id: "d-2", title: "Acceptance checklist", sort_order: 2 },
+          { id: "d-1", title: "Requirements specification", sort_order: 1 },
+        ],
+        submissions: [
+        {
+          id: "s-1",
+          deliverable_id: "d-1",
+          status: "approved",
+          pull_request_url: "https://gitea.test/workflow/pulls/7",
+        },
+        ],
+      },
+    };
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const worker = mocks.reactFlowProps?.nodes.find((node) => node.id === "n1");
+    expect(worker?.data?.deliverables).toEqual([
+      {
+        id: "d-1",
+        title: "Requirements specification",
+        status: "approved",
+        pullRequestUrl: "https://gitea.test/workflow/pulls/7",
+      },
+      {
+        id: "d-2",
+        title: "Acceptance checklist",
+        status: "missing",
+        pullRequestUrl: null,
+      },
+    ]);
+    expect(mocks.queryOptions.some((option) => option.queryKey?.includes("node-deliverable-definitions"))).toBe(false);
   });
 
   it("marks only the highest-priority runtime node as the runtime focus", () => {
@@ -948,8 +1493,8 @@ describe("ExecutionPanoramaPage", () => {
 
     await waitFor(() => {
       expect(mocks.setCenter).toHaveBeenCalledWith(
-        blockedNode!.position.x + (blockedNode!.width ?? 240) / 2,
-        blockedNode!.position.y + (blockedNode!.height ?? 120) / 2,
+        blockedNode!.position.x + (blockedNode!.width ?? WORKER_WIDTH) / 2,
+        blockedNode!.position.y + (blockedNode!.height ?? RUNTIME_NODE_HEIGHT) / 2,
         expect.objectContaining({ duration: 450, zoom: 1.45 }),
       );
     });
@@ -972,8 +1517,8 @@ describe("ExecutionPanoramaPage", () => {
     expect(mocks.reactFlowProps?.edges.find((edge) => edge.id === "n1:critic-edge")).toBeUndefined();
     expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "n1")).toMatchObject({
       type: "runtimeNode",
-      width: 240,
-      height: 120,
+      width: WORKER_WIDTH,
+      height: RUNTIME_NODE_HEIGHT,
     });
   });
 
@@ -1099,9 +1644,11 @@ describe("ExecutionPanoramaPage", () => {
 
     fireEvent.click(screen.getByTestId("notification-item-test"));
 
+    const runtimeNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "n1");
+    expect(runtimeNode).toBeTruthy();
     expect(mocks.setCenter).toHaveBeenCalledWith(
-      120,
-      72,
+      runtimeNode!.position.x + (runtimeNode!.width ?? WORKER_WIDTH) / 2,
+      runtimeNode!.position.y + (runtimeNode!.height ?? RUNTIME_NODE_HEIGHT) / 2,
       expect.objectContaining({ duration: 450, zoom: 0.95 }),
     );
   });
@@ -1198,6 +1745,65 @@ describe("ExecutionPanoramaPage", () => {
     expect(screen.queryByTestId("execution-detail-panel")).not.toBeInTheDocument();
   });
 
+  it("restores split draft selection after closing and reopening the panel", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [{
+      ...NODE,
+      format_schema: {
+        type: "split",
+        split_config: { default_issue_workflow_id: "child-wf-1", mode: "barrier", max_concurrency: 3, max_failures: 0 },
+      },
+    }];
+    mocks.nodeRunsData = [{
+      id: "nr-1",
+      workflow_run_id: "run-1",
+      workflow_node_id: "n1",
+      node_title: "brainstorming",
+      status: "awaiting_split_review",
+      retry_count: 0,
+      worker_type: "agent",
+      worker_id: "agent-1",
+      worker_output: null,
+      worker_agent_task_id: null,
+      critic_type: "human",
+      critic_id: null,
+      critic_output: null,
+      critic_comment: "",
+      critic_agent_task_id: null,
+      agent_task_id: null,
+      session_id: null,
+      runtime_id: null,
+      device_id: null,
+      started_at: null,
+      completed_at: null,
+      created_at: "",
+      updated_at: "",
+    }];
+    mocks.canvasSummaryData = { node_runs: mocks.nodeRunsData, node_runtime_summaries: [] };
+    mocks.agentsData = [AGENT];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    fireEvent.click(screen.getByTestId("notification-item-test"));
+    expect(screen.getByTestId("split-panel-selection")).toHaveTextContent("uninitialized");
+    fireEvent.click(screen.getByRole("button", { name: "Select draft 2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close split panel" }));
+    fireEvent.click(screen.getByTestId("notification-item-test"));
+
+    expect(screen.getByTestId("split-panel-selection")).toHaveTextContent("draft-2");
+    fireEvent.click(screen.getByRole("button", { name: "Clear draft selection" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close split panel" }));
+    fireEvent.click(screen.getByTestId("notification-item-test"));
+
+    expect(screen.getByTestId("split-panel-selection")).toBeEmptyDOMElement();
+  });
+
   it("expands split child issues into a subflow container from the runtime split expansion button", async () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
@@ -1227,6 +1833,10 @@ describe("ExecutionPanoramaPage", () => {
     mocks.splitTasksByNodeRunId = {
       "split-run-1": SPLIT_TASKS_RESPONSE,
     };
+    mocks.childIssuesData = [
+      { id: "child-issue-1", identifier: "MUL-580" },
+      { id: "child-issue-2", identifier: "MUL-581" },
+    ];
 
     render(
       <Wrapper>
@@ -1235,6 +1845,10 @@ describe("ExecutionPanoramaPage", () => {
     );
 
     const splitNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
+    expect(splitNode?.height).toBe(RUNTIME_SPLIT_NODE_HEIGHT);
+    expect(splitNode!.position.y + RUNTIME_SPLIT_NODE_HEIGHT / 2).toBe(
+      12 + RUNTIME_NODE_HEIGHT / 2,
+    );
     expect(splitNode?.data).toMatchObject({
       splitChildCount: 2,
       isSplitExpanded: false,
@@ -1267,6 +1881,8 @@ describe("ExecutionPanoramaPage", () => {
             title: "Implement API contract",
             displayStatus: "in_progress",
             workerName: "wf-impl",
+            issueIdentifier: "MUL-580",
+            progressLabel: "In progress",
             level: 0,
           }),
           expect.objectContaining({
@@ -1275,6 +1891,8 @@ describe("ExecutionPanoramaPage", () => {
             title: "Backfill tests",
             displayStatus: "todo",
             workerName: "wf-test",
+            issueIdentifier: "MUL-581",
+            progressLabel: "Waiting for dependencies",
             level: 1,
           }),
         ],
@@ -1348,7 +1966,7 @@ describe("ExecutionPanoramaPage", () => {
     const parentNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
     const subflowNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-subflow");
 
-    expect(subflowNode!.position.x).toBe(parentNode!.position.x + 384);
+    expect(subflowNode!.position.x).toBe(parentNode!.position.x + WORKER_WIDTH + 144);
     expect(downstreamNode!.position.x).toBeGreaterThanOrEqual(
       subflowNode!.position.x + (subflowNode!.width ?? 560) + 96,
     );
@@ -1763,6 +2381,72 @@ describe("ExecutionPanoramaPage", () => {
     );
   });
 
+  it("resolves split child assignees from the linked issue", async () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [SPLIT_NODE];
+    mocks.nodeRunsData = [SPLIT_NODE_RUN];
+    mocks.canvasSummaryData = {
+      node_runs: mocks.nodeRunsData,
+      node_runtime_summaries: [],
+    };
+    mocks.agentsData = [AGENT];
+    mocks.membersData = [{ user_id: "user-1", name: "Alice Reviewer" }];
+    mocks.splitTasksByNodeRunId = {
+      "split-run-1": SPLIT_TASKS_RESPONSE,
+    };
+    mocks.childIssuesData = [
+      {
+        id: "child-issue-1",
+        identifier: "MUL-580",
+        assignee_type: "member",
+        assignee_id: "user-1",
+      },
+      {
+        id: "child-issue-2",
+        identifier: "MUL-581",
+        assignee_type: null,
+        assignee_id: null,
+      },
+    ];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
+      </Wrapper>,
+    );
+
+    const splitNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1");
+    act(() => {
+      (splitNode?.data?.onSplitNodeToggle as (nodeId: string) => void)("split-1");
+    });
+
+    await waitFor(() => {
+      expect(mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-subflow")).toBeTruthy();
+    });
+
+    const subflowNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "split-1:split-subflow");
+    expect(subflowNode?.data?.childIssues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: "split-1:split-task:task-1",
+          workerName: "Alice Reviewer",
+        }),
+        expect.objectContaining({
+          nodeId: "split-1:split-task:task-2",
+          workerName: null,
+        }),
+      ]),
+    );
+
+    act(() => {
+      (subflowNode?.data?.onOpenChild as (nodeId: string) => void)("split-1:split-task:task-1");
+    });
+
+    expect(screen.getByTestId("detail-panel-worker-name")).toHaveTextContent("Alice Reviewer");
+  });
+
   it("toggles split child issue nodes when a runtime split node is double clicked", async () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
@@ -2093,6 +2777,75 @@ describe("ExecutionPanoramaPage", () => {
     updated_at: "",
   };
 
+  it("uses captured actor names instead of renamed current entities", () => {
+    mocks.isLoading = false;
+    mocks.nodesData = [{ ...NODE, critic_id: "user-alice" }];
+    mocks.nodeRunsData = [{
+      ...baseNodeRun,
+      workflow_node_id: "n1",
+      worker_type: "agent",
+      worker_id: "agent-1",
+      worker_name_snapshot: "Original Agent",
+      critic_type: "human",
+      critic_id: "user-alice",
+      critic_name_snapshot: "Original Reviewer",
+    }];
+    mocks.agentsData = [{ ...AGENT, name: "Renamed Agent" }];
+    mocks.membersData = [{ ...MEMBER, name: "Renamed Reviewer" }];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const node = mocks.reactFlowProps?.nodes.find((item) => item.id === "n1");
+    expect(node?.data).toMatchObject({
+      workerName: "Original Agent",
+      criticName: "Original Reviewer",
+      workerIdentity: { name: "Original Agent" },
+      criticIdentity: { name: "Original Reviewer" },
+    });
+  });
+
+  it("uses the captured role name after the current role is deleted", () => {
+    mocks.isLoading = false;
+    mocks.nodesData = [{
+      ...NODE,
+      id: "n-role",
+      worker_type: "role",
+      worker_id: null,
+      worker_role_id: "role-deleted",
+    }];
+    mocks.nodeRunsData = [{
+      ...baseNodeRun,
+      workflow_node_id: "n-role",
+      worker_type: "role",
+      worker_id: null,
+      worker_role_snapshot: {
+        id: "role-deleted",
+        name: "Historical Architect",
+        description: "Captured role",
+      },
+    }];
+    mocks.workflowRolesData = [];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const node = mocks.reactFlowProps?.nodes.find((item) => item.id === "n-role");
+    expect(node?.data).toMatchObject({
+      workerName: "Historical Architect",
+      workerIdentity: {
+        type: "role",
+        name: "Historical Architect",
+      },
+    });
+  });
+
   it("shows the raw custom role name when a worker is role-assigned but unresolved", () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
@@ -2174,6 +2927,7 @@ describe("ExecutionPanoramaPage", () => {
         id: "res-1",
         workflow_node_run_id: "nr-role",
         slot_type: "worker",
+        role_name: "Backend Engineer",
         status: "resolved",
         resolved_user_id: "user-alice",
         resolved_at: "",
@@ -2190,7 +2944,169 @@ describe("ExecutionPanoramaPage", () => {
     );
 
     const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "n-role");
-    expect(worker?.data).toMatchObject({ workerName: "Alice Johnson" });
+    expect(worker?.data).toMatchObject({
+      workerName: "Alice Johnson",
+      workerIdentity: {
+        name: "Alice Johnson",
+        sourceRoleName: "Backend Engineer",
+      },
+    });
+  });
+
+  it("links an authorized user to manual role assignment when mapping fails", () => {
+    mocks.isLoading = false;
+    mocks.canvasSummaryData = {
+      run: {
+        id: "run-1",
+        workflow_id: "wf-1",
+        status: "waiting_role_assignment",
+        triggered_by_id: "user-1",
+        definition_schema_version: 0,
+        definition_snapshot: null,
+      },
+      node_runs: [],
+      node_runtime_summaries: [],
+    };
+    mocks.roleResolutionsData = [{
+      id: "res-1",
+      workflow_node_run_id: "nr-role",
+      slot_type: "worker",
+      status: "needs_human",
+      resolved_user_id: null,
+    }];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    expect(screen.getByTestId("manual-role-assignment-entry")).toHaveTextContent(
+      "Development role mapping needs attention",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Assign roles manually" }));
+    expect(mocks.navigationPush).toHaveBeenCalledWith(
+      "/demo111/workflows/wf-1/runs/run-1",
+    );
+  });
+
+  it("can suppress the role assignment entry when embedded in the run detail page", () => {
+    mocks.isLoading = false;
+    mocks.canvasSummaryData = {
+      run: {
+        id: "run-1",
+        workflow_id: "wf-1",
+        status: "waiting_role_assignment",
+        triggered_by_id: "user-1",
+        definition_schema_version: 0,
+        definition_snapshot: null,
+      },
+      node_runs: [],
+      node_runtime_summaries: [],
+    };
+    mocks.roleResolutionsData = [{
+      id: "res-1",
+      workflow_node_run_id: "nr-role",
+      slot_type: "worker",
+      status: "needs_human",
+      resolved_user_id: null,
+    }];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage
+          workflowId="wf-1"
+          runId="run-1"
+          wsId="ws-1"
+          showRoleAssignmentEntry={false}
+        />
+      </Wrapper>,
+    );
+
+    expect(screen.queryByTestId("manual-role-assignment-entry")).not.toBeInTheDocument();
+  });
+
+  it("shows the blocked role state without an action to inactive members", () => {
+    mocks.isLoading = false;
+    mocks.currentUserId = "user-2";
+    mocks.membersData = [{
+      user_id: "user-2",
+      name: "Inactive member",
+      role: "member",
+      status: "inactive",
+    }];
+    mocks.canvasSummaryData = {
+      run: {
+        id: "run-1",
+        workflow_id: "wf-1",
+        status: "waiting_role_assignment",
+        triggered_by_id: "user-1",
+        definition_schema_version: 0,
+        definition_snapshot: null,
+      },
+      node_runs: [],
+      node_runtime_summaries: [],
+    };
+    mocks.roleResolutionsData = [{
+      id: "res-1",
+      workflow_node_run_id: "nr-role",
+      slot_type: "worker",
+      status: "needs_human",
+      resolved_user_id: null,
+    }];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    expect(screen.getByTestId("manual-role-assignment-entry")).toHaveTextContent(
+      "Waiting for an authorized member.",
+    );
+    expect(screen.queryByRole("button", { name: "Assign roles manually" })).not.toBeInTheDocument();
+  });
+
+  it("localizes a built-in role captured in the unresolved run snapshot", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [
+      {
+        ...NODE,
+        id: "n-role",
+        worker_type: "role",
+        worker_id: null,
+        worker_role_id: "role-dev",
+        worker_role: null,
+      },
+    ];
+    mocks.workflowRolesData = [BUILTIN_DEV_ROLE];
+    mocks.nodeRunsData = [{
+      ...baseNodeRun,
+      status: "pending",
+      worker_role_snapshot: {
+        id: "role-dev",
+        name: "developer",
+        description: "Builds changes",
+      },
+    }];
+    mocks.agentsData = [];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "n-role");
+    expect(worker?.data).toMatchObject({
+      workerName: "Developer",
+      workerIdentity: {
+        type: "role",
+        name: "Developer",
+      },
+    });
   });
 
   it("prefers an explicit worker agent over a resolved role resolution", () => {
@@ -2274,5 +3190,78 @@ describe("ExecutionPanoramaPage", () => {
 
     const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "n-role");
     expect(worker?.data).toMatchObject({ workerName: "Backend Engineer" });
+  });
+
+  it("resolves concrete runtime actors before node roles and attaches agent presence", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.workflowRolesData = [BUILTIN_DEV_ROLE];
+    mocks.membersData = [{ ...MEMBER, avatar_url: "/reviewer.png" }];
+    mocks.agentsData = [{ ...AGENT, avatar_url: "/agent.png" }];
+    mocks.squadsData = [{ id: "squad-1", name: "Platform Squad", avatar_url: null }];
+    mocks.useWorkspacePresenceMap.mockReturnValue({
+      byAgent: new Map([["agent-1", { availability: "online" as const }]]),
+      loading: false,
+    });
+    mocks.nodesData = [
+      { ...NODE, id: "resolved-role-node", worker_type: "role", worker_id: null, worker_role_id: "role-dev" },
+      { ...NODE, id: "pending-role-node", worker_type: "role", worker_id: null, worker_role_id: "role-dev" },
+      { ...NODE, id: "agent-node", worker_type: "agent", worker_id: "agent-1" },
+      { ...NODE, id: "squad-api-node", worker_type: "squad", worker_id: "squad-1", critic_type: "api", critic_id: null, critic_api_url: "https://review.example.test" },
+    ];
+    mocks.nodeRunsData = [
+      { ...baseNodeRun, id: "nr-resolved", workflow_node_id: "resolved-role-node", worker_type: "human", worker_id: "user-alice" },
+      { ...baseNodeRun, id: "nr-pending", workflow_node_id: "pending-role-node", worker_type: "role", worker_id: null },
+      { ...baseNodeRun, id: "nr-agent", workflow_node_id: "agent-node", worker_type: "agent", worker_id: "agent-1" },
+      { ...baseNodeRun, id: "nr-squad", workflow_node_id: "squad-api-node", worker_type: "squad", worker_id: "squad-1", critic_type: "api", critic_id: null },
+    ];
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    const renderedNodes = mocks.reactFlowProps?.nodes ?? [];
+    expect(renderedNodes.find((node) => node.id === "resolved-role-node")?.data?.workerIdentity).toMatchObject({
+      type: "member",
+      id: "user-alice",
+      name: "Alice Johnson",
+      avatarUrl: "/reviewer.png",
+      typeLabel: "Member",
+    });
+    expect(renderedNodes.find((node) => node.id === "pending-role-node")?.data?.workerIdentity).toEqual({
+      type: "role",
+      id: null,
+      name: "Developer",
+      typeLabel: "Development role",
+    });
+    expect(renderedNodes.find((node) => node.id === "agent-node")?.data?.workerIdentity).toMatchObject({
+      type: "agent",
+      id: "agent-1",
+      name: "Brainstorming Agent",
+      avatarUrl: "/agent.png",
+      availability: "online",
+      availabilityLabel: "Online",
+    });
+    expect(renderedNodes.find((node) => node.id === "squad-api-node")?.data).toMatchObject({
+      workerIdentity: {
+        type: "squad",
+        id: "squad-1",
+        name: "Platform Squad",
+        typeLabel: "Squad",
+      },
+      criticIdentity: {
+        type: "api",
+        id: null,
+        name: "API review",
+        typeLabel: "API reviewer",
+      },
+    });
+    expect(renderedNodes.find((node) => node.id === "squad-api-node")?.data?.workerIdentity).not.toHaveProperty("availability");
+    expect(renderedNodes.find((node) => node.id === "squad-api-node")?.data?.criticIdentity).not.toHaveProperty("availability");
+    expect(mocks.useWorkspacePresenceMap).toHaveBeenCalledTimes(1);
+    expect(mocks.useWorkspacePresenceMap).toHaveBeenCalledWith("ws-1");
   });
 });

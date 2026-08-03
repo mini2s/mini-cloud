@@ -4,7 +4,8 @@
     "breadcrumb_workspace_fallback": "Workspace",
     "empty_title": "No issues yet",
     "empty_hint": "Create an issue to get started.",
-    "move_failed": "Failed to move issue"
+    "move_failed": "Failed to move issue",
+    "assign_first": "Please assign the task first."
   },
   "status": {
     "backlog": "Backlog",
@@ -27,8 +28,8 @@
     "all_description": "All issues in this workspace",
     "members_label": "Members",
     "members_description": "Issues assigned to team members",
-    "agents_label": "Agents",
-    "agents_description": "Issues assigned to AI agents"
+    "agents_label": "Digital Humans",
+    "agents_description": "Issues assigned to AI digital humans"
   },
   "filters": {
     "tooltip": "Filter",
@@ -44,7 +45,7 @@
     "section_project": "Project",
     "section_label": "Label",
     "members_group": "Members",
-    "agents_group": "Agents",
+    "agents_group": "Digital Humans",
     "squads_group": "Squads",
     "issue_count_one": "{{count}} issue",
     "issue_count_other": "{{count}} issues",
@@ -71,7 +72,7 @@
     "sort_title": "Title",
     "card_priority": "Priority",
     "card_description": "Description",
-    "card_assignee": "Assignee",
+    "card_assignee": "People",
     "card_start_date": "Start date",
     "card_due_date": "Due date",
     "card_project": "Project",
@@ -130,11 +131,11 @@
     "scope": {
       "assigned": {
         "label": "Assigned",
-        "description": "Issues assigned to this member or agent"
+        "description": "Issues assigned to this member or digital human"
       },
       "created": {
         "label": "Created",
-        "description": "Issues created by this member or agent"
+        "description": "Issues created by this member or digital human"
       }
     },
     "empty": {
@@ -213,6 +214,7 @@
     "pull_request_card_show_less": "Show less",
     "prop_status": "Status",
     "prop_priority": "Priority",
+    "prop_responsible": "Responsible",
     "prop_assignee": "Assignee",
     "prop_stage": "Stage",
     "stage_placeholder": "Select stage",
@@ -237,7 +239,7 @@
     "no_subscribers_results": "No results found",
     "change_subscribers_placeholder": "Change subscribers...",
     "members_group": "Members",
-    "agents_group": "Agents",
+    "agents_group": "Digital Humans",
     "mark_done_tooltip": "Mark as done",
     "archive_tooltip": "Archive",
     "pin_tooltip": "Pin to sidebar",
@@ -252,7 +254,7 @@
     "link_copy_failed": "Failed to copy link",
     "workdir_path_copied": "Workdir path copied",
     "workdir_path_copy_failed": "Failed to copy workdir path",
-    "workdir_path_unavailable": "No local workdir yet — issue has not been run by a local agent"
+    "workdir_path_unavailable": "No local workdir yet — issue has not been run by a local digital human"
   },
   "timeline": {
     "loading": "Loading..."
@@ -326,24 +328,24 @@
     "collapse_tooltip": "Collapse"
   },
   "agent_activity": {
-    "hover_header_one": "{{count}} agent working",
-    "hover_header_other": "{{count}} agents working",
+    "hover_header_one": "{{count}} digital human working",
+    "hover_header_other": "{{count}} digital humans working",
     "status_running": "Working",
     "status_queued": "Queued",
     "chip_label": "working",
-    "empty_hover": "No agents currently working",
-    "filter_active_label": "Viewing only working agents"
+    "empty_hover": "No digital humans currently working",
+    "filter_active_label": "Viewing only working digital humans"
   },
   "agent_live": {
     "is_working": "{{name}} is working",
     "is_queued": "{{name}} is queued",
     "queued_elapsed_prefix": "queued for {{elapsed}}",
-    "fallback_name": "Agent",
+    "fallback_name": "Digital Human",
     "tool_count_one": "{{count}} tool",
     "tool_count_other": "{{count}} tools",
     "transcript_button": "View transcript",
     "stop_button": "Stop",
-    "stop_tooltip": "Stop agent",
+    "stop_tooltip": "Stop digital human",
     "cancel_failed": "Failed to cancel task"
   },
   "execution_log": {
@@ -409,7 +411,15 @@
     "cancel": "Cancel"
   },
   "card": {
-    "update_failed": "Failed to update issue"
+    "update_failed": "Failed to update issue",
+    "responsible": "Owner",
+    "assignee": "Assignee",
+    "actor_types": {
+      "member": "Member",
+      "agent": "Digital Human",
+      "squad": "Squad",
+      "workflow": "Workflow"
+    }
   },
   "actions": {
     "status": "Status",
@@ -443,7 +453,7 @@
       "trigger_unassigned": "Unassigned",
       "search_placeholder": "Assign to...",
       "members_group": "Members",
-      "agents_group": "Agents",
+      "agents_group": "Digital Humans",
       "squads_group": "Squads",
       "workflows_group": "Workflows",
       "builtin_label": "Built-in",
@@ -510,19 +520,35 @@
       "no_worker": "No worker configured",
       "no_run": "Workflow not started yet",
       "empty_stage": "No nodes in this stage",
-      "unassigned": "Unassigned"
+      "unassigned": "Unassigned",
+      "role_assignment_required": "Development role mapping needs attention",
+      "role_assignment_manage_hint": "Assign workspace members to every unresolved role, then continue the run.",
+      "role_assignment_wait_hint": "Waiting for the run initiator or a workspace administrator.",
+      "assign_roles_manually": "Assign roles manually"
     },
     "card": {
-      "worker_label": "Worker",
-      "critic_label": "Critic",
+      "duration_label": "Duration {{duration}}",
+      "worker_label": "Executor",
+      "critic_label": "Reviewer",
       "artifacts_label": "Artifacts",
-      "gateway_label_fork": "Fork gateway",
-      "gateway_label_join": "Join gateway",
-      "gateway_label": "Gateway",
+      "deliverable_more": "+{{count}}",
+      "deliverable_status": {
+        "missing": "Not submitted",
+        "submitted": "Submitted",
+        "approved": "Approved",
+        "rejected": "Rejected"
+      },
+      "session_opening": "Opening...",
+      "session_opened": "Opened",
+      "session_open_failed": "Unable to open",
+      "gateway_label_fork": "Branch start",
+      "gateway_label_join": "Join point",
+      "gateway_label": "Branch node",
+      "split_badge": "Split",
       "split_child_count_one": "{{count}} child issue",
       "split_child_count_other": "{{count}} child issues",
-			"split_mode_barrier": "Barrier",
-			"split_mode_pipeline": "Pipeline",
+      "split_mode_barrier": "Wait for child issues",
+      "split_mode_pipeline": "Continue after creation",
       "split_child_done": "{{count}} done",
       "split_child_failed": "{{count}} failed",
       "split_child_running": "{{count}} running",
@@ -531,6 +557,14 @@
       "split_child_cancelled": "{{count}} cancelled",
       "split_child_expand": "Expand child issues",
       "split_child_collapse": "Collapse child issues",
+      "child_issue_fallback": "Child issue",
+      "child_running": "In progress",
+      "child_waiting_dependencies": "Waiting for dependencies",
+      "child_waiting_start": "Waiting to start",
+      "child_completed": "Completed",
+      "child_failed": "Failed",
+      "child_cancelled": "Cancelled",
+      "child_skipped": "Skipped because a dependency failed",
       "actions": {
         "approve": "Approve",
         "reject": "Reject",
@@ -549,6 +583,7 @@
       "no_current_node": "No active node",
       "running_count": "{{count}} running",
       "reviewing_count": "{{count}} reviewing",
+      "failed_count": "{{count}} failed",
       "blocked_count": "{{count}} blocked",
       "waiting_count": "{{count}} waiting",
       "elapsed": "Elapsed {{elapsed}}",
@@ -564,6 +599,7 @@
       "in_progress": "In progress",
       "reviewing": "Reviewing",
       "completed": "Completed",
+      "failed": "Failed",
       "blocked": "Blocked",
       "cancelled": "Cancelled",
       "dispatched": "Dispatched",
@@ -576,12 +612,13 @@
       "section_status_next_step": "Status and next step",
       "section_deliverables": "Deliverables and links",
       "section_worker_critic": "Worker and critic",
+      "section_actions": "Node actions",
       "section_runtime_facts": "Runtime facts",
       "section_evidence_preview": "Evidence preview",
       "section_child_progress": "Child progress",
       "section_primary": "Primary",
       "section_primary_desc": "Active handler and diagnostic context.",
-      "section_agent_operations": "Agent operations",
+      "section_agent_operations": "Digital Human operations",
       "section_agent_operations_desc": "Session and recovery actions for this node run.",
       "section_runtime": "Runtime",
       "section_runtime_desc": "Timing, retries, errors, and raw outputs.",
@@ -593,6 +630,12 @@
       "not_configured": "Not configured",
       "no_output": "No output yet",
       "review_comment": "Review Comment",
+      "review_comment_required": "Please add a review comment before approving or rejecting",
+      "dock_review_title": "Human review",
+      "dock_review_subtitle": "Your review comment is archived to Gitea with the decision.",
+      "dock_result_title": "Review comment and deliverables",
+      "dock_submit_title": "Deliverable submission",
+      "dock_submit_subtitle": "Assigned to {{name}} · the node enters review once deliverables are submitted.",
       "metadata": "Metadata",
       "started_at": "Started",
       "completed_at": "Completed",
@@ -603,11 +646,21 @@
       "open_child_issue": "Open child issue",
       "view_evidence": "View evidence",
       "parent_split": "Parent split",
-      "child_workflow": "Issue workflow",
+      "child_assignee": "Assignee",
       "reason": "Reason",
       "no_deliverables": "No deliverables yet",
       "no_runtime_data": "No runtime data yet.",
       "gateway_no_worker": "Gateway runtime is automatic and has no worker or critic.",
+      "execution_summary": "Execution summary",
+      "execution_summary_placeholder": "Optional: briefly describe the completed work",
+      "submit_result": "Submit",
+      "submitting_result": "Submitting...",
+      "deliverables_required_first": "Submit the required deliverables first",
+      "skip_node": "Skip node",
+      "skip_dialog_title": "Skip this node?",
+      "skip_dialog_description": "This node will be marked as skipped, and eligible downstream nodes will continue.",
+      "skip_dialog_cancel": "Cancel",
+      "skip_dialog_confirm": "Confirm skip",
       "open_session": "Open session",
       "unblock": "Unblock",
       "retry": "Retry"
@@ -632,14 +685,14 @@
     }
   },
   "backlog_hint": {
-    "title": "Agent is paused in Backlog",
-    "description": "This issue is parked, so the assigned agent will wait. Move it to Todo when you want the agent to start.",
+    "title": "Digital Human is paused in Backlog",
+    "description": "This issue is parked, so the assigned digital human will wait. Move it to In Progress when you want the digital human to start.",
     "row_backlog_label": "Backlog",
-    "row_backlog_hint": "keeps the agent paused",
-    "row_todo_label": "Todo",
-    "row_todo_hint": "starts the agent",
+    "row_backlog_hint": "keeps the digital human paused",
+    "row_in_progress_label": "In Progress",
+    "row_in_progress_hint": "starts the digital human",
     "dont_show_again": "Don't show this again",
     "keep_in_backlog": "Keep in Backlog",
-    "move_to_todo": "Move to Todo"
+    "move_to_in_progress": "Move to In Progress"
   }
 }

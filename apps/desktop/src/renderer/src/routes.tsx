@@ -26,6 +26,7 @@ import { SquadsPage, SquadDetailPage as SquadDetailPageView } from "@multica/vie
 import { InboxPage } from "@multica/views/inbox";
 import { SettingsPage } from "@multica/views/settings";
 import { MembersPage } from "@multica/views/members";
+import { WorkflowRolesPage } from "@multica/views/workflow-roles";
 import { WorkflowsPage } from "@multica/views/workflows/components";
 import { WorkflowDetailPage } from "./pages/workflow-detail-page";
 import { WorkflowRunsPage } from "./pages/workflow-runs-page";
@@ -213,6 +214,11 @@ export const appRoutes: RouteObject[] = [
             path: "settings",
             element: <DesktopSettingsRoute />,
             handle: { title: "Settings" },
+          },
+          {
+            path: "roles",
+            element: <WorkflowRolesPage />,
+            handle: { title: "Dev Roles" },
           },
           {
             path: "workflows",

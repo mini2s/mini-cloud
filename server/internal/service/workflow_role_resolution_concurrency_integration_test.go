@@ -86,6 +86,10 @@ func TestWorkflowRoleResolutionConcurrency_LeaseExpiryRequeues(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("requeued %d rows, want 1", n)
 	}
+	requeued := f.loadLatestJob(t)
+	if requeued.Generation != job.Generation+1 {
+		t.Fatalf("generation after requeue = %d, want %d", requeued.Generation, job.Generation+1)
+	}
 
 	// A second claim must now succeed on the same row.
 	second, err := f.queries.ClaimWorkflowRoleResolutionJob(ctx, db.ClaimWorkflowRoleResolutionJobParams{LockedBy: pgtype.Text{String: "worker-B", Valid: true}, LeaseDuration: shortLease})
@@ -100,6 +104,9 @@ func TestWorkflowRoleResolutionConcurrency_LeaseExpiryRequeues(t *testing.T) {
 	}
 	if second.LockedBy.String != "worker-B" {
 		t.Fatalf("locked_by = %s, want worker-B", second.LockedBy.String)
+	}
+	if second.Generation != requeued.Generation {
+		t.Fatalf("second claim generation = %d, want %d", second.Generation, requeued.Generation)
 	}
 }
 
@@ -124,16 +131,18 @@ func TestWorkflowRoleResolutionConcurrency_StaleResultDiscarded(t *testing.T) {
 	}
 	staleGeneration := first.Generation
 
-	// Lease expires, sweeper requeues, worker B reclaims — bumping generation
-	// via the cancel/reschedule path is unnecessary: the claim does not change
-	// generation, but a CancelWorkflowRoleResolutionJobs call (e.g. via manual
-	// assignment) does. We force a generation bump to simulate takeover.
+	// Lease expiry must bump the generation before worker B reclaims the job.
 	if _, err := f.pool.Exec(ctx, `
 		UPDATE multica_workflow_role_resolution_job
-		SET generation = generation + 1, status = 'pending', locked_by = NULL, lease_expires_at = NULL
+		SET lease_expires_at = now() - interval '5 seconds'
 		WHERE id = $1
 	`, job.ID); err != nil {
-		t.Fatalf("bump generation: %v", err)
+		t.Fatalf("backdate lease: %v", err)
+	}
+	if n, err := f.queries.RequeueExpiredWorkflowRoleResolutionJobs(ctx); err != nil {
+		t.Fatalf("requeue expired job: %v", err)
+	} else if n != 1 {
+		t.Fatalf("requeued %d rows, want 1", n)
 	}
 	if _, err := f.queries.ClaimWorkflowRoleResolutionJob(ctx, db.ClaimWorkflowRoleResolutionJobParams{LockedBy: pgtype.Text{String: "worker-B", Valid: true}, LeaseDuration: lease}); err != nil {
 		t.Fatalf("claim B: %v", err)

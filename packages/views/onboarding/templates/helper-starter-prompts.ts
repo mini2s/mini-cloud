@@ -28,8 +28,8 @@ export const HELPER_STARTER_PROMPTS: Record<StarterCardId, StarterPrompt> = {
       zh: "简单介绍一下 Multica",
     },
     prompt: {
-      en: "Introduce Multica to me in 1–2 paragraphs. Cover what it is, the core concepts (workspace / issue / agent / runtime), and how it differs from tools like Linear or Jira.",
-      zh: "用 1-2 段话简单介绍 Multica 给我。讲清楚它是什么、核心概念有哪些(workspace / issue / agent / runtime)、和 Linear / Jira 之类的工具核心区别在哪。",
+      en: "Introduce Multica to me in 1–2 paragraphs. Cover what it is, the core concepts (workspace / issue / digital human / runtime), and how it differs from tools like Linear or Jira.",
+      zh: "用 1-2 段话简单介绍 Multica 给我。讲清楚它是什么、核心概念有哪些(workspace / issue / 数智人 / runtime)、和 Linear / Jira 之类的工具核心区别在哪。",
     },
   },
   tour: {
@@ -38,8 +38,8 @@ export const HELPER_STARTER_PROMPTS: Record<StarterCardId, StarterPrompt> = {
       zh: "带我熟悉每个功能",
     },
     prompt: {
-      en: "Walk me through Multica's core features — issue, agent, squad, autopilot, chat. Pick one realistic scenario I might run into and explain how all these pieces fit together.",
-      zh: "陪我熟悉 Multica 的每个核心功能 —— issue、agent、squad、autopilot、chat。挑一个我可能用得上的真实场景,讲讲这几个东西是怎么配合的。",
+      en: "Walk me through Multica's core features — issue, digital human, squad, autopilot, chat. Pick one realistic scenario I might run into and explain how all these pieces fit together.",
+      zh: "陪我熟悉 Multica 的每个核心功能 —— issue、数智人、squad、autopilot、chat。挑一个我可能用得上的真实场景,讲讲这几个东西是怎么配合的。",
     },
   },
   welcome_page: {

@@ -1,14 +1,14 @@
 ---
 title: Daemon and runtimes
-description: Agents don't run on Multica's servers — they run on your own machines.
+description: Digital Humans don't run on Multica's servers — they run on your own machines.
 ---
 
 import { Callout } from "fumadocs-ui/components/callout";
 import { Mermaid } from "@/components/mermaid";
 
-In Multica, [agents](/agents) do **not** run on our servers — they run on your own machines, driven by a small program called the **daemon** that invokes the [AI coding tools](/providers) installed locally. The Multica server only coordinates: it stores [issues](/issues), queues [tasks](/tasks), and dispatches them to the right **runtime** (runtime = daemon × one AI coding tool).
+In Multica, [digital humans](/agents) do **not** run on our servers — they run on your own machines, driven by a small program called the **daemon** that invokes the [AI coding tools](/providers) installed locally. The Multica server only coordinates: it stores [issues](/issues), queues [tasks](/tasks), and dispatches them to the right **runtime** (runtime = daemon × one AI coding tool).
 
-This structure is the biggest difference between Multica and Linear / Jira: **your API keys, toolchain, and code directories stay on your machine** — the Multica server never sees any of them. That means "my agent isn't working" is almost always a local problem — the daemon isn't running, an AI tool isn't installed, a key has expired. Check locally first; see [Troubleshooting](/troubleshooting) for a guide.
+This structure is the biggest difference between Multica and Linear / Jira: **your API keys, toolchain, and code directories stay on your machine** — the Multica server never sees any of them. That means "my digital human isn't working" is almost always a local problem — the daemon isn't running, an AI tool isn't installed, a key has expired. Check locally first; see [Troubleshooting](/troubleshooting) for a guide.
 
 ## Starting the daemon
 
@@ -59,7 +59,7 @@ Key points:
 - The **Runtimes** page in the Multica UI lists these rows
 
 <Callout type="info">
-**Cloud runtimes are coming**, currently in a waitlist phase. Once available, you'll be able to execute agent tasks directly on Multica Cloud without running a local daemon. Sign up with your email on the [download page](https://multica.ai/download) to get notified.
+**Cloud runtimes are coming**, currently in a waitlist phase. Once available, you'll be able to execute digital human tasks directly on Multica Cloud without running a local daemon. Sign up with your email on the [download page](https://multica.ai/download) to get notified.
 </Callout>
 
 ## When a runtime is marked offline
@@ -70,7 +70,7 @@ Multica uses heartbeats to decide whether a runtime is online. Three key numbers
 |---|---|
 | Daemon heartbeat frequency | Every **15 seconds** |
 | Marked as missing | No heartbeat for **45 seconds** (3 missed beats) |
-| Auto-deleted | Missing with no associated agents for over **7 days** |
+| Auto-deleted | Missing with no associated digital humans for over **7 days** |
 
 Missing is not permanent — as soon as the daemon sends another heartbeat it returns to online, and the runtime record is preserved. Restarting the daemon does not lose runtimes.
 
@@ -83,9 +83,9 @@ Missing is not permanent — as soon as the daemon sends another heartbeat it re
 Multica enforces concurrency limits at two layers:
 
 - **Daemon layer**: **20 concurrent tasks** by default (tunable via env var `MULTICA_DAEMON_MAX_CONCURRENT_TASKS`)
-- **Agent layer**: **6 concurrent tasks per agent** by default (configured per-agent)
+- **Digital Human layer**: **6 concurrent tasks per digital human** by default (configured per-digital human)
 
-The tighter of the two wins. If your daemon is already running 20 tasks, new tasks wait even if an agent still has headroom.
+The tighter of the two wins. If your daemon is already running 20 tasks, new tasks wait even if a digital human still has headroom.
 
 If you see tasks stuck in `queued` without moving to `dispatched`, one of these two limits is usually saturated.
 
@@ -95,9 +95,9 @@ When the daemon crashes or is force-killed, the tasks it had picked up are left 
 
 Even if this step fails due to a network issue, there's a server-side scan **every 30 seconds** as a backstop: any runtime without a heartbeat for over 45 seconds is marked missing, and its tasks are reclaimed along with it.
 
-## Troubleshooting agents that aren't working
+## Troubleshooting digital humans that aren't working
 
-When you hit a "my agent isn't working" problem, run this three-step checklist first:
+When you hit a "my digital human isn't working" problem, run this three-step checklist first:
 
 1. Run `cs-workflow daemon status` — confirm the daemon is running and online
 2. Run `cs-workflow daemon logs -f` — check for errors

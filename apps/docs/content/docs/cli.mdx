@@ -5,7 +5,7 @@ description: One-page overview of every top-level Multica CLI command. For full 
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-The Multica CLI mirrors almost everything the Web UI can do (create [issues](/issues), assign [agents](/agents), start the [daemon](/daemon-runtimes), and more). This page lists every top-level command with a one-line description. For the full set of flags and examples, run `cs-workflow <command> --help`.
+The Multica CLI mirrors almost everything the Web UI can do (create [issues](/issues), assign [digital humans](/agents), start the [daemon](/daemon-runtimes), and more). This page lists every top-level command with a one-line description. For the full set of flags and examples, run `cs-workflow <command> --help`.
 
 ## Getting authenticated
 
@@ -54,26 +54,26 @@ For the difference between token types, see [Authentication and tokens](/auth-to
 | `cs-workflow issue get <id>` | Show a single issue (accepts an issue key or a UUID) |
 | `cs-workflow issue create --title "..."` | Create a new issue |
 | `cs-workflow issue update <id> ...` | Update an issue (status, priority, assignee, etc.) |
-| `cs-workflow issue assign <id> --agent <slug>` | Assign to an agent (triggers a task immediately) |
+| `cs-workflow issue assign <id> --agent <slug>` | Assign to a digital human (triggers a task immediately) |
 | `cs-workflow issue status <id> --set <status>` | Shortcut to change status |
 | `cs-workflow issue search <query>` | Keyword search |
-| `cs-workflow issue runs <id>` | Show agent runs on an issue |
-| `cs-workflow issue rerun <id>` | Re-enqueue a fresh task for the issue's current agent assignee |
+| `cs-workflow issue runs <id>` | Show digital human runs on an issue |
+| `cs-workflow issue rerun <id>` | Re-enqueue a fresh task for the issue's current digital human assignee |
 | `cs-workflow issue comment <id> ...` | Nested: view / post comments |
 | `cs-workflow issue subscriber <id> ...` | Nested: subscribe / unsubscribe |
 | `cs-workflow project list/get/create/update/delete/status` | Project CRUD |
 
-## Agents and skills
+## Digital Humans and skills
 
 | Command | Purpose |
 |---|---|
-| `cs-workflow agent list` | List the workspace's agents |
-| `cs-workflow agent get <slug>` | Show an agent's configuration |
-| `cs-workflow agent create ...` | Create an agent |
-| `cs-workflow agent update <slug> ...` | Update an agent |
+| `cs-workflow agent list` | List the workspace's digital humans |
+| `cs-workflow agent get <slug>` | Show a digital human's configuration |
+| `cs-workflow agent create ...` | Create a digital human |
+| `cs-workflow agent update <slug> ...` | Update a digital human |
 | `cs-workflow agent archive <slug>` | Archive |
-| `cs-workflow agent restore <slug>` | Restore an archived agent |
-| `cs-workflow agent tasks <slug>` | Show an agent's task history |
+| `cs-workflow agent restore <slug>` | Restore an archived digital human |
+| `cs-workflow agent tasks <slug>` | Show a digital human's task history |
 | `cs-workflow agent skills ...` | Nested: attach / detach skills |
 | `cs-workflow skill list/get/create/update/delete` | Skill CRUD |
 | `cs-workflow skill import ...` | Import a skill from GitHub, ClawHub, or the local machine |
@@ -89,7 +89,7 @@ For the difference between token types, see [Authentication and tokens](/auth-to
 | `cs-workflow squad update <id> ...` | Update name, description, instructions, leader, or avatar |
 | `cs-workflow squad delete <id>` | Archive (soft-delete) — transfers assigned issues to the leader |
 | `cs-workflow squad member list/add/remove <squad-id>` | Manage squad members |
-| `cs-workflow squad activity <issue-id> <action\|no_action\|failed> --reason "..."` | Used by squad leader agents to record an evaluation per turn |
+| `cs-workflow squad activity <issue-id> <action\|no_action\|failed> --reason "..."` | Used by squad leader digital humans to record an evaluation per turn |
 
 See [Squads](/squads) for the full model.
 
@@ -123,7 +123,7 @@ See [Squads](/squads) for the full model.
 
 | Command | Purpose |
 |---|---|
-| `cs-workflow repo checkout <url>` | Clone a repo locally for agents to use |
+| `cs-workflow repo checkout <url>` | Clone a repo locally for digital humans to use |
 | `cs-workflow config` | View or edit local CLI configuration |
 | `cs-workflow version` | Print the CLI version |
 | `cs-workflow update` | Upgrade the CLI to the latest release |
@@ -144,4 +144,4 @@ v2 will ship a dedicated detailed reference page for each command.
 
 - [Authentication and tokens](/auth-tokens) — PAT vs. JWT vs. daemon token
 - [Daemon and runtimes](/daemon-runtimes) — how the `daemon` commands work under the hood
-- [Creating and configuring agents](/agents-create) — all options for `cs-workflow agent create`
+- [Creating and configuring digital humans](/agents-create) — all options for `cs-workflow agent create`

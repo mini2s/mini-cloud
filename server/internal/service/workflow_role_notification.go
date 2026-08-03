@@ -37,6 +37,13 @@ func (s *WorkflowService) transitionHumanRolePhase(ctx context.Context, nodeRun 
 		if !recipient.Valid {
 			return errors.New("workflow role recipient is missing")
 		}
+		// Human worker_id/critic_id store a member_id (the issue-assignee model
+		// and ListMyWorkflowTasks both key on member_id), but recipient_user_id
+		// FK→multica_user. Resolve member→user; if the id is not a member (e.g. a
+		// role-resolved user_id), GetMember returns no rows and we use it as-is.
+		if m, err := q.GetMember(ctx, recipient); err == nil && m.UserID.Valid {
+			recipient = m.UserID
+		}
 		_, err = q.EnqueueWorkflowRoleNotification(ctx, db.EnqueueWorkflowRoleNotificationParams{
 			WorkspaceID: run.WorkspaceID, WorkflowRunID: run.ID, WorkflowNodeRunID: nodeRun.ID,
 			SlotType: slotType, RecipientUserID: recipient, NotificationType: notificationType,

@@ -4,10 +4,33 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 )
+
+func TestWorkflowSplitDraftAddRejectsAssigneeFlags(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+	}))
+	defer srv.Close()
+
+	t.Setenv("MULTICA_SERVER_URL", srv.URL)
+	cmd := newWorkflowSplitDraftAddTestCmd()
+	cmd.SetArgs([]string{
+		"node-run-1", "--key", "a", "--title", "A", "--description", "A",
+		"--assignee-type", "agent", "--assignee-id", "agent-1",
+	})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("Execute() error = %v, want unknown flag", err)
+	}
+	if requests != 0 {
+		t.Fatalf("requests = %d, want 0", requests)
+	}
+}
 
 func newWorkflowSplitDraftAddTestCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "add <node-run-id>", Args: exactArgs(1), RunE: runWorkflowSplitDraftAdd}

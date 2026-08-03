@@ -2,9 +2,41 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { WorkflowPanoramaPage } from "./workflow-panorama-page";
+import { isValidWorkflowConnection, WorkflowPanoramaPage } from "./workflow-panorama-page";
 import { STAGE_MARKER_COLORS } from "./constants";
 import type { Edge, Node } from "@xyflow/react";
+import type { WorkflowNode } from "@multica/core/types";
+
+it("validates boundary connections before mutation", () => {
+  const node = (id: string, type?: string): WorkflowNode => ({
+    id,
+    workflow_id: "wf-1",
+    title: id,
+    description: "",
+    position_x: 0,
+    position_y: 0,
+    format_schema: type ? { type } : null,
+    worker_type: "human",
+    worker_id: null,
+    critic_type: "human",
+    critic_id: null,
+    critic_api_url: null,
+    sort_order: 0,
+    stage_id: "stage-1",
+    created_at: "",
+    updated_at: "",
+  });
+  const nodes = new Map(["start", "task", "end", "note"].map((id) => [
+    id,
+    node(id, id === "task" ? undefined : id === "note" ? "annotation" : id),
+  ]));
+
+  expect(isValidWorkflowConnection({ source: "start", target: "task", sourceHandle: null, targetHandle: null }, nodes)).toBe(true);
+  expect(isValidWorkflowConnection({ source: "task", target: "end", sourceHandle: null, targetHandle: null }, nodes)).toBe(true);
+  expect(isValidWorkflowConnection({ source: "task", target: "start", sourceHandle: null, targetHandle: null }, nodes)).toBe(false);
+  expect(isValidWorkflowConnection({ source: "start", target: "end", sourceHandle: null, targetHandle: null }, nodes)).toBe(false);
+  expect(isValidWorkflowConnection({ source: "start", target: "note", sourceHandle: null, targetHandle: null }, nodes)).toBe(false);
+});
 
 // Hoisted mock data — allows per-test overrides via beforeEach
 const mocks = vi.hoisted(() => ({
@@ -13,9 +45,23 @@ const mocks = vi.hoisted(() => ({
   ],
   nodesData: [] as unknown[],
   edgesData: [] as unknown[],
+  workflowRolesData: [] as unknown[],
   runsData: [] as Array<{ id: string }>,
   nodeRunsData: [] as unknown[],
-  workflowData: { id: "wf-1", title: "Test Workflow", status: "draft" },
+  runtimesData: [] as unknown[],
+  preflightResult: {
+    issues: [] as Array<{ checkId: string; severity: string; blocking: boolean; nodeId: string; nodeTitle: string; message: string }>,
+    blockingCount: 0,
+    warningCount: 0,
+    passed: true,
+  },
+  workflowData: {
+    id: "wf-1",
+    title: "Test Workflow",
+    status: "draft",
+    default_runtime_selection_policy: "idle_first",
+    default_runtime_id: null,
+  },
   selectedNodeId: null as string | null,
   selectedEdgeId: null as string | null,
   nodeEdits: {} as Record<string, unknown>,
@@ -30,8 +76,17 @@ const mocks = vi.hoisted(() => ({
   updateStageMutateAsync: vi.fn(),
   deleteStageMutate: vi.fn(),
   updateWorkflowMutate: vi.fn(),
+  updateWorkflowMutateAsync: vi.fn(),
   startWorkflowRunMutateAsync: vi.fn(),
   navigationPush: vi.fn(),
+  getActorName: vi.fn<(type: string, id: string) => string>(() => "Test Agent"),
+  getActorInitials: vi.fn<(type: string, id: string) => string>(() => "TA"),
+  getActorAvatarUrl: vi.fn<(type: string, id: string) => string | null>(() => null),
+  getMemberName: vi.fn<(userId: string) => string>(() => "Runtime Owner"),
+  useWorkspacePresenceMap: vi.fn(() => ({
+    byAgent: new Map<string, { availability: "online" | "offline" | "unstable" }>(),
+    loading: false,
+  })),
   selectNode: vi.fn(),
   clearNodeEdits: vi.fn(),
   cacheNodeDelete: vi.fn(),
@@ -96,7 +151,12 @@ vi.mock("@multica/core/workflows/queries", () => ({
   splitIssueWorkflowOptions: () => ({ queryKey: ["split-issue-workflow-options"] }),
   useCreateNode: () => ({ mutate: mocks.createNodeMutate, mutateAsync: vi.fn() }),
   useUpdateNode: () => ({ mutate: mocks.updateNodeMutate, mutateAsync: mocks.updateNodeMutateAsync }),
-  useUpdateWorkflow: () => ({ mutate: mocks.updateWorkflowMutate, mutateAsync: vi.fn() }),
+  useUpdateWorkflow: () => ({
+    mutate: mocks.updateWorkflowMutate,
+    mutateAsync: mocks.updateWorkflowMutateAsync,
+    isPending: false,
+  }),
+  useMutateWorkflowRole: () => ({ mutateAsync: vi.fn() }),
   useDeleteNode: () => ({ mutateAsync: mocks.deleteNodeMutateAsync }),
   useCreateEdge: () => ({ mutate: mocks.createEdgeMutate, mutateAsync: vi.fn() }),
   useDeleteEdge: () => ({ mutate: mocks.deleteEdgeMutate, mutateAsync: vi.fn() }),
@@ -114,8 +174,25 @@ vi.mock("@multica/core/workspace/queries", () => ({
   builtinPluginListOptions: () => ({ queryKey: ["plugins"] }),
 }));
 
+vi.mock("@multica/core/runtimes/queries", () => ({
+  runtimeListOptions: () => ({ queryKey: ["runtimes"] }),
+}));
+
+vi.mock("../use-usable-workflow-runtimes", () => ({
+  useUsableWorkflowRuntimes: (runtimes: unknown[]) => ({ runtimes, isLoading: false }),
+}));
+
 vi.mock("@multica/core/workspace/hooks", () => ({
-  useActorName: () => ({ getActorName: () => "Test Agent" }),
+  useActorName: () => ({
+    getActorName: mocks.getActorName,
+    getActorInitials: mocks.getActorInitials,
+    getActorAvatarUrl: mocks.getActorAvatarUrl,
+    getMemberName: mocks.getMemberName,
+  }),
+}));
+
+vi.mock("@multica/core/agents", () => ({
+  useWorkspacePresenceMap: mocks.useWorkspacePresenceMap,
 }));
 
 vi.mock("@multica/core/hooks", () => ({
@@ -203,6 +280,8 @@ vi.mock("../../../i18n", () => {
       toast_delete_failed: "Failed to delete workflow",
       toast_saved: "Workflow saved",
       toast_save_failed: "Failed to save workflow",
+      toast_run_started: "Workflow run started",
+      toast_run_failed: "Failed to start workflow run",
       click_to_rename: "Click to rename",
       delete: "Delete",
       delete_dialog: {
@@ -212,6 +291,26 @@ vi.mock("../../../i18n", () => {
         confirm: "Delete",
         deleting: "Deleting...",
       },
+    },
+    node: {
+      role_developer: "Developer",
+      role_qa: "QA",
+      role_tech_lead: "Tech lead",
+    },
+    builtin_roles: {
+      developer: { name: "Developer" },
+      qa: { name: "QA" },
+      tech_lead: { name: "Tech lead" },
+    },
+    runtime_select: {
+      title: "Select runtime",
+      description: "Select a runtime for {{name}}.",
+      empty_title: "No runtime available",
+      empty_description: "Connect a runtime device first.",
+      auto_title: "Auto-select (recommended)",
+      auto_description: "Select a runtime for each node when it runs.",
+      cancel: "Cancel",
+      confirm: "Run",
     },
     detail_panel: {
       close_confirm_title: "Save panel changes?",
@@ -260,11 +359,54 @@ vi.mock("../../../i18n", () => {
         unsaved: "Unsaved",
         editor: "Editor",
         run_history: "Run history",
+        run_settings: "Run settings",
         test_run: "Test run",
         save_and_test: "Save & test",
         more: "More",
         blocked_tooltip: "Resolve blocking issues first.",
         activate_disabled_unsaved: "Save changes before activating.",
+        activate: "Activate",
+        reactivate: "Reactivate",
+        deactivate: "Deactivate",
+        save_first: "Save first",
+        review_issues: "Review issues",
+        save_before_activating_status: "Save before activating",
+        available_in_issues: "Available in issues",
+        hidden_from_issue_picker: "Hidden from issue picker",
+        blocking_issues_left: "{{count}} issue(s) left",
+      },
+      card: {
+        actor_type_agent: "Digital human",
+        actor_type_member: "Member",
+        actor_type_squad: "Squad",
+        actor_type_role: "Development role",
+        actor_type_api: "API reviewer",
+        actor_online: "Online",
+        actor_offline: "Offline",
+      },
+    },
+    runtime_strategy: {
+      default_title: "Default run strategy",
+      default_description: "Default for {{name}}",
+      run_title: "Start workflow",
+      run_description: "Run {{name}}",
+      runtime_label: "Preferred runtime",
+      runtime_placeholder: "Select a runtime",
+      online: "Online",
+      offline: "Offline",
+      deleted_runtime: "Runtime unavailable",
+      no_runtime: "No runtime",
+      direct_run_hint: "No issue creator",
+      cancel: "Cancel",
+      saving: "Saving...",
+      save_default: "Save default",
+      start_run: "Start run",
+      toast_default_saved: "Saved",
+      toast_default_failed: "Failed",
+      policy: {
+        specified_runtime_first: { title: "Specified runtime first", description: "Specified → idle → owner" },
+        idle_first: { title: "Idle runtime first", description: "Idle → owner" },
+        issue_creator_first: { title: "Issue owner first", description: "Owner → idle" },
       },
     },
     preflight: {
@@ -354,13 +496,14 @@ vi.mock("@xyflow/react", () => ({
 vi.mock("../node-config-panel", () => ({
   NodeConfigPanel: (props: {
     node: { id: string };
-    recentNodeRun?: { workflow_node_id: string } | null;
+    recentNodeRun?: { workflow_node_id: string; status?: string } | null;
+    disabled?: boolean;
     onStageChange?: (nodeId: string, stageId: string | null) => void;
     onDeleteNode?: (nodeId: string) => void;
     onDirtyChange?: (dirty: boolean) => void;
     onRegisterSave?: (save: (() => Promise<boolean>) | null) => void;
   }) => (
-    <div data-testid="node-config-panel">
+    <div data-testid="node-config-panel" data-disabled={String(props.disabled === true)}>
       <button
         type="button"
         onClick={() => {
@@ -381,15 +524,23 @@ vi.mock("../node-config-panel", () => ({
 }));
 
 vi.mock("@multica/core/workflows/preflight-checks", () => ({
-  runAllPreflightChecks: () => ({ issues: [], blockingCount: 0, warningCount: 0, passed: true }),
+  runAllPreflightChecks: () => mocks.preflightResult,
 }));
 
 vi.mock("./preflight-bar", () => ({
-  PreflightBar: () => null,
+  PreflightBar: ({ onDismiss }: { onDismiss: () => void }) => (
+    <div data-testid="preflight-bar">
+      <button type="button" onClick={onDismiss}>Dismiss preflight</button>
+    </div>
+  ),
 }));
 
 // Mock TanStack Query — reads from hoisted mocks
 vi.mock("@tanstack/react-query", () => ({
+  useQueryClient: () => ({
+    getQueryData: vi.fn(),
+    setQueryData: vi.fn(),
+  }),
   useQuery: (opts: { queryKey: string[] }) => {
     const key = opts.queryKey.join(",");
     if (key.includes("node-runs")) return { data: mocks.nodeRunsData, isLoading: false, isError: false };
@@ -400,8 +551,8 @@ vi.mock("@tanstack/react-query", () => ({
     if (key.includes("detail")) return { data: mocks.workflowData, isLoading: false, isError: false };
     if (key.includes("agents")) return { data: [], isLoading: false };
     if (key.includes("plugins")) return { data: { items: [] }, isLoading: false };
-    if (key.includes("roles")) return { data: [], isLoading: false };
-    if (key.includes("split-issue-workflow-options")) return { data: [], isLoading: false };
+    if (key.includes("roles")) return { data: mocks.workflowRolesData, isLoading: false };
+		if (key.includes("runtimes")) return { data: mocks.runtimesData, isLoading: false };
     return { data: null, isLoading: true, isError: false };
   },
 }));
@@ -414,11 +565,25 @@ describe("WorkflowPanoramaPage (new)", () => {
     mocks.stagesData = [
       { id: "stage-1", workflow_id: "wf-1", name: "Stage 1", description: "", sort_order: 0, node_count: 0, created_at: "", updated_at: "" },
     ];
-    mocks.workflowData = { id: "wf-1", title: "Test Workflow", status: "draft" };
+    mocks.workflowData = {
+      id: "wf-1",
+      title: "Test Workflow",
+      status: "draft",
+      default_runtime_selection_policy: "idle_first",
+      default_runtime_id: null,
+    };
     mocks.nodesData = [];
     mocks.edgesData = [];
+    mocks.workflowRolesData = [];
     mocks.runsData = [];
     mocks.nodeRunsData = [];
+    mocks.runtimesData = [];
+    mocks.preflightResult = {
+      issues: [],
+      blockingCount: 0,
+      warningCount: 0,
+      passed: true,
+    };
     mocks.selectedNodeId = null;
     mocks.selectedEdgeId = null;
     mocks.nodeEdits = {};
@@ -433,8 +598,19 @@ describe("WorkflowPanoramaPage (new)", () => {
     mocks.updateStageMutateAsync.mockReset();
     mocks.deleteStageMutate.mockReset();
     mocks.updateWorkflowMutate.mockReset();
+    mocks.updateWorkflowMutateAsync.mockReset();
     mocks.startWorkflowRunMutateAsync.mockReset();
     mocks.navigationPush.mockReset();
+    mocks.getActorName.mockReset();
+    mocks.getActorName.mockReturnValue("Test Agent");
+    mocks.getActorInitials.mockReset();
+    mocks.getActorInitials.mockReturnValue("TA");
+    mocks.getActorAvatarUrl.mockReset();
+    mocks.getActorAvatarUrl.mockReturnValue(null);
+    mocks.getMemberName.mockReset();
+    mocks.getMemberName.mockReturnValue("Runtime Owner");
+    mocks.useWorkspacePresenceMap.mockClear();
+    mocks.useWorkspacePresenceMap.mockReturnValue({ byAgent: new Map(), loading: false });
     mocks.selectNode.mockReset();
     mocks.clearNodeEdits.mockReset();
     mocks.clearReverseAction.mockReset();
@@ -483,6 +659,57 @@ describe("WorkflowPanoramaPage (new)", () => {
         title: "Edited title",
       });
       expect(mocks.clearNodeEdits).toHaveBeenCalledWith("node-1");
+    });
+  });
+
+  it("only sends title and description when saving cached boundary node edits", async () => {
+    mocks.nodesData = [
+      {
+        id: "start-1",
+        workflow_id: "wf-1",
+        title: "Start",
+        description: "",
+        worker_type: "human",
+        worker_id: null,
+        worker_role_id: null,
+        critic_type: "human",
+        critic_id: null,
+        critic_role_id: null,
+        critic_api_url: null,
+        stage_id: "stage-1",
+        format_schema: { type: "start" },
+        position_x: 120,
+        position_y: 0,
+        sort_order: 0,
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.nodeEdits = {
+      "start-1": {
+        title: "Begin",
+        description: "Entry point",
+        worker_type: "agent",
+        worker_id: "agent-1",
+        worker_role_id: "role-1",
+        critic_type: "api",
+        critic_id: "critic-1",
+        critic_role_id: "role-2",
+        critic_api_url: "https://critic.example.test",
+        format_schema: { type: "split" },
+      },
+    };
+    mocks.updateNodeMutateAsync.mockResolvedValueOnce({});
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await vi.waitFor(() => {
+      expect(mocks.updateNodeMutateAsync).toHaveBeenCalledWith({
+        nodeId: "start-1",
+        title: "Begin",
+        description: "Entry point",
+      });
     });
   });
 
@@ -560,19 +787,46 @@ describe("WorkflowPanoramaPage (new)", () => {
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
 
     fireEvent.click(screen.getAllByRole("button", { name: "Add node" })[0]!);
-    fireEvent.click(screen.getByRole("button", { name: /Agent task/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Task:/ }));
 
     expect(mocks.createNodeMutate).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Agent task",
+        title: "Task",
         worker_type: "agent",
         format_schema: expect.objectContaining({
-          template_id: "ai-agent-task",
-          template_category: "ai",
+          template_id: "agent-task",
+          template_category: "action",
         }),
       }),
       expect.any(Object),
     );
+  });
+
+  it("disables boundary templates that already exist in the workflow", () => {
+    mocks.nodesData = [{
+      id: "start",
+      workflow_id: "wf-1",
+      title: "Start",
+      description: "",
+      worker_type: "human",
+      worker_id: null,
+      critic_type: "human",
+      critic_id: null,
+      critic_api_url: null,
+      stage_id: "stage-1",
+      format_schema: { type: "start" },
+      position_x: 120,
+      position_y: 0,
+      sort_order: 0,
+      created_at: "",
+      updated_at: "",
+    }];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+    fireEvent.click(screen.getAllByRole("button", { name: "Add node" })[0]!);
+
+    expect(screen.getByRole("button", { name: /^Start:/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^End:/ })).toBeEnabled();
   });
 
   it("first-step guide 打开 picker，而不是直接创建默认矩形", () => {
@@ -593,6 +847,74 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
   });
 
+  it("restores a dismissed blocking preflight from the toolbar", () => {
+    mocks.stagesData = [];
+    mocks.nodesData = [{
+      id: "node-1",
+      workflow_id: "wf-1",
+      title: "Task",
+      description: "",
+      worker_type: "human",
+      worker_id: null,
+      critic_type: "human",
+      critic_id: null,
+      critic_api_url: null,
+      stage_id: null,
+      format_schema: null,
+      position_x: 120,
+      position_y: 0,
+      sort_order: 0,
+      created_at: "",
+      updated_at: "",
+    }];
+    mocks.preflightResult = {
+      issues: [{
+        checkId: "worker-missing",
+        severity: "error",
+        blocking: true,
+        nodeId: "node-1",
+        nodeTitle: "Task",
+        message: "Worker missing",
+      }],
+      blockingCount: 1,
+      warningCount: 0,
+      passed: false,
+    };
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss preflight" }));
+    expect(screen.queryByTestId("preflight-bar")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Review issues" }));
+    expect(screen.getByTestId("preflight-bar")).toBeInTheDocument();
+  });
+
+  it("renders an unassigned stage lane for workflows whose nodes have no stage", () => {
+    mocks.stagesData = [];
+    mocks.nodesData = [{
+      id: "node-1",
+      workflow_id: "wf-1",
+      title: "Task",
+      description: "",
+      worker_type: "human",
+      worker_id: null,
+      critic_type: "human",
+      critic_id: null,
+      critic_api_url: null,
+      stage_id: null,
+      format_schema: null,
+      position_x: 120,
+      position_y: 0,
+      sort_order: 0,
+      created_at: "",
+      updated_at: "",
+    }];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    expect(screen.getByText("Unassigned")).toBeInTheDocument();
+  });
+
   it("shows add node as the primary empty-workflow action", () => {
     mocks.stagesData = [];
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
@@ -608,15 +930,15 @@ describe("WorkflowPanoramaPage (new)", () => {
     render(<WorkflowPanoramaPage workflowId="wf-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Add node" }));
-    fireEvent.click(screen.getByRole("button", { name: /Agent task/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Task:/ }));
 
     expect(mocks.createNodeMutate).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Agent task",
+        title: "Task",
         stage_id: null,
         format_schema: expect.objectContaining({
-          template_id: "ai-agent-task",
-          template_category: "ai",
+          template_id: "agent-task",
+          template_category: "action",
         }),
       }),
       expect.any(Object),
@@ -666,8 +988,14 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(worker).toMatchObject({ position: { x: 120, y: 12 } });
   });
 
-  it("saves cached node edits before starting a test run and opens the run detail", async () => {
-    mocks.workflowData = { id: "wf-1", title: "Test Workflow", status: "active" };
+  it("saves cached node edits, confirms the default strategy, and starts a test run", async () => {
+    mocks.workflowData = {
+      id: "wf-1",
+      title: "Test Workflow",
+      status: "active",
+      default_runtime_selection_policy: "idle_first",
+      default_runtime_id: null,
+    };
     mocks.nodesData = [
       { id: "node-1", workflow_id: "wf-1", title: "Server title", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 120, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
     ];
@@ -686,12 +1014,74 @@ describe("WorkflowPanoramaPage (new)", () => {
         nodeId: "node-1",
         title: "Edited title",
       });
-      expect(mocks.startWorkflowRunMutateAsync).toHaveBeenCalledWith({ workflowId: "wf-1" });
+      expect(screen.getByText("Idle runtime first")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Start run" }));
+
+    await vi.waitFor(() => {
+      expect(mocks.startWorkflowRunMutateAsync).toHaveBeenCalledWith({
+        workflowId: "wf-1",
+        runtimeSelectionPolicy: "idle_first",
+      });
       expect(mocks.navigationPush).toHaveBeenCalledWith("/workflows/wf-1/runs/run-1");
     });
     expect(mocks.updateNodeMutateAsync.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.startWorkflowRunMutateAsync.mock.invocationCallOrder[0]!,
     );
+  });
+
+  it("saves the workflow-level default runtime strategy", async () => {
+    mocks.updateWorkflowMutateAsync.mockResolvedValueOnce({});
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Run settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save default" }));
+
+    await vi.waitFor(() => {
+      expect(mocks.updateWorkflowMutateAsync).toHaveBeenCalledWith({
+        id: "wf-1",
+        default_runtime_selection_policy: "idle_first",
+        default_runtime_id: null,
+      });
+    });
+  });
+
+  it("shows the runtime owner in workflow run settings", async () => {
+    mocks.workflowData = {
+      ...mocks.workflowData,
+      default_runtime_selection_policy: "specified_runtime_first",
+      default_runtime_id: null,
+    };
+    mocks.runtimesData = [{
+      id: "runtime-1",
+      workspace_id: "ws-test",
+      daemon_id: "daemon-1",
+      name: "Owner Runtime",
+      runtime_mode: "local",
+      provider: "csc",
+      launch_header: "",
+      status: "online",
+      device_info: "",
+      metadata: {},
+      owner_id: "user-owner",
+      visibility: "public",
+      last_seen_at: "",
+      created_at: "",
+      updated_at: "",
+    }];
+    mocks.getMemberName.mockReturnValue("Alice");
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Run settings" }));
+    fireEvent.click(screen.getByRole("combobox"));
+
+    expect(await screen.findByRole("option")).toHaveTextContent("Owner Runtime");
+    expect(screen.getByRole("option")).toHaveTextContent("Alice");
+    expect(mocks.getMemberName).toHaveBeenCalledWith("user-owner");
   });
 
   it("renders worker nodes in the first visible lane when stage sort orders are sparse", () => {
@@ -805,6 +1195,99 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(worker?.data).not.toHaveProperty("stageName");
     expect(worker?.data).not.toHaveProperty("stageDescription");
     expect(worker?.data).not.toHaveProperty("runStatus");
+    expect(mocks.getActorName).toHaveBeenCalledWith("member", "member-1");
+  });
+
+  it("resolves editor actor identities and agent presence once at page level", () => {
+    mocks.getActorName.mockImplementation((type: string, id: string) => ({
+      "agent:agent-1": "Builder Agent",
+      "member:member-1": "Reviewer",
+      "squad:squad-1": "Platform Squad",
+    } as Record<string, string>)[`${type}:${id}`] ?? "Unknown");
+    mocks.getActorInitials.mockImplementation((type: string, id: string) => ({
+      "agent:agent-1": "BA",
+      "member:member-1": "R",
+      "squad:squad-1": "PS",
+    } as Record<string, string>)[`${type}:${id}`] ?? "U");
+    mocks.getActorAvatarUrl.mockImplementation((type: string, id: string) =>
+      type === "agent" && id === "agent-1" ? "/agent.png" : null,
+    );
+    mocks.useWorkspacePresenceMap.mockReturnValue({
+      byAgent: new Map([["agent-1", { availability: "online" as const }]]),
+      loading: false,
+    });
+    mocks.workflowRolesData = [{
+      id: "role-1",
+      workflow_id: "wf-1",
+      name: "developer",
+      description: "",
+      is_builtin: true,
+      sort_order: 0,
+      created_at: "",
+      updated_at: "",
+    }];
+    const baseNode = {
+      workflow_id: "wf-1",
+      title: "Task",
+      description: "",
+      critic_type: "human",
+      critic_id: null,
+      critic_api_url: null,
+      stage_id: "stage-1",
+      format_schema: null,
+      position_y: 0,
+      sort_order: 0,
+      created_at: "",
+      updated_at: "",
+    };
+    mocks.nodesData = [
+      { ...baseNode, id: "agent-node", worker_type: "agent", worker_id: "agent-1", critic_id: "member-1", position_x: 120 },
+      { ...baseNode, id: "squad-node", worker_type: "squad", worker_id: "squad-1", position_x: 420 },
+      { ...baseNode, id: "role-node", worker_type: "role", worker_id: null, worker_role_id: "role-1", position_x: 720 },
+      { ...baseNode, id: "api-node", worker_type: "human", worker_id: "member-1", critic_type: "api", critic_api_url: "https://review.example.test", position_x: 1020 },
+    ];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const renderedNodes = mocks.reactFlowProps?.nodes ?? [];
+    expect(renderedNodes.find((node) => node.id === "agent-node")?.data).toMatchObject({
+      workerIdentity: {
+        type: "agent",
+        id: "agent-1",
+        name: "Builder Agent",
+        typeLabel: "Digital human",
+        initials: "BA",
+        avatarUrl: "/agent.png",
+        availability: "online",
+        availabilityLabel: "Online",
+      },
+      criticIdentity: {
+        type: "member",
+        id: "member-1",
+        name: "Reviewer",
+        typeLabel: "Member",
+      },
+    });
+    expect(renderedNodes.find((node) => node.id === "squad-node")?.data.workerIdentity).toMatchObject({
+      type: "squad",
+      id: "squad-1",
+      name: "Platform Squad",
+      typeLabel: "Squad",
+    });
+    expect(renderedNodes.find((node) => node.id === "role-node")?.data.workerIdentity).toEqual({
+      type: "role",
+      id: null,
+      name: "Developer",
+      typeLabel: "Development role",
+    });
+    expect(renderedNodes.find((node) => node.id === "api-node")?.data.criticIdentity).toEqual({
+      type: "api",
+      id: null,
+      name: "API review",
+      typeLabel: "API reviewer",
+    });
+    expect(mocks.useWorkspacePresenceMap).toHaveBeenCalledTimes(1);
+    expect(mocks.useWorkspacePresenceMap).toHaveBeenCalledWith("ws-test");
   });
 
   it("marks annotation nodes so they do not require worker configuration", () => {
@@ -1025,6 +1508,8 @@ describe("WorkflowPanoramaPage (new)", () => {
     });
 
     expect(screen.getByTestId("node-template-picker")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Start:/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^End:/ })).toBeEnabled();
     expect(mocks.createNodeMutate).not.toHaveBeenCalled();
   });
 
@@ -1043,12 +1528,12 @@ describe("WorkflowPanoramaPage (new)", () => {
     act(() => {
       (worker?.data.onAddConnectedNode as undefined | ((nodeId: string) => void))?.("node-1");
     });
-    fireEvent.click(screen.getByRole("button", { name: /Human review/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Task:/ }));
 
     expect(mocks.createNodeMutate).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Human review",
-        position_x: 436,
+        title: "Task",
+        position_x: 492,
         stage_id: "stage-2",
       }),
       expect.any(Object),
@@ -1061,6 +1546,40 @@ describe("WorkflowPanoramaPage (new)", () => {
       {
         source_node_id: "node-1",
         target_node_id: "created-node",
+      },
+      expect.any(Object),
+    );
+  });
+
+  it("creates a selected start node before the source and connects it in boundary direction", () => {
+    mocks.nodesData = [
+      { id: "node-1", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 500, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+    ];
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const worker = mocks.reactFlowProps?.nodes.find((node) => node.id === "node-1");
+    act(() => {
+      (worker?.data.onAddConnectedNode as undefined | ((nodeId: string) => void))?.("node-1");
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Start:/ }));
+
+    expect(mocks.createNodeMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Start",
+        position_x: 228,
+        stage_id: "stage-1",
+      }),
+      expect.any(Object),
+    );
+
+    const [, options] = mocks.createNodeMutate.mock.calls[0]!;
+    options.onSuccess({ id: "created-start" });
+
+    expect(mocks.createEdgeMutate).toHaveBeenCalledWith(
+      {
+        source_node_id: "created-start",
+        target_node_id: "node-1",
       },
       expect.any(Object),
     );
@@ -1127,6 +1646,29 @@ describe("WorkflowPanoramaPage (new)", () => {
     rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
     expect(screen.queryByTestId("node-config-panel")).not.toBeInTheDocument();
     expect(mocks.selectNode).toHaveBeenLastCalledWith(null);
+  });
+
+  it("disables node editing while the latest run is working", () => {
+    mocks.nodesData = [
+      { id: "node-1", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 100, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
+    ];
+    mocks.nodeRunsData = [
+      {
+        id: "run-1",
+        workflow_node_id: "node-1",
+        status: "working",
+      },
+    ];
+
+    const { rerender } = render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
+    act(() => {
+      mocks.reactFlowProps?.onNodeClick?.({} as React.MouseEvent, worker!);
+    });
+    rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    expect(screen.getByTestId("node-config-panel")).toHaveAttribute("data-disabled", "true");
   });
 
   it("prompts with an app dialog before closing a dirty node config panel", async () => {
@@ -1270,7 +1812,7 @@ describe("WorkflowPanoramaPage (new)", () => {
 
     expect(mocks.updateNodeMutate).toHaveBeenCalledWith({
       nodeId: "moving",
-      position_x: 760,
+      position_x: 904,
     });
     expect(mocks.assignStageMutate).toHaveBeenCalledWith({
       nodeId: "moving",
@@ -1329,7 +1871,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     // Nodes must carry explicit width/height so MiniMap can render them
     // before the ResizeObserver fires (nodeHasDimensions check in @xyflow/system)
     const worker = mocks.reactFlowProps?.nodes.find((n) => n.id === "node-1");
-    expect(worker).toMatchObject({ width: 240, height: 104 });
+    expect(worker).toMatchObject({ width: 296, height: 152 });
     expect(mocks.reactFlowProps?.nodes.some((n) => n.type === "laneBg" || n.type === "gradientBg")).toBe(false);
   });
 
@@ -1385,7 +1927,13 @@ describe("WorkflowPanoramaPage (new)", () => {
     );
 
     mocks.updateWorkflowMutate.mockReset();
-    mocks.workflowData = { id: "wf-1", title: "Test Workflow", status: "active" };
+    mocks.workflowData = {
+      id: "wf-1",
+      title: "Test Workflow",
+      status: "active",
+      default_runtime_selection_policy: "idle_first",
+      default_runtime_id: null,
+    };
     rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Deactivate" }));

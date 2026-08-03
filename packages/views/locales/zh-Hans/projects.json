@@ -35,7 +35,7 @@
     "no_lead": "无负责人",
     "assign_placeholder": "指派负责人...",
     "members_group": "成员",
-    "agents_group": "智能体",
+    "agents_group": "数智人",
     "no_results": "未找到结果"
   },
   "relative_date": {
@@ -47,6 +47,14 @@
   "detail": {
     "not_found": "未找到该项目",
     "breadcrumb_fallback": "项目",
+    "tabs": {
+      "overview": "总览",
+      "backlog": "待办",
+      "issues": "需求",
+      "design": "设计",
+      "review": "审查",
+      "settings": "设置"
+    },
     "title_placeholder": "项目标题",
     "icon_tooltip": "更换图标",
     "pin_tooltip": "固定到侧边栏",
@@ -58,38 +66,38 @@
     "section_progress": "进度",
     "section_description": "描述",
     "description_placeholder": "添加描述...",
-    "empty_issues_title": "还没有关联的 issue",
-    "empty_issues_hint": "新建一个 issue，或把已有的 issue 关联到这个项目。",
-    "empty_issues_new_button": "新建 issue",
-    "no_issues_yet": "目前还没有 issue",
+    "empty_issues_title": "还没有关联的任务",
+    "empty_issues_hint": "新建一个任务，或把已有的任务关联到这个项目。",
+    "empty_issues_new_button": "新建任务",
+    "no_issues_yet": "目前还没有任务",
     "toast_link_copied": "已复制链接",
     "toast_project_deleted": "已删除项目",
-    "toast_move_issue_failed": "移动 issue 失败"
+    "toast_move_issue_failed": "移动任务失败"
   },
   "resources": {
-    "section_header": "资源",
-    "empty": "还没有关联资源。",
-    "add_button": "添加资源",
-    "popover_title": "关联 GitHub 仓库",
+    "section_header": "代码仓库",
+    "empty": "还没有关联代码仓库。",
+    "combobox_placeholder": "添加代码仓库…",
+    "invalid_hint": "不是有效的仓库地址",
+    "add_new": "添加 {{url}}",
     "attached_badge": "已关联",
     "remove_tooltip": "移除",
     "url_placeholder": "https://github.com/owner/repo 或 git@github.com:owner/repo.git",
-    "url_submit": "添加",
     "toast_attached": "已关联仓库",
     "toast_attach_failed": "关联失败",
-    "toast_removed": "已移除资源",
-    "toast_remove_failed": "移除资源失败"
+    "toast_removed": "已移除仓库",
+    "toast_remove_failed": "移除失败"
   },
   "delete_dialog": {
     "title": "删除项目",
-    "description": "将删除这个项目。issue 不会被删除，只会从项目中解除关联。",
+    "description": "将删除这个项目。任务不会被删除，只会从项目中解除关联。",
     "confirm": "删除",
     "cancel": "取消"
   },
   "picker": {
     "no_project": "无项目",
     "remove": "从项目移除",
-    "empty": "还没有项目"
+    "empty": "还没有项目，请先到项目页创建一个。"
   },
   "chip": {
     "fallback_label": "项目"

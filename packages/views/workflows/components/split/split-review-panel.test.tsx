@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SplitReviewPanel } from "./split-review-panel";
+import { ApiError } from "@multica/core/api";
 import type {
   Issue,
   SplitTask,
@@ -26,7 +27,18 @@ const i18nMock = vi.hoisted(() => {
     split_completed: "Completed",
     split_no_blocking_risk: "No blocking risk",
     split_missing_assignees: "{{count}} child issue(s) need assignees",
-    split_verdict_summary: "{{tasks}} child issues - {{assignees}} assignees - {{dependencies}} dependency chains",
+    split_assigned_tasks_summary: "{{assigned}} of {{tasks}} child issues assigned - {{dependencies}} dependency chains",
+    split_assignment_required: "Assign every active child issue before approval",
+    split_assignment_conflict: "This draft changed. The latest tasks and assignees have been loaded.",
+    split_batch_assignment_success: "Updated {{count}} drafts",
+    split_batch_assignment_failed: "Could not update the selected drafts.",
+    split_draft_select_all: "Select all drafts",
+    split_draft_select_task: "Select {{title}}",
+    split_draft_selected_count: "Selected {{selected}}/{{total}}",
+    split_draft_batch_assignee: "Set assignee for selected drafts",
+    split_reviewer_read_only: "Only the configured reviewer can edit or approve this plan.",
+    split_assignee_for: "Assignee for {{title}}",
+    split_unassigned: "Unassigned",
     split_settings_summary: "View run settings",
     split_draft_plan: "Child issue draft",
     split_dependencies: "Dependencies and release rules",
@@ -49,10 +61,10 @@ const i18nMock = vi.hoisted(() => {
     split_creating: "Creating...",
     split_no_creatable_tasks: "No child issues are ready to create yet",
     split_approve_dialog_title: "Create child issues?",
-    split_approve_dialog_description: "This will create {{count}} child issues and start their workflows.",
+    split_approve_dialog_description: "This will create {{count}} child issues.",
     split_cancel_dialog_title: "Cancel split?",
     split_cancel_dialog_description: "This will stop unfinished child tasks and cancel their child issues.",
-		split_planner_label: "Planner: {{planner}}",
+		split_planner_label: "Split planner: {{planner}}",
 		split_elapsed: "Elapsed: {{elapsed}}",
 		split_generation_slow: "Planner is still generating drafts",
 		split_cancel_affected_count: "{{count}} child tasks will be cancelled",
@@ -64,21 +76,20 @@ const i18nMock = vi.hoisted(() => {
     split_node_review_tasks_one: "Review {{count}} task",
     split_node_review_tasks_other: "Review {{count}} tasks",
     split_node_review_tasks: "Review {{count}} tasks",
-    split_node_mode_concurrency: "{{mode}} · concurrency {{concurrency}}",
+    split_node_mode_label: "{{mode}}",
+    split_node_concurrency_label: "Concurrency {{concurrency}}",
+    split_node_failure_label: "Max failures {{max}}",
+    split_node_child_workflow_missing: "No child workflow",
     split_status_fallback: "pending",
     split_draft_child_issue_label: "Child issue",
+    split_draft_created_issue_label: "Created issue",
     split_draft_issue_status_label: "Issue status",
-    split_draft_run_status_label: "Run result",
-    split_draft_workflow_label: "Workflow",
     split_draft_open_child_issue: "Open child issue",
     split_draft_error_prefix: "Error: {{message}}",
     split_draft_empty: "No child issue draft has been generated yet.",
     split_draft_untitled_task: "Untitled task",
-    split_draft_execution_workflow_for: "Execution workflow for {{title}}",
-    split_draft_select_workflow_placeholder: "Select workflow...",
     split_draft_dependencies_label: "Dependencies: {{deps}}",
     split_draft_dependencies_none: "Dependencies: none",
-    split_draft_missing_execution_workflow: "Missing execution workflow",
     split_draft_expand_details: "View details",
     split_draft_collapse_details: "Hide details",
     split_draft_edit: "Edit draft",
@@ -92,7 +103,6 @@ const i18nMock = vi.hoisted(() => {
     split_draft_title_label: "Draft title",
     split_draft_description_label: "Draft description",
     split_draft_edit_failed: "Failed to update draft.",
-		split_draft_version: "v{{version}}",
 		split_draft_recovered: "Recovered",
     split_dep_will_appear_after_draft: "Dependencies will appear here after a draft is generated.",
     split_dep_can_start_in_parallel: "These child issues can start in parallel.",
@@ -103,7 +113,6 @@ const i18nMock = vi.hoisted(() => {
     split_stat_running: "Running",
     split_stat_done: "Done",
     split_stat_failed: "Failed",
-    split_blocker_missing_workflow: "Child issue {{index}} is missing execution workflow.",
     split_actions_section: "Actions",
     close_label: "Close node inspector",
   };
@@ -138,6 +147,12 @@ const mocks = vi.hoisted(() => ({
   submitChatMutateAsync: vi.fn(),
   cancelMutateAsync: vi.fn(),
   patchDraftMutateAsync: vi.fn(),
+  patchAssigneeMutateAsync: vi.fn(),
+  batchPatchAssigneesMutateAsync: vi.fn(),
+  refetchQueries: vi.fn(),
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+  currentUserId: "user-1" as string | null,
   pendingTaskData: {} as { task_id?: string; status?: string },
   workflowOptionsData: [
     {
@@ -158,7 +173,13 @@ const mocks = vi.hoisted(() => ({
   ],
   lastSplitTasksQuery: null as null | { refetchInterval?: number | false },
   splitTasksRefetch: vi.fn(),
-  workflowOptionsRefetch: vi.fn(),
+}));
+
+vi.mock("sonner", () => ({ toast: { error: mocks.toastError, success: mocks.toastSuccess } }));
+
+vi.mock("@multica/core/auth", () => ({
+  useAuthStore: (selector: (state: { user: { id: string } | null }) => unknown) =>
+    selector({ user: mocks.currentUserId ? { id: mocks.currentUserId } : null }),
 }));
 
 vi.mock("../../../i18n", () => ({
@@ -171,6 +192,7 @@ vi.mock("../../../i18n", () => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
+  useQueryClient: () => ({ refetchQueries: mocks.refetchQueries }),
   useQuery: (options: { queryKey: readonly unknown[]; refetchInterval?: number | false }) => {
     const { queryKey } = options;
     if (Array.isArray(queryKey) && queryKey[0] === "chat" && queryKey[1] === "pending-task") {
@@ -203,20 +225,22 @@ vi.mock("@tanstack/react-query", () => ({
       };
     }
 
-    if (Array.isArray(queryKey) && queryKey.includes("split-issue-workflow-options")) {
-      return {
-        data: mocks.workflowOptionsData,
-        isLoading: false,
-        refetch: mocks.workflowOptionsRefetch,
-      };
-    }
-
     return {
       data: mocks.splitTasksData,
       isLoading: mocks.isLoading,
       refetch: vi.fn(),
     };
   },
+}));
+
+vi.mock("@multica/core/workspace/queries", () => ({
+  memberListOptions: () => ({ queryKey: ["workspace-members"] }),
+  agentListOptions: () => ({ queryKey: ["workspace-agents"] }),
+  squadListOptions: () => ({ queryKey: ["workspace-squads"] }),
+}));
+
+vi.mock("@multica/core/workspace/hooks", () => ({
+  useActorName: () => ({ getActorName: (_type: string, id: string) => id }),
 }));
 
 vi.mock("@multica/core/issues/queries", () => ({
@@ -250,9 +274,7 @@ vi.mock("@multica/core/workflows/queries", () => ({
   splitTasksOptions: (wsId: string, nodeRunId: string | null | undefined) => ({
     queryKey: ["workflows", wsId, "node-runs", nodeRunId ?? "", "split-tasks"],
   }),
-  splitIssueWorkflowOptions: (wsId: string, workflowId: string | null | undefined) => ({
-    queryKey: ["workflows", wsId, "detail", workflowId ?? "", "split-issue-workflow-options"],
-  }),
+  workflowActiveListOptions: () => ({ queryKey: ["active-workflows"] }),
   workflowRunCanvasSummaryOptions: (_wsId: string, workflowId: string, runId: string) => ({
     queryKey: ["workflows", "ws-1", workflowId, runId, "canvas-summary"],
   }),
@@ -276,6 +298,14 @@ vi.mock("@multica/core/workflows/queries", () => ({
     mutateAsync: mocks.patchDraftMutateAsync,
     isPending: false,
   }),
+  usePatchSplitTaskAssignee: () => ({
+    mutateAsync: mocks.patchAssigneeMutateAsync,
+    isPending: false,
+  }),
+  useBatchPatchSplitTaskAssignees: () => ({
+    mutateAsync: mocks.batchPatchAssigneesMutateAsync,
+    isPending: false,
+  }),
   useSubmitSplitReviewChat: () => ({
     mutateAsync: mocks.submitChatMutateAsync,
     isPending: false,
@@ -284,6 +314,21 @@ vi.mock("@multica/core/workflows/queries", () => ({
     mutateAsync: mocks.cancelMutateAsync,
     isPending: false,
   }),
+}));
+
+vi.mock("../../../common/actor-avatar", () => ({
+  ActorAvatar: () => <span data-testid="actor-avatar" />,
+}));
+
+vi.mock("../../../issues/components/pickers/assignee-picker", () => ({
+  AssigneePicker: ({ ariaLabel, onUpdate }: {
+    ariaLabel?: string;
+    onUpdate: (update: { assignee_type: "member"; assignee_id: string }) => void;
+  }) => (
+    <button type="button" aria-label={ariaLabel} onClick={() => onUpdate({ assignee_type: "member", assignee_id: "member-2" })}>
+      Choose assignee
+    </button>
+  ),
 }));
 
 vi.mock("./split-progress-badge", () => ({
@@ -302,7 +347,7 @@ vi.mock("./split-chat-review", () => ({
     disabled?: boolean;
     onSubmit: (content: string, attachmentIds?: string[]) => Promise<void>;
   }) => (
-    <div>
+    <div data-testid="split-chat-review">
       <button
         type="button"
         disabled={disabled}
@@ -326,7 +371,6 @@ const splitNode: WorkflowNode = {
   format_schema: {
     type: "split",
     split_config: {
-      default_issue_workflow_id: "child-wf-1",
       mode: "barrier",
       max_concurrency: 3,
       max_failures: 1,
@@ -335,7 +379,7 @@ const splitNode: WorkflowNode = {
   worker_type: "agent",
   worker_id: "agent-1",
   critic_type: "human",
-  critic_id: null,
+  critic_id: "user-1",
   critic_api_url: null,
   sort_order: 0,
   stage_id: "stage-1",
@@ -355,13 +399,15 @@ const splitNodeRun: WorkflowNodeRun = {
   worker_output: null,
   worker_agent_task_id: null,
   critic_type: "human",
-  critic_id: null,
+  critic_id: "user-1",
   critic_output: null,
   critic_comment: "",
   critic_agent_task_id: null,
   agent_task_id: null,
   session_id: null,
   runtime_id: null,
+  runtime_selection_reason: null,
+  failure_reason: null,
   device_id: null,
   split_review_chat_session_id: null,
   split_config_version: 1,
@@ -378,6 +424,8 @@ function draftTask(id: string, title: string, overrides: Partial<SplitTask> = {}
     title,
     description: "Update handlers and service flow.",
     workflow_id: "child-wf-1",
+    assignee_type: "workflow",
+    assignee_id: "child-wf-1",
     depends_on: [],
     sort_order: 0,
     status: "draft" as const,
@@ -393,15 +441,22 @@ function draftTask(id: string, title: string, overrides: Partial<SplitTask> = {}
   };
 }
 
-function renderPanel({
-  nodeRun = splitNodeRun,
-  parentIssueId,
-	plannerName,
-}: {
+function renderPanel(options: {
   nodeRun?: WorkflowNodeRun;
   parentIssueId?: string;
 	plannerName?: string;
+  selectedDraftTaskIds?: string[];
+  onSelectedDraftTaskIdsChange?: (taskIds: string[]) => void;
 } = {}) {
+  const {
+    nodeRun = splitNodeRun,
+    parentIssueId,
+    plannerName,
+    onSelectedDraftTaskIdsChange = vi.fn(),
+  } = options;
+  const selectedDraftTaskIds = Object.prototype.hasOwnProperty.call(options, "selectedDraftTaskIds")
+    ? options.selectedDraftTaskIds
+    : [];
   return render(
     <SplitReviewPanel
       node={splitNode}
@@ -411,6 +466,8 @@ function renderPanel({
       runId="run-1"
       parentIssueId={parentIssueId}
 		plannerName={plannerName}
+      selectedDraftTaskIds={selectedDraftTaskIds}
+      onSelectedDraftTaskIdsChange={onSelectedDraftTaskIdsChange}
       onClose={vi.fn()}
     />,
   );
@@ -418,6 +475,7 @@ function renderPanel({
 
 describe("SplitReviewPanel", () => {
   beforeEach(() => {
+    mocks.currentUserId = "user-1";
     mocks.isLoading = false;
     mocks.splitTasksData = {
       tasks: [
@@ -448,6 +506,12 @@ describe("SplitReviewPanel", () => {
     mocks.approveMutateAsync.mockReset();
     mocks.submitChatMutateAsync.mockReset();
     mocks.cancelMutateAsync.mockReset();
+    mocks.patchAssigneeMutateAsync.mockReset();
+    mocks.batchPatchAssigneesMutateAsync.mockReset();
+    mocks.patchDraftMutateAsync.mockReset();
+    mocks.refetchQueries.mockReset();
+    mocks.toastError.mockReset();
+    mocks.toastSuccess.mockReset();
     mocks.pendingTaskData = {};
     mocks.lastSplitTasksQuery = null;
     mocks.splitTasksRefetch.mockReset();
@@ -461,7 +525,7 @@ describe("SplitReviewPanel", () => {
 				nodeRun: { ...splitNodeRun, status: "splitting", started_at: "2026-07-19T00:00:00Z" },
 				plannerName: "Split Planner Code",
 			});
-			expect(screen.getByText("Planner: Split Planner Code")).toBeInTheDocument();
+			expect(screen.getByText("Split planner: Split Planner Code")).toBeInTheDocument();
 			expect(screen.getByText("Elapsed: 1:01")).toBeInTheDocument();
 			expect(screen.getByText("Planner is still generating drafts")).toBeInTheDocument();
 		} finally {
@@ -469,16 +533,46 @@ describe("SplitReviewPanel", () => {
 		}
 	});
 
-  it("renders a review with verdict, draft plan, dependencies, sticky actions, and draft quick actions", async () => {
+	it("uses the latest status transition time when splitting starts without started_at", () => {
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-07-19T00:00:12Z"));
+			renderPanel({
+				nodeRun: {
+					...splitNodeRun,
+					status: "splitting",
+					started_at: null,
+					created_at: "2026-07-18T23:30:00Z",
+					updated_at: "2026-07-19T00:00:02Z",
+				},
+			});
+
+			expect(screen.getByText("Elapsed: 0:10")).toBeInTheDocument();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("lets the configured reviewer cancel while a split draft is being generated", () => {
+		renderPanel({ nodeRun: { ...splitNodeRun, status: "splitting" } });
+
+		expect(screen.getByRole("button", { name: "Cancel split" })).toBeInTheDocument();
+	});
+
+  it("renders a review with a compact overview, full-width draft plan, and fixed actions", async () => {
     const user = userEvent.setup();
     const { container } = renderPanel();
 
     const approveButton = screen.getByRole("button", { name: "Confirm create 1" });
     expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveAttribute("data-mode", "run");
+    expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveClass("w-[min(800px,calc(100vw-2rem))]");
+    expect(screen.getByTestId("split-review-overview-grid")).toHaveClass("grid-cols-1", "min-[1280px]:grid-cols-2");
+    expect(screen.getByTestId("split-review-main")).toContainElement(screen.getByText("Child issue draft"));
     expect(screen.getByTestId("split-review-summary")).not.toHaveClass("border-l-4", "border-l-primary/70");
     expect(screen.queryByTestId("split-draft-command-bar")).not.toBeInTheDocument();
     expect(screen.queryByText("Actions")).not.toBeInTheDocument();
     expect(screen.getByTestId("split-review-action-bar")).toContainElement(approveButton);
+    expect(screen.getByTestId("node-detail-panel-footer")).toContainElement(approveButton);
     expect(screen.getByText("Child issue readiness")).toBeInTheDocument();
     expect(screen.getByText("Ready to create")).toBeInTheDocument();
     expect(screen.getByText("Child issue draft")).toBeInTheDocument();
@@ -498,11 +592,203 @@ describe("SplitReviewPanel", () => {
     expect(screen.getByRole("button", { name: "Restore draft" })).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Draft title" })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Draft description" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Select all drafts" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Delete task/i })).not.toBeInTheDocument();
     expect(screen.queryByTestId("split-task-dag")).not.toBeInTheDocument();
-    expect(approveButton.closest(".sticky")).not.toBeNull();
+    expect(approveButton.closest(".sticky")).toBeNull();
     expect(container).not.toHaveTextContent(mojibakePattern);
+  });
+
+  it("blocks approval until every active child issue has an assignee", () => {
+    mocks.splitTasksData = {
+      tasks: [
+        draftTask("task-1", "Assigned task"),
+        draftTask("task-2", "Unassigned task", { assignee_type: null, assignee_id: null, sort_order: 1 }),
+      ],
+      progress: { total: 2, created: 0, running: 0, done: 0, failed: 0, cancelled: 0, skipped: 0 },
+    };
+
+    renderPanel();
+
+    expect(screen.getByText("1 of 2 child issues assigned - 0 dependency chains")).toBeInTheDocument();
+    expect(screen.getByText("Assign every active child issue before approval (1)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm create 2" })).toBeDisabled();
+  });
+
+  it("keeps the plan read-only for members other than the configured reviewer", () => {
+    mocks.currentUserId = "user-2";
+
+    renderPanel();
+
+    expect(screen.getByText("Only the configured reviewer can edit or approve this plan.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Confirm create 1" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel split" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit draft" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Discard draft" })).not.toBeInTheDocument();
+  });
+
+  it("keeps split chat hidden for non-reviewers even when a review session exists", () => {
+    mocks.currentUserId = "user-2";
+
+    renderPanel({
+      nodeRun: {
+        ...splitNodeRun,
+        status: "split_active",
+        split_review_chat_session_id: "chat-1",
+      },
+    });
+
+    expect(screen.queryByTestId("split-chat-review")).not.toBeInTheDocument();
+  });
+
+  it("hides split chat for non-reviewers when no review session exists", () => {
+    mocks.currentUserId = "user-2";
+
+    renderPanel({
+      nodeRun: {
+        ...splitNodeRun,
+        status: "split_active",
+        split_review_chat_session_id: null,
+      },
+    });
+
+    expect(screen.queryByTestId("split-chat-review")).not.toBeInTheDocument();
+  });
+
+  it("lets the reviewer compose during awaiting_split_review", () => {
+    renderPanel({
+      nodeRun: {
+        ...splitNodeRun,
+        status: "awaiting_split_review",
+        split_review_chat_session_id: null,
+      },
+    });
+
+    expect(screen.getByRole("button", { name: "Submit split chat" })).toBeInTheDocument();
+  });
+
+  it("patches one task assignee with its version", async () => {
+    const user = userEvent.setup();
+    mocks.splitTasksData = {
+      tasks: [draftTask("task-1", "Assign API work", { version: 7, assignee_type: null, assignee_id: null })],
+      progress: { total: 1, created: 0, running: 0, done: 0, failed: 0, cancelled: 0, skipped: 0 },
+    };
+
+    renderPanel();
+    await user.click(screen.getByLabelText("Assignee for Assign API work"));
+
+    expect(mocks.patchAssigneeMutateAsync).toHaveBeenCalledWith({
+      nodeRunId: "node-run-1",
+      workflowId: "wf-1",
+      runId: "run-1",
+      taskId: "task-1",
+      request: {
+        assignee_type: "member",
+        assignee_id: "member-2",
+        expected_version: 7,
+      },
+    });
+  });
+
+  it("initially selects only unassigned active drafts", async () => {
+    const onSelectedDraftTaskIdsChange = vi.fn();
+    mocks.splitTasksData = {
+      tasks: [
+        draftTask("task-1", "Assigned task"),
+        draftTask("task-2", "Unassigned task", { assignee_type: null, assignee_id: null, sort_order: 1 }),
+        draftTask("task-3", "Discarded task", { status: "discarded", sort_order: 2 }),
+      ],
+      progress: { total: 2, created: 0, running: 0, done: 0, failed: 0, cancelled: 0, skipped: 0 },
+    };
+
+    renderPanel({ selectedDraftTaskIds: undefined, onSelectedDraftTaskIdsChange });
+
+    await waitFor(() => expect(onSelectedDraftTaskIdsChange).toHaveBeenCalledWith(["task-2"]));
+  });
+
+  it("prunes invalid selected drafts without selecting newly loaded drafts", async () => {
+    const onSelectedDraftTaskIdsChange = vi.fn();
+    mocks.splitTasksData = {
+      tasks: [
+        draftTask("task-1", "Still selected"),
+        draftTask("task-2", "New unassigned task", { assignee_type: null, assignee_id: null, sort_order: 1 }),
+      ],
+      progress: { total: 2, created: 0, running: 0, done: 0, failed: 0, cancelled: 0, skipped: 0 },
+    };
+
+    renderPanel({ selectedDraftTaskIds: ["task-1", "removed-task"], onSelectedDraftTaskIdsChange });
+
+    await waitFor(() => expect(onSelectedDraftTaskIdsChange).toHaveBeenCalledWith(["task-1"]));
+    expect(onSelectedDraftTaskIdsChange).not.toHaveBeenCalledWith(["task-1", "task-2"]);
+  });
+
+  it("batch assigns the controlled selection with current versions and clears it on success", async () => {
+    const onSelectedDraftTaskIdsChange = vi.fn();
+    mocks.splitTasksData = {
+      tasks: [
+        draftTask("task-1", "API task", { version: 7 }),
+        draftTask("task-2", "UI task", { version: 9, sort_order: 1 }),
+      ],
+      progress: { total: 2, created: 0, running: 0, done: 0, failed: 0, cancelled: 0, skipped: 0 },
+    };
+    mocks.batchPatchAssigneesMutateAsync.mockResolvedValue(mocks.splitTasksData);
+
+    renderPanel({ selectedDraftTaskIds: ["task-1", "task-2"], onSelectedDraftTaskIdsChange });
+    await userEvent.click(screen.getByRole("button", { name: "Set assignee for selected drafts" }));
+
+    expect(mocks.batchPatchAssigneesMutateAsync).toHaveBeenCalledWith({
+      nodeRunId: "node-run-1",
+      workflowId: "wf-1",
+      runId: "run-1",
+      request: {
+        assignee_type: "member",
+        assignee_id: "member-2",
+        tasks: [
+          { task_id: "task-1", expected_version: 7 },
+          { task_id: "task-2", expected_version: 9 },
+        ],
+      },
+    });
+    expect(onSelectedDraftTaskIdsChange).toHaveBeenCalledWith([]);
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Updated 2 drafts");
+  });
+
+  it("retains batch selection and refreshes conflict-sensitive data after a version conflict", async () => {
+    const onSelectedDraftTaskIdsChange = vi.fn();
+    mocks.splitTasksData = {
+      tasks: [draftTask("task-1", "Conflicting batch task", { version: 4 })],
+      progress: { total: 1, created: 0, running: 0, done: 0, failed: 0, cancelled: 0, skipped: 0 },
+    };
+    mocks.batchPatchAssigneesMutateAsync.mockRejectedValueOnce(new ApiError("conflict", 409, "Conflict"));
+    mocks.splitTasksRefetch.mockResolvedValue(undefined);
+    mocks.refetchQueries.mockResolvedValue(undefined);
+
+    renderPanel({ selectedDraftTaskIds: ["task-1"], onSelectedDraftTaskIdsChange });
+    await userEvent.click(screen.getByRole("button", { name: "Set assignee for selected drafts" }));
+
+    await waitFor(() => expect(mocks.splitTasksRefetch).toHaveBeenCalledTimes(1));
+    expect(mocks.refetchQueries).toHaveBeenCalledTimes(4);
+    expect(onSelectedDraftTaskIdsChange).not.toHaveBeenCalledWith([]);
+    expect(mocks.toastError).toHaveBeenCalledWith("This draft changed. The latest tasks and assignees have been loaded.");
+  });
+
+  it.each([409, 422])("reloads tasks and all assignee options after an assignment %s response", async (status) => {
+    const user = userEvent.setup();
+    mocks.splitTasksData = {
+      tasks: [draftTask("task-1", "Conflicting task", { assignee_type: null, assignee_id: null })],
+      progress: { total: 1, created: 0, running: 0, done: 0, failed: 0, cancelled: 0, skipped: 0 },
+    };
+    mocks.patchAssigneeMutateAsync.mockRejectedValueOnce(new ApiError("conflict", status, "Conflict"));
+    mocks.splitTasksRefetch.mockResolvedValue(undefined);
+    mocks.refetchQueries.mockResolvedValue(undefined);
+
+    renderPanel();
+    await user.click(screen.getByLabelText("Assignee for Conflicting task"));
+
+    await waitFor(() => expect(mocks.splitTasksRefetch).toHaveBeenCalledTimes(1));
+    expect(mocks.refetchQueries).toHaveBeenCalledTimes(4);
+    expect(mocks.toastError).toHaveBeenCalledWith("This draft changed. The latest tasks and assignees have been loaded.");
+    expect(screen.getByText("Conflicting task")).toBeInTheDocument();
   });
 
   it("groups discarded draft rows after a chat adjustment while approving only active drafts", async () => {
@@ -553,16 +839,18 @@ describe("SplitReviewPanel", () => {
     expect(screen.getByText("Render board")).toBeInTheDocument();
   });
 
-  it("uses visible draft numbers for active blockers and ignores discarded draft risks", () => {
+  it("ignores discarded tasks when reporting missing assignees", () => {
     mocks.splitTasksData = {
       tasks: [
-        draftTask("discarded-1", "Discarded missing workflow", {
-          workflow_id: "",
+        draftTask("discarded-1", "Discarded missing assignee", {
+          assignee_type: null,
+          assignee_id: null,
           status: "discarded",
           sort_order: 0,
         }),
-        draftTask("active-2", "Active missing workflow", {
-          workflow_id: "",
+        draftTask("active-2", "Active missing assignee", {
+          assignee_type: null,
+          assignee_id: null,
           sort_order: 1,
         }),
       ],
@@ -579,10 +867,9 @@ describe("SplitReviewPanel", () => {
 
     renderPanel();
 
-    expect(screen.getByText("Child issue 01 is missing execution workflow.")).toBeInTheDocument();
-    expect(screen.queryByText("Child issue 1 is missing execution workflow.")).not.toBeInTheDocument();
+    expect(screen.getByText("Assign every active child issue before approval (1)")).toBeInTheDocument();
     expect(screen.queryByTestId("split-draft-risk-discarded-1")).not.toBeInTheDocument();
-    expect(screen.getByTestId("split-draft-risk-active-2")).toBeInTheDocument();
+    expect(screen.queryByTestId("split-draft-risk-active-2")).not.toBeInTheDocument();
   });
 
   it("approves current draft tasks without sending local modifications", async () => {
@@ -590,6 +877,8 @@ describe("SplitReviewPanel", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Confirm create 1" }));
     expect(screen.getByText("Create child issues?")).toBeInTheDocument();
+    expect(screen.getByText("This will create 1 child issues.")).toBeInTheDocument();
+    expect(screen.queryByText(/workflows/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancel split" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Confirm create" }));
@@ -600,6 +889,7 @@ describe("SplitReviewPanel", () => {
       runId: "run-1",
       request: {
         approved_task_ids: ["task-1"],
+        expected_versions: { "task-1": 1 },
       },
     });
   });
@@ -804,6 +1094,7 @@ describe("SplitReviewPanel", () => {
     });
 
     expect(screen.getByText("split generation returned no tasks")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Regenerate draft" })).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Generate draft from output" }));
 
@@ -951,6 +1242,7 @@ describe("SplitReviewPanel", () => {
       runId: "run-1",
       request: {
         approved_task_ids: ["task-1", "task-2", "task-3"],
+        expected_versions: { "task-1": 1, "task-2": 1, "task-3": 1 },
       },
     });
   }, 15_000);
@@ -1030,6 +1322,7 @@ describe("SplitReviewPanel", () => {
       runId: "run-1",
       request: {
         approved_task_ids: ["task-1"],
+        expected_versions: { "task-1": 1 },
       },
     });
 
@@ -1100,6 +1393,8 @@ describe("SplitReviewPanel", () => {
         started_at: "",
         completed_at: "",
         created_at: "",
+        runtime_id: null,
+        runtime_selection_policy: "idle_first",
       },
       node_runs: [],
       node_runtime_summaries: [
@@ -1126,9 +1421,11 @@ describe("SplitReviewPanel", () => {
     });
 
     expect(screen.getByRole("link", { name: "MUL-42" })).toHaveAttribute("href", "/test/issues/child-1");
-    expect(screen.getByText("Child issue")).toBeInTheDocument();
-    expect(screen.getByText("Issue status: blocked")).toBeInTheDocument();
-    expect(screen.getByText("Error: API key is missing")).toBeInTheDocument();
+    expect(screen.getByTestId("split-draft-child-issue-task-1")).toHaveTextContent("Created issue");
+    expect(screen.getByTestId("split-draft-child-status-task-1")).toHaveTextContent("Blocked");
+    expect(screen.getByTestId("split-draft-child-assignee-task-1")).toHaveTextContent("agent-1");
+    expect(screen.queryByText(/workflow run/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Error: API key is missing")).not.toBeInTheDocument();
   });
 
   it("keeps a child issue entry available from split task issue_id when child issue details are absent", () => {
@@ -1164,6 +1461,7 @@ describe("SplitReviewPanel", () => {
       "href",
       "/test/issues/efce2a24-0478-4f0b-bdb6-53166462d0fa",
     );
-    expect(screen.getByText("Run result: Running")).toBeInTheDocument();
+    expect(screen.getByText("Issue status: Running")).toBeInTheDocument();
+    expect(screen.queryByText(/workflow run/i)).not.toBeInTheDocument();
   });
 });

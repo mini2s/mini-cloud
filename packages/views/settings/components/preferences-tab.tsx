@@ -11,12 +11,13 @@ import {
 } from "@multica/ui/components/ui/select";
 import { useTheme } from "@multica/ui/components/common/theme-provider";
 import { cn } from "@multica/ui/lib/utils";
-import {
-  DEFAULT_LOCALE,
-  SUPPORTED_LOCALES,
-  type SupportedLocale,
-} from "@multica/core/i18n";
-import { useLocaleAdapter } from "@multica/core/i18n/react";
+// 隐藏语言设置：默认固定中文，相关导入注释掉（保留代码，仅注释）
+// import {
+//   DEFAULT_LOCALE,
+//   SUPPORTED_LOCALES,
+//   type SupportedLocale,
+// } from "@multica/core/i18n";
+// import { useLocaleAdapter } from "@multica/core/i18n/react";
 import { useAuthStore } from "@multica/core/auth";
 import { api } from "@multica/core/api";
 import { browserTimezone, timezoneOptions } from "../../common/timezone-select";
@@ -99,18 +100,20 @@ function WindowMockup({
 
 export function PreferencesTab() {
   const { theme, setTheme } = useTheme();
-  const { t, i18n } = useT("settings");
-  const localeAdapter = useLocaleAdapter();
-  const user = useAuthStore((s) => s.user);
+  // 隐藏语言设置：默认固定中文，注释掉语言切换相关代码（保留代码，仅注释）
+  // const { t, i18n } = useT("settings");
+  const { t } = useT("settings");
+  // const localeAdapter = useLocaleAdapter();
+  // const user = useAuthStore((s) => s.user);
 
   // i18next.language can be a region-tagged BCP-47 string (e.g. "en-US",
   // "zh-Hans-CN") returned by intl-localematcher. Normalize to a supported
   // locale before comparing — otherwise the radio shows neither option active.
-  const currentLocale: SupportedLocale = SUPPORTED_LOCALES.includes(
-    i18n.language as SupportedLocale,
-  )
-    ? (i18n.language as SupportedLocale)
-    : DEFAULT_LOCALE;
+  // const currentLocale: SupportedLocale = SUPPORTED_LOCALES.includes(
+  //   i18n.language as SupportedLocale,
+  // )
+  //   ? (i18n.language as SupportedLocale)
+  //   : DEFAULT_LOCALE;
 
   const themeOptions = [
     { value: "light" as const, label: t(($) => $.preferences.theme.light) },
@@ -118,10 +121,11 @@ export function PreferencesTab() {
     { value: "system" as const, label: t(($) => $.preferences.theme.system) },
   ];
 
-  const languageOptions: { value: SupportedLocale; label: string }[] = [
-    { value: "en", label: t(($) => $.preferences.language.english) },
-    { value: "zh-Hans", label: t(($) => $.preferences.language.chinese) },
-  ];
+  // 隐藏语言设置：默认固定中文，语言切换选项与处理函数注释掉（保留代码，仅注释）
+  // const languageOptions: { value: SupportedLocale; label: string }[] = [
+  //   { value: "en", label: t(($) => $.preferences.language.english) },
+  //   { value: "zh-Hans", label: t(($) => $.preferences.language.chinese) },
+  // ];
 
   // Persist locally → sync to user.language → reload. Reload (vs in-place
   // changeLanguage) avoids hydration mismatch and is the i18next-recommended
@@ -132,27 +136,27 @@ export function PreferencesTab() {
   // the user's other devices won't see the change. Surface that explicitly
   // via a toast and delay the reload long enough for the toast to be read,
   // otherwise the failure would be invisible.
-  const handleLanguageChange = async (next: SupportedLocale) => {
-    if (next === currentLocale) return;
-    localeAdapter.persist(next);
+  // const handleLanguageChange = async (next: SupportedLocale) => {
+  //   if (next === currentLocale) return;
+  //   localeAdapter.persist(next);
 
-    let syncFailed = false;
-    if (user) {
-      try {
-        await api.updateMe({ language: next });
-      } catch {
-        syncFailed = true;
-      }
-    }
+  //   let syncFailed = false;
+  //   if (user) {
+  //     try {
+  //       await api.updateMe({ language: next });
+  //     } catch {
+  //       syncFailed = true;
+  //     }
+  //   }
 
-    if (syncFailed) {
-      toast.warning(t(($) => $.preferences.language.sync_failed));
-      // Give the toast 2.5s of visible time before navigating away.
-      setTimeout(() => window.location.reload(), 2500);
-      return;
-    }
-    window.location.reload();
-  };
+  //   if (syncFailed) {
+  //     toast.warning(t(($) => $.preferences.language.sync_failed));
+  //     // Give the toast 2.5s of visible time before navigating away.
+  //     setTimeout(() => window.location.reload(), 2500);
+  //     return;
+  //   }
+  //   window.location.reload();
+  // };
 
   return (
     <div className="space-y-8">
@@ -210,7 +214,8 @@ export function PreferencesTab() {
         </div>
       </section>
 
-      <section className="space-y-4">
+      {/* 隐藏语言设置：默认固定中文，语言切换区块注释掉（保留代码，仅注释） */}
+      {/* <section className="space-y-4">
         <h2 className="text-sm font-semibold">
           {t(($) => $.preferences.language.title)}
         </h2>
@@ -235,7 +240,7 @@ export function PreferencesTab() {
             );
           })}
         </div>
-      </section>
+      </section> */}
 
       <TimezoneSection />
     </div>

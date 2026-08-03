@@ -232,6 +232,12 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "title is required")
 		return
 	}
+	// A project must be linked to at least one code repository — requirements
+	// iterate on the linked repo(s); without one every requirement is greenfield.
+	if len(req.Resources) == 0 {
+		writeError(w, http.StatusBadRequest, "at least one code repository is required")
+		return
+	}
 	workspaceID := h.resolveWorkspaceID(r)
 	userID, ok := requireUserID(w, r)
 	if !ok {

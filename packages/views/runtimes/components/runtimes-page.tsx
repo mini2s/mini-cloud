@@ -34,6 +34,7 @@ import { ProviderLogo } from "./provider-logo";
 import { RuntimeList, buildWorkloadIndex } from "./runtime-list";
 import {
   buildRuntimeMachines,
+  DEFAULT_RUNTIME_MACHINE_FILTER,
   filterRuntimeMachines,
   filterRuntimesByProviders,
   runtimeMachineCounts,
@@ -100,7 +101,7 @@ export function RuntimesPage({
   const wsId = useWorkspaceId();
   const qc = useQueryClient();
   const [machineFilter, setMachineFilter] =
-    useState<RuntimeMachineFilter>("all");
+    useState<RuntimeMachineFilter>(DEFAULT_RUNTIME_MACHINE_FILTER);
   const [machineSearch, setMachineSearch] = useState("");
   const [selectedMachineId, setSelectedMachineId] = useState<string | null>(
     null,
@@ -143,6 +144,29 @@ export function RuntimesPage({
     () => filterRuntimesByProviders(runtimes, visibleProviders),
     [runtimes, visibleProviders],
   );
+
+  // Desktop always has a synthesized local machine row, so the
+  // "register a runtime" empty state would hide the Start button.
+  const showEmpty =
+    !isLoading &&
+    !fetching &&
+    visibleRuntimes.length === 0 &&
+    !bootstrapping &&
+    !hasLocalMachine;
+
+  const hasNoRuntimes =
+    !isLoading && !fetching && visibleRuntimes.length === 0;
+
+  // Open the connection guide after runtime data has loaded and confirmed
+  // that the workspace has no runtimes. Closing it suppresses repeat opens
+  // caused by background refetches during the current page visit.
+  const autoOpenAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (hasNoRuntimes && !autoOpenAttemptedRef.current) {
+      autoOpenAttemptedRef.current = true;
+      setShowConnectDialog(true);
+    }
+  }, [hasNoRuntimes]);
 
   const machines = useMemo(
     () =>
@@ -195,9 +219,6 @@ export function RuntimesPage({
   if (isLoading || fetching) return <RuntimesPageSkeleton />;
 
   const totalCount = visibleRuntimes.length;
-  // Desktop always has a synthesized local machine row, so the
-  // "register a runtime" empty state would hide the Start button.
-  const showEmpty = totalCount === 0 && !bootstrapping && !hasLocalMachine;
 
   return (
     <div className="flex flex-1 min-h-0 flex-col">

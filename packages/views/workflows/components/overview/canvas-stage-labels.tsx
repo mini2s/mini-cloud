@@ -9,6 +9,7 @@ import {
   LANE_HEIGHT,
   LANE_STEP,
   STAGE_TRANSITION_GRADIENTS,
+  UNASSIGNED_STAGE_ID,
   createStageVisualIndexMap,
   getStageColor,
   getStageColorIndex,
@@ -35,6 +36,7 @@ export function CanvasStageLabels({
   onReorder,
 }: CanvasStageLabelsProps) {
   const sorted = sortStagesForDisplay(stages);
+  const editableStages = sorted.filter((stage) => stage.id !== UNASSIGNED_STAGE_ID);
   const visualIndexByStageId = createStageVisualIndexMap(stages);
 
   return (
@@ -79,24 +81,26 @@ export function CanvasStageLabels({
           const visualIndex = visualIndexByStageId.get(stage.id) ?? idx;
           const top = visualIndex * LANE_STEP * viewportZoom + viewportY;
           const height = LANE_HEIGHT * viewportZoom;
-          const isFirst = visualIndex === 0;
-          const isLast = visualIndex === sorted.length - 1;
+          const isEditable = !readOnly && stage.id !== UNASSIGNED_STAGE_ID;
+          const editableIndex = editableStages.findIndex((editableStage) => editableStage.id === stage.id);
+          const isFirst = editableIndex === 0;
+          const isLast = editableIndex === editableStages.length - 1;
 
           return (
             <div
               key={stage.id}
               className={cn(
                 "absolute flex w-40 items-center pr-2 group",
-                readOnly ? "pointer-events-none" : "pointer-events-auto",
+                isEditable ? "pointer-events-auto" : "pointer-events-none",
               )}
               data-testid="stage-label-rail"
               style={{ top, height }}
             >
               <div className="absolute left-3 top-0 h-px w-28 bg-border/40" aria-hidden="true" />
               <div
-                className={`relative flex min-w-0 flex-1 flex-col justify-center rounded-md px-3 py-2 transition-colors ${readOnly ? "" : "cursor-pointer hover:bg-muted/50 focus-within:bg-muted/50"}`}
+                className={`relative flex min-w-0 flex-1 flex-col justify-center rounded-md px-3 py-2 transition-colors ${isEditable ? "cursor-pointer hover:bg-muted/50 focus-within:bg-muted/50" : ""}`}
                 onClick={() => {
-                  if (!readOnly) onEdit?.(stage);
+                  if (isEditable) onEdit?.(stage);
                 }}
                 data-testid="stage-label-card"
               >
@@ -113,7 +117,7 @@ export function CanvasStageLabels({
                   </span>
                 )}
 
-                {!readOnly && (
+                {isEditable && (
                   <div
                     className="absolute right-1 top-1 flex gap-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100"
                     data-testid="stage-label-actions"
@@ -148,7 +152,7 @@ export function CanvasStageLabels({
                   </div>
                 )}
 
-                {!readOnly && (
+                {isEditable && (
                   <div
                     className="absolute left-1.5 bottom-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 cursor-grab active:cursor-grabbing"
                     onClick={(e) => e.stopPropagation()}

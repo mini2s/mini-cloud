@@ -23,6 +23,28 @@ const githubPlugin: BuiltinPlugin = {
   category: "development",
 };
 
+vi.mock("../../i18n", () => {
+  const translations = {
+    tab_body: {
+      plugin: {
+        picker: {
+          search_placeholder: "Search plugins...",
+          loading: "Loading plugins...",
+          empty: "No plugins available",
+          no_match: "No plugins match your search",
+          builtin_section: "Built-in",
+          cloud_section: "Cloud",
+        },
+      },
+    },
+  };
+  return {
+    useT: () => ({
+      t: (selector: (value: typeof translations) => string) => selector(translations),
+    }),
+  };
+});
+
 describe("PluginPickerList", () => {
   it("reports controlled search input changes without filtering server results locally", () => {
     const onSearchChange = vi.fn();

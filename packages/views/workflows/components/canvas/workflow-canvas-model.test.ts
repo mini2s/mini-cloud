@@ -51,6 +51,60 @@ function makeEdge(overrides: Partial<WorkflowEdge> = {}): WorkflowEdge {
 }
 
 describe("workflowEdgesToReactFlowEdges", () => {
+  it("maps boundary nodes to their dedicated renderer and dimensions", () => {
+    const rfNodes = workflowNodesToReactFlowNodes({
+      nodes: [
+        makeNode({ id: "start", position_x: 100, format_schema: { type: "start" } }),
+        makeNode({ id: "task", position_x: 200 }),
+        makeNode({ id: "end", position_x: 300, format_schema: { type: "end" } }),
+      ],
+      stages: [makeStage()],
+      nodeType: "compactWorker",
+      makeNodeData: (node) => ({ node }),
+    });
+
+    expect(rfNodes.find((node) => node.id === "start")).toMatchObject({
+      type: "boundary",
+      width: 176,
+      height: 64,
+      data: { kind: "start" },
+    });
+    expect(rfNodes.find((node) => node.id === "end")).toMatchObject({
+      type: "boundary",
+      width: 176,
+      height: 64,
+      data: { kind: "end" },
+    });
+    expect(rfNodes.find((node) => node.id === "start")?.position.y).toBe(56);
+    expect(rfNodes.find((node) => node.id === "task")?.position.y).toBe(12);
+    expect(rfNodes.find((node) => node.id === "end")?.position.y).toBe(56);
+    expect(rfNodes.find((node) => node.id === "task")?.position.x).toBe(372);
+  });
+
+  it("enforces a minimum horizontal gap within each stage without compressing larger gaps", () => {
+    const rfNodes = workflowNodesToReactFlowNodes({
+      nodes: [
+        makeNode({ id: "stage-1-a", stage_id: "stage-1", position_x: 100, sort_order: 0 }),
+        makeNode({ id: "stage-1-b", stage_id: "stage-1", position_x: 420, sort_order: 1 }),
+        makeNode({ id: "stage-1-c", stage_id: "stage-1", position_x: 900, sort_order: 2 }),
+        makeNode({ id: "stage-2-a", stage_id: "stage-2", position_x: 120, sort_order: 0 }),
+      ],
+      stages: [
+        makeStage({ id: "stage-1", sort_order: 0 }),
+        makeStage({ id: "stage-2", sort_order: 1 }),
+      ],
+      nodeType: "compactWorker",
+      makeNodeData: (node) => ({ node }),
+    });
+
+    expect(Object.fromEntries(rfNodes.map((node) => [node.id, node.position.x]))).toEqual({
+      "stage-1-a": 100,
+      "stage-1-b": 492,
+      "stage-1-c": 900,
+      "stage-2-a": 120,
+    });
+  });
+
   it("does not create critic badge nodes by default", () => {
     const rfNodes = workflowNodesToReactFlowNodes({
       nodes: [makeNode({ id: "node-1", critic_id: "critic-1" })],

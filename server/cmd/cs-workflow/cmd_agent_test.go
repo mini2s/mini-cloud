@@ -105,6 +105,20 @@ func TestResolveWorkspaceID_AgentContextSkipsConfig(t *testing.T) {
 	})
 }
 
+func TestResolveTokenPrefersDaemonInjectedEnv(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("MULTICA_TOKEN", "env-task-token")
+
+	if err := cli.SaveCLIConfig(cli.CLIConfig{Token: "config-token"}); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	got := resolveToken(testCmd())
+	if got != "env-task-token" {
+		t.Fatalf("resolveToken() = %q, want daemon-injected env token", got)
+	}
+}
+
 // TestParseCustomEnv covers the --custom-env flag parser used by both
 // `agent create` and `agent update`. The flag accepts a JSON object of
 // string keys and values; the only clear signal is the explicit "{}"

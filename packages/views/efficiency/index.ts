@@ -1,0 +1,78 @@
+// Barrel for the efficiency dashboard UI. Consumed by the web app via
+// `import { OverviewPage } from "@multica/views/efficiency"`.
+export { OverviewPage } from "./overview-page";
+export {
+  AIPenetrationCard,
+  CountsCard,
+  DeptPKCard,
+  HeroSaving,
+  MetricScorecard,
+  PlatformObjectiveCard,
+  ScorecardStrip,
+  TopRankCard,
+  TrendCard,
+} from "./components";
+export {
+  TrendChart,
+  RankingBarChart,
+  PieBreakdownChart,
+  MultiTrendChart,
+  VerticalBarChart,
+  ComboTrendChart,
+} from "./charts";
+export {
+  UsageKanban,
+  DeptTreePanel,
+  DeptAggregateView,
+  DeptCompareView,
+  MembersView,
+  MemberDetailDialog,
+} from "./usage";
+export { CostKanban, CostAggregateView, CostCompareView, CostMembersView } from "./cost";
+export {
+  EfficiencyDimension,
+  EfficiencyTimeline,
+  EfficiencyUserRanking,
+  EfficiencyRepoRanking,
+  DistributionOverview,
+} from "./efficiency";
+export {
+  ContributionDimension,
+  OrgContribution,
+  UserContribution,
+  ProjectContribution,
+  RepoContribution,
+} from "./contribution";
+export {
+  PricingPage,
+  DatasourcesPage,
+  SyncTasksPage,
+  SystemConfigPage,
+  PlatformOverviewPage,
+  PlatformHealthPage,
+  RealtimeReportPage,
+  RealtimeQueryPage,
+  EfficiencySettingsShell,
+} from "./settings";
+export {
+  DetailShell,
+  UserDetail,
+  UserGroupDetail,
+  NeedDetail,
+  TaskDetail,
+  CommitDetail,
+  RepoDetail,
+  WorkDirDetail,
+  ProjectDetail,
+} from "./detail";
+export {
+  EMPTY_NEED_FILTERS,
+  NeedList,
+  type NeedListFilters,
+  type NeedListState,
+} from "./needs";
+export {
+  CommitListPage,
+  TaskListPage,
+  type ActivityListState,
+} from "./activity";

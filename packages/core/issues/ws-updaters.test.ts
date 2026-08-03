@@ -65,6 +65,7 @@ const baseIssue: Issue = {
   priority: "none",
   assignee_type: null,
   assignee_id: null,
+  responsible_user_id: null,
   creator_type: "member",
   creator_id: "user-1",
   parent_issue_id: null,

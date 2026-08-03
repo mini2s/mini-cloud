@@ -11,11 +11,50 @@ import {
   canEditComment,
   canEditSkill,
   canManageMembers,
+  canSubmitNodeRunReview,
   canUpdateWorkspaceSettings,
 } from "./rules";
 
 const ALICE = "user-alice";
 const BOB = "user-bob";
+
+describe("canSubmitNodeRunReview", () => {
+  const subject = {
+    issueCreatorType: "member",
+    issueCreatorId: ALICE,
+    criticUserId: BOB,
+  };
+
+  it("allows the issue creator and assigned critic", () => {
+    expect(
+      canSubmitNodeRunReview(subject, { userId: ALICE, role: "member" }).allowed,
+    ).toBe(true);
+    expect(
+      canSubmitNodeRunReview(subject, { userId: BOB, role: "member" }).allowed,
+    ).toBe(true);
+  });
+
+  it("allows workspace owners and admins", () => {
+    expect(
+      canSubmitNodeRunReview(subject, { userId: "owner", role: "owner" }).allowed,
+    ).toBe(true);
+    expect(
+      canSubmitNodeRunReview(subject, { userId: "admin", role: "admin" }).allowed,
+    ).toBe(true);
+  });
+
+  it("denies unrelated members and non-member issue creators", () => {
+    expect(
+      canSubmitNodeRunReview(subject, { userId: "other", role: "member" }).allowed,
+    ).toBe(false);
+    expect(
+      canSubmitNodeRunReview(
+        { ...subject, issueCreatorType: "agent", issueCreatorId: "other" },
+        { userId: "other", role: "member" },
+      ).allowed,
+    ).toBe(false);
+  });
+});
 
 function makeAgent(overrides: Partial<Agent> = {}): Agent {
   return {

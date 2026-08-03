@@ -314,10 +314,10 @@ func GetBrewPrefix() string {
 	return strings.TrimSpace(string(out))
 }
 
-// UpdateViaBrew runs `brew upgrade multica-ai/tap/multica`.
+// UpdateViaBrew runs `brew upgrade Askhz/tap/multica`.
 // Returns the combined output and any error.
 func UpdateViaBrew() (string, error) {
-	cmd := exec.Command("brew", "upgrade", "multica-ai/tap/multica")
+	cmd := exec.Command("brew", "upgrade", "Askhz/tap/multica")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(out), fmt.Errorf("brew upgrade failed: %w", err)

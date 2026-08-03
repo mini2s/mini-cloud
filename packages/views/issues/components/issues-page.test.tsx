@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Issue } from "@multica/core/types";
 import { I18nProvider } from "@multica/core/i18n/react";
@@ -62,6 +62,9 @@ vi.mock("../../workspace/workspace-avatar", () => ({
 // Mock api (queries use api internally)
 const mockListIssues = vi.hoisted(() => vi.fn().mockResolvedValue({ issues: [], total: 0 }));
 const mockListGroupedIssues = vi.hoisted(() => vi.fn().mockResolvedValue({ groups: [] }));
+const mockUpdateIssueMutate = vi.hoisted(() => vi.fn());
+const mockListRuntimes = vi.hoisted(() => vi.fn().mockResolvedValue([]));
+const mockListWorkflows = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 const mockListMembers = vi.hoisted(() =>
   vi.fn().mockResolvedValue([
     {
@@ -89,6 +92,7 @@ const mockListAgents = vi.hoisted(() =>
       owner_id: "user-1",
       avatar_url: null,
       visibility: "workspace",
+      is_builtin: true,
       archived_at: null,
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
@@ -121,6 +125,9 @@ vi.mock("@multica/core/api", () => ({
     listMembers: (...args: any[]) => mockListMembers(...args),
     listAgents: (...args: any[]) => mockListAgents(...args),
     listSquads: (...args: any[]) => mockListSquads(...args),
+    listRuntimes: (...args: any[]) => mockListRuntimes(...args),
+    listWorkflows: (...args: any[]) => mockListWorkflows(...args),
+    getMyRuntimePermission: vi.fn().mockResolvedValue({ can_control: true }),
   },
   getApi: () => ({
     listIssues: (...args: any[]) => mockListIssues(...args),
@@ -129,8 +136,16 @@ vi.mock("@multica/core/api", () => ({
     listMembers: (...args: any[]) => mockListMembers(...args),
     listAgents: (...args: any[]) => mockListAgents(...args),
     listSquads: (...args: any[]) => mockListSquads(...args),
+    listRuntimes: (...args: any[]) => mockListRuntimes(...args),
+    listWorkflows: (...args: any[]) => mockListWorkflows(...args),
+    getMyRuntimePermission: vi.fn().mockResolvedValue({ can_control: true }),
   }),
   setApiInstance: vi.fn(),
+}));
+
+vi.mock("@multica/core/issues/mutations", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@multica/core/issues/mutations")>()),
+  useUpdateIssue: () => ({ mutate: mockUpdateIssueMutate }),
 }));
 
 // Mock issue config
@@ -315,6 +330,55 @@ vi.mock("@dnd-kit/utilities", () => ({
   CSS: { Transform: { toString: () => undefined } },
 }));
 
+vi.mock("./board-view", () => ({
+  BoardView: ({ issues, visibleStatuses, assigneeGroups, onMoveIssue }: any) => (
+    <div>
+      {assigneeGroups?.map((group: any) => {
+        const label =
+          group.assignee_type === "member"
+            ? "Test User"
+            : group.assignee_type === "agent"
+              ? "Agent One"
+              : group.assignee_type === "squad"
+                ? "Squad One"
+                : "No assignee";
+        return <div key={group.id}>{label}</div>;
+      })}
+      {visibleStatuses.map((status: string) => (
+        <div key={status}>{status === "in_progress" ? "In Progress" : status.charAt(0).toUpperCase() + status.slice(1)}</div>
+      ))}
+      {issues.map((issue: Issue) => (
+        <div key={issue.id}>
+          <span>{issue.title}</span>
+          <button onClick={() => onMoveIssue(issue.id, { status: "todo" })}>move {issue.id} to todo</button>
+          <button onClick={() => onMoveIssue(issue.id, { status: "in_progress" })}>move {issue.id} to in_progress</button>
+          <button onClick={() => onMoveIssue(issue.id, { status: "backlog" })}>move {issue.id} to backlog</button>
+        </div>
+      ))}
+    </div>
+  ),
+}));
+
+vi.mock("../../agents/components/runtime-select-dialog", () => ({
+  RuntimeSelectDialog: ({ agentName, onConfirm, onClose }: any) => (
+    <div role="dialog" aria-label={`runtime ${agentName}`}>
+      <button onClick={() => onConfirm("runtime-1")}>confirm runtime</button>
+      <button onClick={onClose}>cancel runtime</button>
+    </div>
+  ),
+}));
+
+vi.mock("../../workflows/components/workflow-runtime-strategy-dialog", () => ({
+  WorkflowRuntimeStrategyDialog: ({ workflowTitle, onConfirm, onClose }: any) => (
+    <div role="dialog" aria-label={`workflow runtime ${workflowTitle}`}>
+      <button onClick={() => onConfirm({ policy: "specified_runtime_first", runtimeId: "runtime-2" })}>
+        confirm workflow runtime
+      </button>
+      <button onClick={onClose}>cancel workflow runtime</button>
+    </div>
+  ),
+}));
+
 // Mock @base-ui/react/accordion (used by ListView)
 vi.mock("@base-ui/react/accordion", () => ({
   Accordion: Object.assign(
@@ -454,6 +518,7 @@ function mockAssigneeGroups(issues: Issue[]) {
 // ---------------------------------------------------------------------------
 
 import { IssuesPage } from "./issues-page";
+import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -484,6 +549,8 @@ describe("IssuesPage (shared)", () => {
     vi.clearAllMocks();
     mockListIssues.mockResolvedValue({ issues: [], total: 0 });
     mockListGroupedIssues.mockResolvedValue({ groups: [] });
+    mockListRuntimes.mockResolvedValue([]);
+    mockListWorkflows.mockResolvedValue([]);
     mockViewState.viewMode = "board";
     mockViewState.grouping = "status";
     mockViewState.statusFilters = [];
@@ -586,7 +653,7 @@ describe("IssuesPage (shared)", () => {
 
     await screen.findByText("All");
     expect(screen.getByText("Members")).toBeInTheDocument();
-    expect(screen.getByText("Agents")).toBeInTheDocument();
+    expect(screen.getByText("Digital Humans")).toBeInTheDocument();
   });
 
   it("agents scope includes squad-assigned issues", async () => {
@@ -621,5 +688,142 @@ describe("IssuesPage (shared)", () => {
     await screen.findByText("Implement auth");
     expect(screen.queryByText("Squad task")).not.toBeInTheDocument();
     expect(screen.queryByText("Design landing page")).not.toBeInTheDocument();
+  });
+
+  it("blocks moving an unassigned backlog issue out of backlog", async () => {
+    mockListIssues.mockImplementation((params: any) =>
+      Promise.resolve({
+        issues: mockIssues.filter((i) => i.status === params?.status),
+        total: mockIssues.filter((i) => i.status === params?.status).length,
+      }),
+    );
+
+    renderWithQuery(<IssuesPage />);
+
+    await screen.findByText("Write tests");
+    fireEvent.click(screen.getByRole("button", { name: "move issue-3 to todo" }));
+
+    expect(mockUpdateIssueMutate).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith("Please assign the task first.");
+  });
+
+  it("clears assignee fields when moving an issue back to backlog", async () => {
+    mockListIssues.mockImplementation((params: any) =>
+      Promise.resolve({
+        issues: mockIssues.filter((i) => i.status === params?.status),
+        total: mockIssues.filter((i) => i.status === params?.status).length,
+      }),
+    );
+
+    renderWithQuery(<IssuesPage />);
+
+    await screen.findByText("Implement auth");
+    fireEvent.click(screen.getByRole("button", { name: "move issue-1 to backlog" }));
+
+    await waitFor(() => {
+      expect(mockUpdateIssueMutate).toHaveBeenCalledWith(
+        { id: "issue-1", status: "backlog", assignee_type: null, assignee_id: null },
+        expect.any(Object),
+      );
+    });
+  });
+
+  it("asks for a runtime before starting a builtin agent issue", async () => {
+    mockListIssues.mockImplementation((params: any) =>
+      Promise.resolve({
+        issues: mockIssues.filter((i) => i.status === params?.status),
+        total: mockIssues.filter((i) => i.status === params?.status).length,
+      }),
+    );
+    mockListRuntimes.mockResolvedValue([
+      {
+        id: "runtime-1",
+        workspace_id: "ws-1",
+        daemon_id: "daemon-1",
+        name: "Runtime One",
+        runtime_mode: "local",
+        provider: "csc",
+        status: "online",
+        version: null,
+        last_seen_at: "2026-01-01T00:00:00Z",
+        owner_id: "user-1",
+        visibility: "public",
+        metadata: {},
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      },
+    ]);
+
+    renderWithQuery(<IssuesPage />);
+
+    await screen.findByText("Design landing page");
+    fireEvent.click(screen.getByRole("button", { name: "move issue-2 to in_progress" }));
+
+    expect(mockUpdateIssueMutate).not.toHaveBeenCalled();
+    await screen.findByRole("dialog", { name: "runtime Agent One" });
+    fireEvent.click(screen.getByRole("button", { name: "confirm runtime" }));
+
+    expect(mockUpdateIssueMutate).toHaveBeenCalledWith(
+      { id: "issue-2", status: "in_progress", runtime_id: "runtime-1" },
+      expect.any(Object),
+    );
+  });
+
+  it("asks for a workflow runtime strategy before starting a workflow issue", async () => {
+    const workflowIssue: Issue = {
+      ...mockIssues[0]!,
+      id: "issue-5",
+      title: "Workflow task",
+      status: "todo",
+      assignee_type: "workflow",
+      assignee_id: "workflow-1",
+      workflow_id: "workflow-1",
+    };
+    const issues = [...mockIssues, workflowIssue];
+    mockListIssues.mockImplementation((params: any) =>
+      Promise.resolve({
+        issues: issues.filter((i) => i.status === params?.status),
+        total: issues.filter((i) => i.status === params?.status).length,
+      }),
+    );
+    mockListWorkflows.mockResolvedValue([
+      {
+        id: "workflow-1",
+        workspace_id: "ws-1",
+        title: "Deploy workflow",
+        description: "",
+        status: "active",
+        max_retries: 1,
+        created_by_type: "member",
+        created_by_id: "user-1",
+        is_template: false,
+        source_template_id: null,
+        is_default: false,
+        default_runtime_selection_policy: "idle_first",
+        default_runtime_id: null,
+        config_revision: 1,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      },
+    ]);
+
+    renderWithQuery(<IssuesPage />);
+
+    await screen.findByText("Workflow task");
+    fireEvent.click(screen.getByRole("button", { name: "move issue-5 to in_progress" }));
+
+    expect(mockUpdateIssueMutate).not.toHaveBeenCalled();
+    await screen.findByRole("dialog", { name: "workflow runtime Workflow task" });
+    fireEvent.click(screen.getByRole("button", { name: "confirm workflow runtime" }));
+
+    expect(mockUpdateIssueMutate).toHaveBeenCalledWith(
+      {
+        id: "issue-5",
+        status: "in_progress",
+        runtime_id: "runtime-2",
+        runtime_selection_policy: "specified_runtime_first",
+      },
+      expect.any(Object),
+    );
   });
 });

@@ -9,13 +9,21 @@ import type {
   WorkflowNodeRuntimeSummary,
   WorkflowRuntimeDisplayStatus,
 } from "@multica/core/types";
-import { CriticBadgeNode } from "../../../workflows/components/overview/reactflow-nodes";
-import { WORKER_WIDTH } from "../../../workflows/components/overview/constants";
-import { RuntimeNodeCard, RUNTIME_NODE_HEIGHT } from "./runtime-node-card";
+import { parseNodeFormat } from "@multica/core/types";
+import { BoundaryNode, CriticBadgeNode } from "../../../workflows/components/overview/reactflow-nodes";
+import {
+  RuntimeNodeCard,
+  RUNTIME_CHILD_ISSUE_NODE_HEIGHT,
+  RUNTIME_CHILD_ISSUE_NODE_WIDTH,
+  RUNTIME_NODE_HEIGHT,
+  RUNTIME_SPLIT_NODE_HEIGHT,
+  type RuntimeNodeDeliverableSummary,
+} from "./runtime-node-card";
 import { useT } from "@multica/views/i18n";
+import type { WorkflowActorIdentity } from "../../../common/workflow-actor-slots";
 
-export const RUNTIME_SPLIT_SUBFLOW_CARD_WIDTH = WORKER_WIDTH;
-export const RUNTIME_SPLIT_SUBFLOW_CARD_HEIGHT = RUNTIME_NODE_HEIGHT;
+export const RUNTIME_SPLIT_SUBFLOW_CARD_WIDTH = RUNTIME_CHILD_ISSUE_NODE_WIDTH;
+export const RUNTIME_SPLIT_SUBFLOW_CARD_HEIGHT = RUNTIME_CHILD_ISSUE_NODE_HEIGHT;
 export const RUNTIME_SPLIT_SUBFLOW_COLUMN_GAP = 96;
 export const RUNTIME_SPLIT_SUBFLOW_ROW_GAP = 32;
 export const RUNTIME_SPLIT_SUBFLOW_X_PADDING = 24;
@@ -31,9 +39,14 @@ export interface RuntimeCanvasNodeData extends Record<string, unknown> {
   node: WorkflowNode;
   nodeRun: WorkflowNodeRun | null;
   runtimeSummary: WorkflowNodeRuntimeSummary | null;
+  nowMs?: number;
   workerName: string | null;
   criticName: string | null;
+  workerIdentity?: WorkflowActorIdentity | null;
+  criticIdentity?: WorkflowActorIdentity | null;
   onOpen: (nodeId: string) => void;
+  onOpenSession?: (nodeId: string) => Promise<boolean>;
+  deliverables?: RuntimeNodeDeliverableSummary[];
   isRuntimeFocus?: boolean;
   isSplitExpanded?: boolean;
   splitChildCount?: number;
@@ -48,6 +61,8 @@ export interface RuntimeSplitSubflowChildIssue {
   displayStatus: WorkflowRuntimeDisplayStatus;
   displayStatusLabel: string;
   workerName: string | null;
+  issueIdentifier: string;
+  progressLabel: string;
   level: number;
   rowIndex: number;
   dependencyNodeIds: string[];
@@ -74,6 +89,9 @@ export const RuntimeCanvasNode = memo(function RuntimeCanvasNode({
   data,
 }: NodeProps) {
   const nodeData = data as RuntimeCanvasNodeData;
+  const nodeHeight = parseNodeFormat(nodeData.node.format_schema).kind === "split"
+    ? RUNTIME_SPLIT_NODE_HEIGHT
+    : RUNTIME_NODE_HEIGHT;
 
   return (
     <div data-testid={`runtime-canvas-node-${id}`} className="relative">
@@ -82,14 +100,19 @@ export const RuntimeCanvasNode = memo(function RuntimeCanvasNode({
         nodeRun={nodeData.nodeRun}
         workerName={nodeData.workerName}
         criticName={nodeData.criticName}
+        workerIdentity={nodeData.workerIdentity}
+        criticIdentity={nodeData.criticIdentity}
         onClick={nodeData.onOpen}
+        onOpenSession={nodeData.onOpenSession}
+        deliverables={nodeData.deliverables}
         runtimeSummary={nodeData.runtimeSummary}
+        nowMs={nodeData.nowMs}
         isRuntimeFocus={nodeData.isRuntimeFocus === true}
         isSplitExpanded={nodeData.isSplitExpanded}
         splitChildCount={nodeData.splitChildCount}
         onSplitNodeToggle={nodeData.onSplitNodeToggle}
         handles={["left-target", "right-source", "bottom-source"]}
-        lateralHandleTop={RUNTIME_NODE_HEIGHT / 2}
+        lateralHandleTop={nodeHeight / 2}
       />
     </div>
   );
@@ -246,6 +269,11 @@ export const RuntimeSplitSubflowNode = memo(function RuntimeSplitSubflowNode({
                     nodeRun={null}
                     workerName={child.workerName}
                     criticName={null}
+                    childIssueSummary={{
+                      identifier: child.issueIdentifier,
+                      assigneeName: child.workerName,
+                      progressLabel: child.progressLabel,
+                    }}
                     runtimeSummary={child.runtimeSummary}
                     onClick={nodeData.onOpenChild}
                   />
@@ -263,4 +291,5 @@ export const runtimeCanvasNodeTypes = {
   runtimeNode: RuntimeCanvasNode,
   runtimeSplitSubflow: RuntimeSplitSubflowNode,
   criticBadge: CriticBadgeNode,
+  boundary: BoundaryNode,
 };

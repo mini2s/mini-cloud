@@ -18,6 +18,7 @@ import (
 
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
+	"github.com/multica-ai/multica/server/internal/csuser"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
@@ -27,6 +28,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/storage"
+	"github.com/multica-ai/multica/server/internal/teamnamespace"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -133,12 +135,16 @@ type RouterOptions struct {
 	// BatchedHeartbeatScheduler here so the caller can also drive Run/Stop;
 	// tests leave this nil and get the legacy synchronous behavior.
 	HeartbeatScheduler handler.HeartbeatScheduler
-	// Casdoor SSO: when JWKSProvider is non-nil, the CasdoorAuth middleware
+	// Casdoor SSO: when CasdoorEnabled is true, the CasdoorAuth middleware
 	// is stacked before the legacy Auth middleware on protected routes.
 	// SubjectResolver maps Casdoor subject_id to a Multica user UUID.
-	JWKSProvider    *auth.JWKSProvider
 	SubjectResolver middleware.SubjectResolver
-	CasdoorEnabled  bool
+	// CloudSubjectTranslator, when non-nil, translates a Casdoor access token
+	// to the cloud-api stable subject id (e.g. "usr_...") that Multica users
+	// are keyed by. main.go constructs it from CLOUD_API_BASE_URL; when nil
+	// (cloud-api not configured) the middleware falls back to the JWT "sub".
+	CloudSubjectTranslator middleware.CloudSubjectTranslator
+	CasdoorEnabled         bool
 	// SkillProxy, when non-nil, enables the /api/agent-skills endpoints that
 	// proxy skill fetches to the costrict-web internal API.
 	SkillProxy *service.SkillProxy
@@ -146,7 +152,15 @@ type RouterOptions struct {
 	// handler (member management) and the SubjectResolver (login-time dept
 	// linking). main.go constructs it once and passes it in; tests leave it
 	// nil and the router falls back to constructing one from env.
-	DeptSync               *deptsync.Client
+	DeptSync *deptsync.Client
+	// CsUser, when non-nil, is the cs-user client used by SearchDeptUsers.
+	// nil → the handler returns 503 (cs-user not configured).
+	CsUser *csuser.Client
+	// TeamNamespace is the costrict-web-backend internal API client for
+	// TEAM_NAMESPACE_API_REFERENCE.md operations. nil builds from env.
+	TeamNamespace *teamnamespace.Client
+	// WorkflowRoleResolution resolves configurable workflow node roles to
+	// concrete members/agents at dispatch time (main's role-v1 feature).
 	WorkflowRoleResolution workflowRoleResolutionRuntime
 }
 
@@ -189,6 +203,12 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		CasdoorOrgName:          os.Getenv("CASDOOR_ORG_NAME"),
 		CasdoorAppName:          os.Getenv("CASDOOR_APP_NAME"),
 		BuiltinPluginAPIBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("BUILTIN_PLUGIN_API_BASE_URL")), "/"),
+		// Quota-manager service — reverse-proxies personal quota overview and
+		// usage-consumption statistics. Empty -> routes return 503.
+		QuotaManagerAPIBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("QUOTA_MANAGER_API_BASE_URL")), "/"),
+		// Efficiency-dashboard (kanban) backend — reverse-proxies /kanban/*
+		// with Basic Auth injected. Empty -> routes return 503.
+		KanbanAPIBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("KANBAN_API_BASE_URL")), "/"),
 		// CSC plugin marketplace identity delivered to the daemon. No default:
 		// when unset, the daemon falls back to its own built-in github default.
 		CSCPluginMarketplaceName: strings.TrimSpace(os.Getenv("CSC_PLUGIN_MARKETPLACE_NAME")),
@@ -226,6 +246,32 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			CacheTTL: envDuration("DEPT_SYNC_CACHE_TTL", time.Minute),
 		})
 	}
+	if opts.CsUser != nil {
+		h.CsUser = opts.CsUser
+	}
+	teamNamespaceClient := opts.TeamNamespace
+	if teamNamespaceClient == nil {
+		teamNamespaceClient = teamnamespace.NewClient(teamnamespace.Config{
+			BaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("TEAM_NAMESPACE_API_BASE_URL")), "/"),
+			Token:   os.Getenv("TEAM_NAMESPACE_INTERNAL_SERVICE_TOKEN"),
+			Tenant:  os.Getenv("TEAM_NAMESPACE_TENANT_ID"),
+			Timeout: envDuration("TEAM_NAMESPACE_API_TIMEOUT", 10*time.Second),
+		})
+	}
+	h.WorkflowService.TeamNamespace = teamNamespaceClient
+	// TaskService.TeamNamespace mirrors the workflow client: it provisions
+	// Gitea wf repos for document deliverables at cs-cloud dispatch time
+	// (read by buildCSCloudPayload). Same post-construction pattern as
+	// h.TaskService.EmptyClaim below.
+	h.TaskService.TeamNamespace = teamNamespaceClient
+	// Plugin catalog config for cs-cloud dispatch-time plugin resolution
+	// (buildCSCloudPayload fetches the agent's plugin metadata from the catalog
+	// and stamps the server-owned marketplace identity). Mirrors the handler
+	// claim-path config (cfg.BuiltinPluginAPIBaseURL / CSCPlugin*). Server-side
+	// only — the daemon is not involved.
+	h.TaskService.BuiltinPluginAPIBaseURL = strings.TrimRight(strings.TrimSpace(os.Getenv("BUILTIN_PLUGIN_API_BASE_URL")), "/")
+	h.TaskService.CSCPluginMarketplaceName = strings.TrimSpace(os.Getenv("CSC_PLUGIN_MARKETPLACE_NAME"))
+	h.TaskService.CSCPluginMarketplaceRepo = strings.TrimSpace(os.Getenv("CSC_PLUGIN_MARKETPLACE_REPO"))
 	// Auth caches: PAT cache is shared between the regular Auth middleware,
 	// the DaemonAuth fallback (mul_) path, and the revoke handler
 	// (invalidate). DaemonTokenCache backs the DaemonAuth mdt_ path. Both
@@ -299,7 +345,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		return util.UUIDToString(ws.ID), nil
 	})
 	r.Get("/ws", func(w http.ResponseWriter, r *http.Request) {
-		realtime.HandleWebSocket(hub, mc, pr, slugResolver, opts.JWKSProvider, realtime.SubjectResolver(opts.SubjectResolver), w, r)
+		realtime.HandleWebSocket(hub, mc, pr, slugResolver, realtime.SubjectResolver(opts.SubjectResolver), w, r)
 	})
 
 	// Local file serving (when using local storage)
@@ -323,12 +369,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.With(authRL).Post("/auth/google", h.GoogleLogin)
 	r.Post("/auth/logout", h.Logout)
 
-	// Casdoor SSO routes (only registered when Casdoor is enabled)
-	if opts.CasdoorEnabled {
-		r.Get("/auth/casdoor/login", h.CasdoorLogin)
-		r.Get("/auth/casdoor/callback", h.CasdoorCallback)
-	}
-
 	// Public API
 	r.Get("/api/config", h.GetConfig)
 	r.Get("/api/plugins/builtin", h.ListBuiltinPlugins)
@@ -337,6 +377,78 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.Get("/api/catalog/skills", h.ListCatalogSkills)
 	r.Get("/api/catalog/skills/{id}", h.GetCatalogSkill)
 	r.With(contactSalesRL).Post("/api/contact-sales", h.CreateContactSales)
+
+	// Hub (capability store) proxy — ALL hub routes are proxied to the cloud-store
+	// backend here (outside the auth group). The cloud-store backend has its own
+	// authentication (Casdoor JWT via HUB_DEV_TOKEN in dev, or shared session in
+	// prod), so mini-cloud's Auth middleware must NOT gate these routes.
+	if hubProxy := h.HubProxy(); hubProxy != nil {
+		r.MethodFunc(http.MethodGet, "/api/items", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/items", hubProxy)
+		r.MethodFunc(http.MethodDelete, "/api/items", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/items/*", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/items/*", hubProxy)
+		r.MethodFunc(http.MethodPut, "/api/items/*", hubProxy)
+		r.MethodFunc(http.MethodDelete, "/api/items/*", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/distributions/*", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/distributions/*", hubProxy)
+		r.MethodFunc(http.MethodDelete, "/api/distributions/*", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/repositories/*", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/repositories/*", hubProxy)
+		r.MethodFunc(http.MethodPut, "/api/repositories/*", hubProxy)
+		r.MethodFunc(http.MethodDelete, "/api/repositories/*", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/registries/*", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/registries/*", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/categories", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/tags", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/marketplace/*", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/marketplace/*", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/enterprise-customers", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/plugins/upload", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/users/search", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/users/names", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/users/info", hubProxy)
+		// Notification channels (通知渠道) + identity binding — same cloud-store
+		// backend. /api/channels covers CRUD; /api/channels/* covers /available,
+		// /{id}, /{id}/test.
+		r.MethodFunc(http.MethodGet, "/api/channels", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/channels", hubProxy)
+		r.MethodFunc(http.MethodDelete, "/api/channels", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/channels/*", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/channels/*", hubProxy)
+		r.MethodFunc(http.MethodPut, "/api/channels/*", hubProxy)
+		r.MethodFunc(http.MethodDelete, "/api/channels/*", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/auth/identities", hubProxy)
+		// Identity unbind (/api/auth/identities/{provider}/unbind) + bind/merge
+		// flows — all POST, same cloud-store backend.
+		r.MethodFunc(http.MethodPost, "/api/auth/identities/*", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/auth/bind/start", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/auth/bind/*", hubProxy)
+	}
+
+	// Quota-manager proxy — personal-quota (usage statistics) routes are proxied
+	// to the quota-manager backend here (outside the auth group, same rationale
+	// as the Hub proxy). The quota-manager backend has its own authentication
+	// (Casdoor JWT via HUB_DEV_TOKEN in dev, or shared session in prod), so
+	// mini-cloud's Auth middleware must NOT gate these routes. GET only — both
+	// the quota overview and usage statistics endpoints are reads.
+	if quotaProxy := h.QuotaManagerProxy(); quotaProxy != nil {
+		r.MethodFunc(http.MethodGet, "/api/quota-manager/*", quotaProxy)
+	}
+
+	// Kanban proxy — efficiency-dashboard (metrics/efficiency/cost/usage)
+	// routes are proxied to the separately deployed kanban backend here
+	// (outside the auth group, same rationale as the Hub/quota-manager proxies).
+	// The kanban backend authenticates via HTTP Basic Auth injected from
+	// KANBAN_API_USERNAME/PASSWORD, so mini-cloud's Auth middleware must NOT
+	// gate these routes. All four methods — the kanban API has many writes
+	// (create project, update pricing, delete datasource, sync tasks, etc.).
+	if kanbanProxy := h.KanbanProxy(); kanbanProxy != nil {
+		r.MethodFunc(http.MethodGet, "/kanban/*", kanbanProxy)
+		r.MethodFunc(http.MethodPost, "/kanban/*", kanbanProxy)
+		r.MethodFunc(http.MethodPut, "/kanban/*", kanbanProxy)
+		r.MethodFunc(http.MethodDelete, "/kanban/*", kanbanProxy)
+	}
 
 	// Webhook ingress for autopilots. Outside the authenticated group on
 	// purpose: the bearer token in the URL path IS the credential. Workspace
@@ -352,7 +464,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 
 	// Daemon API routes (require daemon token or valid user token)
 	r.Route("/api/daemon", func(r chi.Router) {
-		r.Use(middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.JWKSProvider, opts.SubjectResolver))
+		r.Use(middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.SubjectResolver, opts.CloudSubjectTranslator))
 
 		r.Post("/register", h.DaemonRegister)
 		r.Post("/deregister", h.DaemonDeregister)
@@ -380,21 +492,45 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Get("/chat-sessions/{sessionId}/gc-check", h.GetChatSessionGCCheck)
 		r.Get("/autopilot-runs/{runId}/gc-check", h.GetAutopilotRunGCCheck)
 		r.Get("/tasks/{taskId}/gc-check", h.GetTaskGCCheck)
+		r.Get("/workflow-node-runs/{nodeRunId}/gc-check", h.GetWorkflowNodeRunGCCheck)
 
 		r.Post("/runtimes/{runtimeId}/recover-orphans", h.RecoverOrphanedTasks)
 		r.Post("/tasks/{taskId}/session", h.PinTaskSession)
 		r.Post("/node-runs/{nodeRunId}/session", h.BindNodeRunSession)
+		// Gitea deliverables by issue (agent-facing read path). Resolve an issue
+		// by UUID or <PREFIX>-<number> and return its workflow deliverable
+		// context — optionally recursively for all descendant issues
+		// (?descendants=true). Lets an agent (cs-cloud) read any issue's /
+		// child / grandchild workflow deliverables without node-run-ids.
+		r.Get("/issues/{issue}/gitea-deliverables", h.HandleGetIssueGiteaDeliverables)
+		// Workflow run + node run status tree by issue (agent-facing read path).
+		// Resolve an issue by UUID or <PREFIX>-<number> and return its workflow
+		// chain — optionally recursively for all descendant issues
+		// (?descendants=true). Lets an agent read any issue's / child / grandchild
+		// workflow progress without node-run-ids.
+		r.Get("/issues/{issue}/workflow-tree", h.HandleGetIssueWorkflowTree)
 	})
 
 	// GitLab credential for CLI credential helper (gitlab-credential-multica).
 	// Requires daemon token or valid user token to access — workspace is derived from the token.
-	r.With(middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.JWKSProvider, opts.SubjectResolver)).
+	r.With(middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.SubjectResolver, opts.CloudSubjectTranslator)).
 		Get("/api/gitlab/credential", h.HandleGitlabCredential)
+
+	// Repository credential for the cs-workflow CLI document-deliverable flow.
+	// Same daemon-auth shape as GitLab; base_url + PAT returned. The old Gitea
+	// path stays as a compatibility alias for already-installed CLI builds.
+	repoCredentialAuth := middleware.DaemonAuth(queries, patCache, daemonTokenCache, opts.SubjectResolver, opts.CloudSubjectTranslator)
+	r.With(repoCredentialAuth).Get("/api/repositories/credential", h.HandleRepositoryCredential)
+	r.With(repoCredentialAuth).Get("/api/gitea/credential", h.HandleGiteaCredential)
+
+	// Gitea UI routes are not proxied by Multica. Browser-facing links should
+	// use GITEA_PUBLIC_BASE_URL (for local E2E, http://localhost:23000) and let
+	// the surrounding platform handle any Gitea authentication handoff.
 
 	// Protected API routes
 	r.Group(func(r chi.Router) {
-		if opts.JWKSProvider != nil {
-			r.Use(middleware.CasdoorAuth(opts.JWKSProvider, opts.SubjectResolver))
+		if opts.CasdoorEnabled {
+			r.Use(middleware.CasdoorAuth(opts.SubjectResolver, opts.CloudSubjectTranslator))
 		}
 		r.Use(middleware.Auth(queries, patCache))
 		r.Use(middleware.RefreshCloudFrontCookies(cfSigner))
@@ -422,8 +558,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Put("/api/workflow-admins", h.UpdateWorkflowAdmins)
 		r.Post("/api/workflow-admins/invite", h.InviteWorkflowAdmin)
 
-		r.Get("/api/dept/departments/search", h.SearchDeptDepartments)
-		r.Get("/api/dept/departments/{id}/users", h.ListDeptDepartmentUsers)
 		r.Get("/api/dept/users/search", h.SearchDeptUsers)
 
 		r.Route("/api/workspaces", func(r chi.Router) {
@@ -523,6 +657,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/active-task", h.GetActiveTaskForIssue)
 					r.Post("/tasks/{taskId}/cancel", h.CancelTask)
 					r.Post("/rerun", h.RerunIssue)
+					r.Post("/deliverables/upload", h.UploadIssueDeliverable)
+					r.Post("/deliverables/upload-pr", h.UploadIssueDeliverablePR)
 					r.Get("/task-runs", h.ListTasksByIssue)
 					r.Get("/usage", h.GetIssueUsage)
 					r.Post("/reactions", h.AddIssueReaction)
@@ -601,6 +737,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Route("/nodes/{nodeId}", func(r chi.Router) {
 						r.Put("/", h.UpdateWorkflowNode)
 						r.Delete("/", h.DeleteWorkflowNode)
+						r.Get("/deliverables", h.ListWorkflowNodeDeliverables)
+						r.Post("/deliverables", h.CreateWorkflowNodeDeliverable)
+						r.Put("/deliverables/{deliverableId}", h.UpdateWorkflowNodeDeliverable)
+						r.Delete("/deliverables/{deliverableId}", h.DeleteWorkflowNodeDeliverable)
 					})
 					// Edges
 					r.Get("/edges", h.ListWorkflowEdges)
@@ -640,11 +780,16 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Post("/api/node-runs/{nodeRunId}/split/draft-tasks", h.AddSplitDraftTask)
 			r.Post("/api/node-runs/{nodeRunId}/split/draft-tasks/batch", h.BatchAddSplitDraftTasks)
 			r.Patch("/api/node-runs/{nodeRunId}/split/draft-tasks/batch", h.BatchPatchSplitDraftTasks)
+			r.Patch("/api/node-runs/{nodeRunId}/split/draft-tasks/assignees", h.BatchPatchSplitTaskAssignees)
 			r.Patch("/api/node-runs/{nodeRunId}/split/draft-tasks/{taskId}", h.PatchSplitDraftTask)
+			r.Patch("/api/node-runs/{nodeRunId}/split/draft-tasks/{taskId}/assignee", h.PatchSplitTaskAssignee)
 			r.Delete("/api/node-runs/{nodeRunId}/split/draft-tasks/{taskId}", h.DeleteSplitDraftTask)
 			r.Patch("/api/node-runs/{nodeRunId}/split/config", h.PatchSplitConfig)
-			r.Post("/api/node-runs/{nodeRunId}/split/tasks/{taskId}/retry", h.RetrySplitTask)
 			r.Post("/api/node-runs/{nodeRunId}/split/draft-submit", h.SubmitSplitDraftTasks)
+			// Deliverable submissions (document deliverable → Gitea PR flow).
+			r.Get("/api/node-runs/{nodeRunId}/deliverables", h.ListNodeRunDeliverableSubmissions)
+			r.Post("/api/node-runs/{nodeRunId}/deliverables/{deliverableId}/submit", h.SubmitNodeRunDeliverable)
+			r.Post("/api/node-runs/{nodeRunId}/deliverables/{submissionId}/review", h.ReviewNodeRunDeliverable)
 			r.Post("/api/node-runs/{nodeRunId}/split/chat", h.HandleSplitChat)
 			r.Post("/api/node-runs/{nodeRunId}/split/approve", h.ApproveSplitTasks)
 			r.Get("/api/node-runs/{nodeRunId}/split/tasks", h.ListSplitTasks)
@@ -963,8 +1108,5 @@ func splitAndTrim(s string) []string {
 }
 
 func cloudRuntimeFleetURLFromEnv() string {
-	if url := strings.TrimSpace(os.Getenv("MULTICA_CLOUD_FLEET_URL")); url != "" {
-		return url
-	}
-	return strings.TrimSpace(os.Getenv("MULTICA_FLEET_URL"))
+	return strings.TrimSpace(os.Getenv("MULTICA_CLOUD_FLEET_URL"))
 }

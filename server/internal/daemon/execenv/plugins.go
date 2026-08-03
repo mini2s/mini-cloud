@@ -114,6 +114,9 @@ func runCSCCmd(ctx context.Context, cscBin, workDir string, args ...string) erro
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
+		if cscCommandSucceeded(stdout.String()) && isUVHandleClosingAssertion(stderr.String()) {
+			return nil
+		}
 		output := strings.TrimSpace(strings.Join([]string{
 			strings.TrimSpace(stdout.String()),
 			strings.TrimSpace(stderr.String()),
@@ -124,4 +127,18 @@ func runCSCCmd(ctx context.Context, cscBin, workDir string, args ...string) erro
 		return err
 	}
 	return nil
+}
+
+func cscCommandSucceeded(out string) bool {
+	out = strings.TrimSpace(out)
+	return strings.Contains(out, "√") &&
+		(strings.Contains(strings.ToLower(out), "success") ||
+			strings.Contains(out, "成功") ||
+			strings.Contains(out, "已存在"))
+}
+
+func isUVHandleClosingAssertion(s string) bool {
+	return strings.Contains(s, "UV_HANDLE_CLOSING") &&
+		strings.Contains(s, "Assertion failed") &&
+		strings.Contains(s, "handle")
 }

@@ -4,28 +4,22 @@ The `cs-workflow` CLI connects your local machine to Multica. It handles authent
 
 ## Installation
 
-### Homebrew (macOS/Linux)
+### Install script (macOS/Linux)
 
 ```bash
-brew install multica-ai/tap/multica
+curl -fsSL https://raw.githubusercontent.com/Askhz/multica/main/scripts/install.sh | bash
 ```
 
 ### Build from Source
 
 ```bash
-git clone https://github.com/multica-ai/multica.git
+git clone https://github.com/Askhz/multica.git
 cd multica
 make build
 cp server/bin/cs-workflow /usr/local/bin/cs-workflow
 ```
 
 ### Update
-
-```bash
-brew upgrade multica-ai/tap/multica
-```
-
-For install script or manual installs, use:
 
 ```bash
 cs-workflow update

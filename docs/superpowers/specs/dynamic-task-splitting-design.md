@@ -41,7 +41,7 @@ graph TB
     SN -->|"派发 agent task"| PA
     PA -->|"draft API 写入"| DT
     DT -->|"awaiting_split_review"| RP
-    RP -->|"approve · materialize"| CI
+    RP -->|"approve · 实例化"| CI
     CI -->|"启动"| CW
     SO -->|"调度"| CW
     SO -->|"聚合进度"| SN
@@ -118,7 +118,7 @@ stateDiagram-v2
     draft --> approved: 审核确认
     draft --> discarded: 审核丢弃
 
-    approved --> created: materialize 子 issue
+    approved --> created: 实例化子 issue
 
     created --> running: SplitOrchestrator 启动 WorkflowRun
     created --> skipped: 依赖失败/取消
@@ -204,11 +204,11 @@ flowchart TD
     J --> K["状态: split_active"]
     K --> L{"mode?"}
     L -->|barrier| M["等待所有子任务终态"]
-    L -->|pipeline| N["Initial dispatch loop<br/>NodeRun 写入终态"]
+    L -->|pipeline| N["首轮调度<br/>NodeRun 写入终态"]
     M --> O{"失败数 ≤ max_failures?"}
     O -->|是| P["状态: completed"]
     O -->|否| X3["状态: failed<br/>取消 running · 跳过 pending"]
-    N --> Q{"Initial dispatch 成功?"}
+    N --> Q{"首轮调度成功?"}
     Q -->|是| P
     Q -->|否| X3
 ```
@@ -277,7 +277,7 @@ Prompt 规则：
 
 **空草案完成**：Planner agent 可生成 0 个草案，审核面板展示空态。确认需显式传 `confirm_empty: true`。完成后 split node 直接完成不创建子 issue。已完成空草案不自动重新生成；父 issue reopen 不支持把已完成 split node 回退到审核态。
 
-### Materialize 与调度
+### 实例化与调度
 
 Approve 在一个 DB 事务中：
 - 创建所有 approved 子 issue
@@ -306,18 +306,18 @@ SplitOrchestrator 调度：
 
 ### pipeline 模式
 
-异步释放：子 issue 创建且 initial dispatch loop 成功后，将父 split node 写入 `completed` 终态并立即释放下游，子任务后台继续。pipeline 释放只以 node run 终态为准；split task 聚合状态独立计算，不使用 `split_initial_dispatch_completed` 标记。
+异步释放：子 issue 创建且首轮调度成功后，将父 split node 写入 `completed` 终态并立即释放下游，子任务后台继续。pipeline 释放只以 node run 终态为准；split task 聚合状态独立计算，不使用 `split_initial_dispatch_completed` 标记。
 
-**Initial dispatch loop**：按依赖和拓扑顺序寻找当前 ready task，在 `max_concurrency` 允许范围内尽可能启动；无 ready task 或并发满时结束。
+**首轮调度**：按依赖和拓扑顺序寻找当前 ready task，在 `max_concurrency` 允许范围内尽可能启动；无 ready task 或并发满时结束。
 
-- Initial dispatch 成功后父节点 completed，子任务由 SplitOrchestrator 后台调度；父 node run 终态与 split task 聚合状态分离持久化
+- 首轮调度成功后父节点 completed，子任务由 SplitOrchestrator 后台调度；父 node run 终态与 split task 聚合状态分离持久化
 - **若存在 ready task 但首个 WorkflowRun 启动失败**，父 split node → `failed`，不释放下游
 - **若 DAG 合法但没有任何无依赖 ready task**，说明依赖图校验有缺口，返回 `422 invalid_split_task_dependency`，不释放下游
 
 **SplitOrchestrator 重启恢复**：
 
 - 父 node run 已为终态 → 只恢复 split task 后台调度和聚合，不重复释放 pipeline
-- 父 node run 仍为 `split_active` → 重新执行 initial dispatch loop，成功后以 node run 终态释放 pipeline
+- 父 node run 仍为 `split_active` → 重新执行首轮调度，成功后以 node run 终态释放 pipeline
 
 **父节点释放后**：
 
@@ -350,7 +350,7 @@ pipeline 已释放后发生的失败同样写入 split group 聚合状态和事�
 父 issue 取消 → 级联取消 split group：
 - 取消 running task 的 WorkflowRun
 - created/pending task → cancelled/skipped
-- 未 materialize 草案 → discarded
+- 未实例化草案 → discarded
 - 已创建子 issue → cancelled
 - 父节点 → cancelled
 - 前端必须展示二次确认，说明受影响子任务数量
@@ -499,7 +499,7 @@ Agent task 完成后，按优先级恢复草案：
 flowchart TD
     START["Agent task 完成"] --> Q1{"有 draft API<br/>提交的有效草案？"}
     Q1 -->|是| DONE["状态: awaiting_split_review"]
-    Q1 -->|否| Q2{"最终输出含<br/>{\"tasks\":[...]} JSON？"}
+    Q1 -->|否| Q2{"最终输出含<br/>tasks 数组 JSON？"}
     Q2 -->|是| RECOVER["提取草案<br/>draft_source=recovered"]
     Q2 -->|否| Q3{"输出含 Markdown<br/>任务分解格式？"}
     Q3 -->|是| RECOVER
@@ -529,7 +529,7 @@ Split 生命周期关键事件用于监控、排障和聚合状态推导。每�
 | `split_draft_submitted` | draft submit 成功，进入审核 |
 | `split_review_ready` | 状态切换为 `awaiting_split_review` |
 | `split_approved` | 审核确认，子 issue 已创建 |
-| `split_child_issue_created` | 单个子 issue materialize 完成 |
+| `split_child_issue_created` | 单个子 issue 实例化完成 |
 
 ## 前端设计
 

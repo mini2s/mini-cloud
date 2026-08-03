@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Globe, Lock } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ModelDropdown } from "./model-dropdown";
 import { RuntimePicker, isRuntimeUsableForUser } from "./runtime-picker";
 import { InstructionsEditor } from "./instructions-editor";
 import { SkillMultiSelect } from "./skill-multi-select";
@@ -90,13 +89,13 @@ export function CreateAgentDialog({
   const [visibility, setVisibility] = useState<AgentVisibility>(
     template?.visibility ?? "workspace",
   );
-  const [model, setModel] = useState(template?.model ?? "");
   const [instructions, setInstructions] = useState(template?.instructions ?? "");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(template?.avatar_url ?? null);
   const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(
     () => new Set(template?.skills.map((s) => s.id) ?? []),
   );
   const [pluginId, setPluginId] = useState(template?.plugin_id ?? "");
+  const [pluginName, setPluginName] = useState(template?.plugin_name ?? "");
   const [selectedCloudSkills, setSelectedCloudSkills] = useState<CatalogSkill[]>([]);
   const [creating, setCreating] = useState(false);
 
@@ -165,10 +164,10 @@ export function CreateAgentDialog({
         description: description.trim(),
         runtime_id: selectedRuntime.id,
         visibility,
-        model: model.trim() || undefined,
         instructions: trimmedInstructions || undefined,
         avatar_url: avatarUrl ?? undefined,
         plugin_id: pluginId.trim() || undefined,
+        plugin_name: pluginName.trim() || undefined,
       };
       if (template) {
         // Duplicate path: forward the hidden config fields the source
@@ -361,14 +360,6 @@ export function CreateAgentDialog({
               onSelect={setSelectedRuntimeId}
             />
 
-            <ModelDropdown
-              runtimeId={selectedRuntime?.id ?? null}
-              runtimeOnline={selectedRuntime?.status === "online"}
-              value={model}
-              onChange={setModel}
-              disabled={!selectedRuntime}
-            />
-
             {/* --- Optional sections (instructions / skills) ---
                 Collapsed by default so quick-create stays fast.
                 Duplicate pre-fills everything from the source agent. */}
@@ -384,7 +375,10 @@ export function CreateAgentDialog({
 
             <PluginSelect
               value={pluginId}
-              onChange={setPluginId}
+              onChange={(id, name) => {
+                setPluginId(id);
+                setPluginName(name);
+              }}
             />
 
             <CloudSkillSelect

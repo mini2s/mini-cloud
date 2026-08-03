@@ -3,6 +3,7 @@ package auth
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -17,32 +18,37 @@ type CasdoorUserInfo struct {
 	Phone             string // from "phone"
 }
 
-// ParseCasdoorJWT validates an RS256 JWT signed by Casdoor and extracts user
-// claims. jwks provides the public keys used for signature verification.
+// ParseCasdoorJWT parses a Casdoor-issued JWT and extracts user claims.
 //
-// The parser is intentionally strict:
-//   - Only RS256 is accepted (prevents algorithm-confusion attacks).
-//   - The token must carry an "exp" claim.
-//   - The header must include a "kid" that resolves via jwks.
+// The RS256 signature is NOT verified here — Multica sits behind a gateway
+// that has already validated the token's signature before forwarding it.
+// We only decode the claims and enforce an "exp" sanity floor so a token
+// past its lifetime cannot be replayed against the backend.
+//
+//   - "exp" must be present and not expired.
 //   - "sub" must be present and non-empty.
-func ParseCasdoorJWT(tokenString string, jwks *JWKSProvider) (*CasdoorUserInfo, error) {
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
-		kid, _ := token.Header["kid"].(string)
-		if kid == "" {
-			return nil, fmt.Errorf("token header missing kid")
-		}
-		return jwks.GetKey(kid)
-	},
-		jwt.WithValidMethods([]string{"RS256"}),
-		jwt.WithExpirationRequired(),
-	)
+func ParseCasdoorJWT(tokenString string) (*CasdoorUserInfo, error) {
+	token, _, err := jwt.NewParser().ParseUnverified(tokenString, jwt.MapClaims{})
 	if err != nil {
 		return nil, fmt.Errorf("parse JWT: %w", err)
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok || !token.Valid {
+	if !ok {
 		return nil, fmt.Errorf("invalid token claims")
+	}
+
+	// exp sanity floor — signature verification is delegated to the gateway,
+	// but we still refuse tokens that are missing exp or already past it.
+	exp, err := claims.GetExpirationTime()
+	if err != nil {
+		return nil, fmt.Errorf("invalid exp claim: %w", err)
+	}
+	if exp == nil {
+		return nil, fmt.Errorf("token missing exp claim")
+	}
+	if !exp.After(time.Now()) {
+		return nil, fmt.Errorf("token is expired")
 	}
 
 	sub, _ := claims["sub"].(string)

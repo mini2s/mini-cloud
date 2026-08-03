@@ -34,7 +34,7 @@ export function DemoteConfirmDialog({
               降级为普通 Agent
             </DialogTitle>
             <DialogDescription className="text-xs">
-              此操作将使"{agentName}"失去内置 Agent 的全局可见性。
+              此操作将使"{agentName}"失去内置数智人的全局可见性。
             </DialogDescription>
           </DialogHeader>
         </div>

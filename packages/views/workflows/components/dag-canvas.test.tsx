@@ -233,6 +233,29 @@ describe("WorkflowCanvas", () => {
     expect(rfNodes[0]!.data.isRunning).toBe(true);
   });
 
+  it("maps persisted boundary nodes without runtime status", () => {
+    const nodes = [
+      makeNode({ id: "start", title: "Start", format_schema: { type: "start" } }),
+      makeNode({ id: "task", title: "Task" }),
+      makeNode({ id: "end", title: "End", format_schema: { type: "end" } }),
+    ];
+
+    renderWithI18n(
+      <WorkflowCanvas
+        nodes={nodes}
+        edges={[]}
+        nodeStatuses={{ task: { status: "working", isRunning: true } }}
+      />,
+    );
+
+    const rfNodes = lastProps().nodes as Array<{ id: string; type: string; data: Record<string, unknown> }>;
+    expect(rfNodes.find((node) => node.id === "start")).toMatchObject({ type: "boundary" });
+    expect(rfNodes.find((node) => node.id === "end")).toMatchObject({ type: "boundary" });
+    expect(rfNodes.find((node) => node.id === "start")?.data).not.toHaveProperty("statusLabel");
+    expect(lastProps().nodesDraggable).toBe(false);
+    expect(lastProps().nodesConnectable).toBe(false);
+  });
+
   it("maps split expansion controls into split node data", () => {
     const onSplitNodeToggle = vi.fn();
     const nodes = [

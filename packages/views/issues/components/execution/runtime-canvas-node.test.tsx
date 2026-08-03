@@ -1,6 +1,17 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { RuntimeSplitSubflowNode } from "./runtime-canvas-node";
+import {
+  RUNTIME_SPLIT_SUBFLOW_CARD_HEIGHT,
+  RUNTIME_SPLIT_SUBFLOW_CARD_WIDTH,
+  RuntimeCanvasNode,
+  RuntimeSplitSubflowNode,
+  runtimeCanvasNodeTypes,
+} from "./runtime-canvas-node";
+import type { WorkflowActorIdentity } from "../../../common/workflow-actor-slots";
+
+const mocks = vi.hoisted(() => ({
+  runtimeNodeCardProps: null as Record<string, unknown> | null,
+}));
 
 vi.mock("@xyflow/react", () => ({
   Handle: () => <div data-testid="subflow-handle" />,
@@ -9,13 +20,19 @@ vi.mock("@xyflow/react", () => ({
 
 vi.mock("./runtime-node-card", () => ({
   RUNTIME_NODE_HEIGHT: 120,
+  RUNTIME_CHILD_ISSUE_NODE_HEIGHT: 96,
+  RUNTIME_CHILD_ISSUE_NODE_WIDTH: 240,
   RuntimeNodeCard: ({
     node,
     onClick,
+    ...props
   }: {
     node: { id: string; title: string };
     onClick: (nodeId: string) => void;
-  }) => (
+    [key: string]: unknown;
+  }) => {
+    mocks.runtimeNodeCardProps = { node, onClick, ...props };
+    return (
     <button
       type="button"
       data-testid={`runtime-node-card-${node.id}`}
@@ -28,7 +45,8 @@ vi.mock("./runtime-node-card", () => ({
       />
       <span>{node.title}</span>
     </button>
-  ),
+    );
+  },
 }));
 
 vi.mock("@multica/views/i18n", () => ({
@@ -76,6 +94,50 @@ function runtimeSummary(workflowNodeId: string, displayStatus: string) {
 }
 
 describe("RuntimeSplitSubflowNode", () => {
+  it("forwards resolved actor identities to the runtime card", () => {
+    const workerIdentity: WorkflowActorIdentity = {
+      type: "agent",
+      id: "agent-1",
+      name: "Runtime Agent",
+      typeLabel: "Digital human",
+    };
+    const criticIdentity: WorkflowActorIdentity = {
+      type: "member",
+      id: "member-1",
+      name: "Reviewer",
+      typeLabel: "Member",
+    };
+
+    render(
+      <RuntimeCanvasNode
+        {...({
+          id: "node-1",
+          data: {
+            node: childWorkflowNode("node-1", "Runtime task"),
+            nodeRun: null,
+            runtimeSummary: null,
+            workerName: "Runtime Agent",
+            criticName: "Reviewer",
+            workerIdentity,
+            criticIdentity,
+            onOpen: vi.fn(),
+          },
+        } as any)}
+      />,
+    );
+
+    expect(mocks.runtimeNodeCardProps).toMatchObject({ workerIdentity, criticIdentity });
+  });
+
+  it("uses the compact child issue card height for subflow rows", () => {
+    expect(RUNTIME_SPLIT_SUBFLOW_CARD_HEIGHT).toBe(96);
+    expect(RUNTIME_SPLIT_SUBFLOW_CARD_WIDTH).toBe(240);
+  });
+
+  it("registers the boundary renderer used by the shared canvas model", () => {
+    expect(runtimeCanvasNodeTypes).toHaveProperty("boundary");
+  });
+
   it("renders dependency lines and canvas-aligned child cards inside the subflow", () => {
     render(
       <RuntimeSplitSubflowNode

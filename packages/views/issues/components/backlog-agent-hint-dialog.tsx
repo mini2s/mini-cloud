@@ -14,14 +14,14 @@ interface BacklogAgentHintDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onDismissPermanently: () => void;
-  onMoveToTodo: () => void;
+  onMoveToInProgress: () => void;
 }
 
 export function BacklogAgentHintDialog({
   open,
   onOpenChange,
   onDismissPermanently,
-  onMoveToTodo,
+  onMoveToInProgress,
 }: BacklogAgentHintDialogProps) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -29,7 +29,7 @@ export function BacklogAgentHintDialog({
         <BacklogAgentHintContent
           onKeepInBacklog={() => onOpenChange(false)}
           onDismissPermanently={onDismissPermanently}
-          onMoveToTodo={onMoveToTodo}
+          onMoveToInProgress={onMoveToInProgress}
         />
       </AlertDialogContent>
     </AlertDialog>
@@ -39,13 +39,13 @@ export function BacklogAgentHintDialog({
 interface BacklogAgentHintContentProps {
   onKeepInBacklog: () => void;
   onDismissPermanently: () => void;
-  onMoveToTodo: () => void;
+  onMoveToInProgress: () => void;
 }
 
 export function BacklogAgentHintContent({
   onKeepInBacklog,
   onDismissPermanently,
-  onMoveToTodo,
+  onMoveToInProgress,
 }: BacklogAgentHintContentProps) {
   const { t } = useT("issues");
   const [dontShowAgain, setDontShowAgain] = useState(false);
@@ -55,9 +55,9 @@ export function BacklogAgentHintContent({
     onKeepInBacklog();
   };
 
-  const handleMoveToTodo = () => {
+  const handleMoveToInProgress = () => {
     if (dontShowAgain) onDismissPermanently();
-    onMoveToTodo();
+    onMoveToInProgress();
   };
 
   return (
@@ -85,8 +85,8 @@ export function BacklogAgentHintContent({
           </div>
           <div className="flex items-center gap-2 text-muted-foreground">
             <ArrowRight className="size-4 shrink-0" />
-            <span className="font-medium text-foreground">{t(($) => $.backlog_hint.row_todo_label)}</span>
-            <span className="text-muted-foreground">{t(($) => $.backlog_hint.row_todo_hint)}</span>
+            <span className="font-medium text-foreground">{t(($) => $.backlog_hint.row_in_progress_label)}</span>
+            <span className="text-muted-foreground">{t(($) => $.backlog_hint.row_in_progress_hint)}</span>
             <CheckCircle2 className="ml-auto size-4 shrink-0 text-primary" />
           </div>
         </div>
@@ -113,9 +113,9 @@ export function BacklogAgentHintContent({
             <Button
               type="button"
               className="w-full sm:w-auto"
-              onClick={handleMoveToTodo}
+              onClick={handleMoveToInProgress}
             >
-              {t(($) => $.backlog_hint.move_to_todo)}
+              {t(($) => $.backlog_hint.move_to_in_progress)}
             </Button>
           </div>
         </div>

@@ -708,7 +708,7 @@ func writeWSAuthErrorAndClose(conn *websocket.Conn, payload []byte, attrs ...any
 
 // HandleWebSocket upgrades an HTTP connection to WebSocket with cookie,
 // Casdoor token, or first-message auth.
-func HandleWebSocket(hub *Hub, mc MembershipChecker, pr PATResolver, resolveSlug SlugResolver, jwks *auth.JWKSProvider, subjectResolver SubjectResolver, w http.ResponseWriter, r *http.Request) {
+func HandleWebSocket(hub *Hub, mc MembershipChecker, pr PATResolver, resolveSlug SlugResolver, subjectResolver SubjectResolver, w http.ResponseWriter, r *http.Request) {
 	workspaceID := r.URL.Query().Get("workspace_id")
 	if workspaceID == "" {
 		if slug := r.URL.Query().Get("workspace_slug"); slug != "" && resolveSlug != nil {
@@ -737,13 +737,13 @@ func HandleWebSocket(hub *Hub, mc MembershipChecker, pr PATResolver, resolveSlug
 			return
 		}
 		userID = uid
-	} else if jwks != nil && subjectResolver != nil {
+	} else if subjectResolver != nil {
 		// Embedded clients (e.g. app-ai-native) may authenticate via Casdoor
 		// token instead of the multica_auth cookie. Fall back to Casdoor
-		// JWT validation so WebSocket works in iframe/embedded scenarios.
+		// JWT parsing so WebSocket works in iframe/embedded scenarios.
 		casdoorToken := extractCasdoorTokenForWS(r)
 		if casdoorToken != "" && !strings.HasPrefix(casdoorToken, "mul_") {
-			userInfo, err := auth.ParseCasdoorJWT(casdoorToken, jwks)
+			userInfo, err := auth.ParseCasdoorJWT(casdoorToken)
 			if err == nil {
 				uid, err := subjectResolver(r.Context(), userInfo.SubjectID, userInfo.UniversalID, userInfo.Name, userInfo.Email)
 				if err == nil && uid != "" {

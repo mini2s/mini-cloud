@@ -5,6 +5,19 @@ const DEFAULT_E2E_NAME = "E2E User";
 const DEFAULT_E2E_EMAIL = "e2e@multica.ai";
 const DEFAULT_E2E_WORKSPACE = "e2e-workspace";
 
+function workspacePath(slug: string, suffix = "/issues") {
+  const basePath = (process.env.NEXT_PUBLIC_BASE_PATH ?? "").replace(/\/$/, "");
+  return `${basePath}/${slug}${suffix}`;
+}
+
+function browserOrigin() {
+  return new URL(
+    process.env.PLAYWRIGHT_BASE_URL ??
+      process.env.FRONTEND_ORIGIN ??
+      "http://localhost:3000",
+  ).origin;
+}
+
 /**
  * Log in as the default E2E user and ensure the workspace exists first.
  * Authenticates via API (send-code → DB read → verify-code), then sets the
@@ -21,6 +34,7 @@ export async function loginAsDefault(page: Page): Promise<string> {
   );
 
   const token = api.getToken();
+  const csrfToken = api.getCsrfToken();
 
   // Cookie auth mode: set the multica_auth HttpOnly cookie via Playwright's
   // browser context API. The web app uses cookie-based auth — localStorage
@@ -29,15 +43,25 @@ export async function loginAsDefault(page: Page): Promise<string> {
     {
       name: "multica_auth",
       value: token!,
-      domain: "localhost",
-      path: "/",
+      url: browserOrigin(),
       httpOnly: true,
       sameSite: "Lax",
     },
+    ...(csrfToken
+      ? [
+          {
+            name: "multica_csrf",
+            value: csrfToken,
+            url: browserOrigin(),
+            httpOnly: false,
+            sameSite: "Lax" as const,
+          },
+        ]
+      : []),
   ]);
 
-  await page.goto(`/tasks/${workspace.slug}/issues`);
-  await page.waitForURL("**/tasks/*/issues", { timeout: 10000 });
+  await page.goto(workspacePath(workspace.slug));
+  await page.waitForURL(`**/${workspace.slug}/issues`, { timeout: 10000 });
   return workspace.slug;
 }
 
@@ -55,6 +79,7 @@ export async function loginWithToken(
   page: Page,
   token: string,
   workspaceSlug: string,
+  csrfToken?: string | null,
 ): Promise<void> {
   // Cookie auth mode: the web app checks hasLegacyToken() at mount. If
   // multica_token is absent from localStorage, it falls into cookie-auth mode
@@ -63,15 +88,25 @@ export async function loginWithToken(
     {
       name: "multica_auth",
       value: token,
-      domain: "localhost",
-      path: "/",
+      url: browserOrigin(),
       httpOnly: true,
       sameSite: "Lax",
     },
+    ...(csrfToken
+      ? [
+          {
+            name: "multica_csrf",
+            value: csrfToken,
+            url: browserOrigin(),
+            httpOnly: false,
+            sameSite: "Lax" as const,
+          },
+        ]
+      : []),
   ]);
 
-  await page.goto(`/tasks/${workspaceSlug}/issues`);
-  await page.waitForURL("**/tasks/*/issues", { timeout: 10000 });
+  await page.goto(workspacePath(workspaceSlug));
+  await page.waitForURL(`**/${workspaceSlug}/issues`, { timeout: 10000 });
 }
 
 /**

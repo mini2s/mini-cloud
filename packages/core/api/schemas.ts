@@ -9,8 +9,6 @@ import type {
   AgentCloudSkill,
   CreateAgentFromTemplateResponse,
   BatchAddDeptMembersResponse,
-  DeptDepartment,
-  DeptUser,
   GroupedIssuesResponse,
   ListIssuesResponse,
   ListWebhookDeliveriesResponse,
@@ -182,6 +180,7 @@ const IssueSchema = z.object({
   priority: z.string(),
   assignee_type: z.string().nullable(),
   assignee_id: z.string().nullable(),
+  responsible_user_id: z.string().nullable().default(null),
   creator_type: z.string(),
   creator_id: z.string(),
   parent_issue_id: z.string().nullable(),
@@ -266,7 +265,9 @@ export const SplitTaskSchema = z.object({
   node_run_id: z.string(),
   title: z.string().default(""),
   description: z.string().default(""),
-  workflow_id: z.string().default(""),
+  workflow_id: z.string().nullable().default(null),
+  assignee_type: z.enum(["member", "agent", "squad", "workflow"]).nullable().default(null),
+  assignee_id: z.string().nullable().default(null),
   depends_on: z.array(z.string()).default([]),
   sort_order: z.number().default(0),
   status: z.string().default("draft"),
@@ -288,7 +289,7 @@ export const SplitTaskSchema = z.object({
 }).loose();
 
 export const SplitTasksResponseSchema = z.object({
-  tasks: z.array(SplitTaskSchema).default([]),
+  tasks: z.array(SplitTaskSchema).nullish().transform((value) => value ?? []),
   progress: SplitProgressSchema.default(EMPTY_SPLIT_PROGRESS as any),
   chat_session_id: z.string().optional(),
   task_id: z.string().optional(),
@@ -321,34 +322,13 @@ export const EMPTY_SPLIT_CHAT_RESPONSE: SplitChatResponse = {
   task_id: "",
 };
 
-export const DeptDepartmentSchema = z.object({
-  dept_id: z.string(),
-  dept_name: z.string(),
-  dept_path: z.string().nullable().optional(),
-  parent_dept_id: z.string().nullable().optional(),
-  dept_level: z.number().optional(),
-  child_dept_count: z.number().optional(),
+export const CsUserSearchHitSchema = z.object({
+  subject_id: z.string(),
+  name: z.string(),
+  email: z.string().optional(),
 }).loose();
 
-export const DeptDepartmentListSchema = z.array(DeptDepartmentSchema);
-
-export const EMPTY_DEPT_DEPARTMENT_LIST: DeptDepartment[] = [];
-
-export const DeptUserSchema = z.object({
-  user_id: z.string(),
-  username: z.string(),
-  universal_id: z.string().nullable().optional(),
-  dept_id: z.string().nullable().optional(),
-  dept_name: z.string().nullable().optional(),
-  dept_path: z.string().nullable().optional(),
-  is_main: z.number().optional(),
-  position: z.string().nullable().optional(),
-  status: z.number().optional(),
-}).loose();
-
-export const DeptUserListSchema = z.array(DeptUserSchema);
-
-export const EMPTY_DEPT_USER_LIST: DeptUser[] = [];
+export const CsUserSearchHitListSchema = z.array(CsUserSearchHitSchema);
 
 export const BatchAddDeptMembersResponseSchema = z.object({
   added: z.number().default(0),
@@ -780,6 +760,11 @@ const WorkflowSchema = z.object({
   node_count: z.number().default(0),
   is_template: z.boolean().default(false),
   source_template_id: z.string().nullable().default(null),
+  default_runtime_selection_policy: z
+    .enum(["specified_runtime_first", "idle_first", "issue_creator_first"])
+    .catch("idle_first")
+    .default("idle_first"),
+  default_runtime_id: z.string().nullable().default(null),
   custom_roles: z.array(z.string()).catch([]).default([]),
   created_at: z.string().default(""),
   updated_at: z.string().default(""),
@@ -809,6 +794,8 @@ export const EMPTY_WORKFLOW: Workflow = {
   node_count: 0,
   is_template: false,
   source_template_id: null,
+  default_runtime_selection_policy: "idle_first",
+  default_runtime_id: null,
   custom_roles: [],
   created_at: "",
   updated_at: "",
@@ -910,6 +897,92 @@ export const WorkflowEdgesResponseSchema = z.object({
 
 export const EMPTY_WORKFLOW_EDGES_RESPONSE = { edges: EMPTY_WORKFLOW_EDGE_LIST };
 
+const WorkflowSnapshotSplitConfigSchema = z.object({
+  default_issue_workflow_id: z.string(),
+  mode: z.string(),
+  max_concurrency: z.number().int(),
+  max_failures: z.number().int(),
+}).loose();
+
+const WorkflowDefinitionSnapshotV1Schema = z.object({
+  schema_version: z.literal(1),
+  snapshot_origin: z.string(),
+  workflow: z.object({
+    id: z.string(),
+    workspace_id: z.string(),
+    title: z.string(),
+    description: z.string(),
+    is_default: z.boolean(),
+    max_retries: z.number().int(),
+    runtime_selection_policy: z.string(),
+    runtime_id: z.string().optional(),
+    config_revision: z.number().int(),
+  }).loose(),
+  nodes: z.array(z.object({
+    id: z.string(),
+    title: z.string(),
+    description: z.string(),
+    position_x: z.number(),
+    position_y: z.number(),
+    sort_order: z.number().int(),
+    stage_id: z.string().optional(),
+    kind: z.string(),
+    gateway_kind: z.string().optional(),
+    split_config: WorkflowSnapshotSplitConfigSchema.optional(),
+    format_schema: z.unknown().optional(),
+    worker_type: z.string(),
+    worker_id: z.string().optional(),
+    worker_name: z.string().optional(),
+    worker_role_id: z.string().optional(),
+    critic_type: z.string(),
+    critic_id: z.string().optional(),
+    critic_name: z.string().optional(),
+    critic_api_url: z.string().optional(),
+    critic_role_id: z.string().optional(),
+  }).loose()),
+  edges: z.array(z.object({
+    id: z.string(),
+    source_node_id: z.string(),
+    target_node_id: z.string(),
+    condition: z.unknown().optional(),
+    created_at: z.string().optional(),
+  }).loose()),
+  stages: z.array(z.object({
+    id: z.string(), name: z.string(), description: z.string(), sort_order: z.number().int(),
+  }).loose()),
+  roles: z.array(z.object({ id: z.string(), name: z.string(), description: z.string() }).loose()),
+  deliverables: z.array(z.object({
+    id: z.string(),
+    workflow_node_id: z.string(),
+    kind: z.string(),
+    title: z.string(),
+    description: z.string(),
+    required: z.boolean(),
+    sort_order: z.number().int(),
+  }).loose()),
+}).loose();
+
+export const WorkflowDefinitionSnapshotSchema = z.preprocess((value) => {
+  if (typeof value !== "object" || value === null || (value as { schema_version?: unknown }).schema_version !== 1) {
+    return null;
+  }
+  const parsed = WorkflowDefinitionSnapshotV1Schema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}, WorkflowDefinitionSnapshotV1Schema.nullable());
+
+export const WorkflowConfigIssueSchema = z.object({
+  code: z.string(),
+  node_id: z.string().optional(),
+  node_title: z.string().optional(),
+  detail: z.string(),
+}).loose();
+
+export const WorkflowConfigInvalidErrorBodySchema = z.object({
+  code: z.literal("workflow_config_invalid"),
+  run_id: z.string().min(1),
+  issues: z.array(WorkflowConfigIssueSchema).min(1),
+}).loose();
+
 const WorkflowRunSchema = z.object({
   id: z.string(),
   workflow_id: z.string(),
@@ -918,11 +991,22 @@ const WorkflowRunSchema = z.object({
   status: z.string().default("running"),
   triggered_by_type: z.string().default("member"),
   triggered_by_id: z.string().nullable().default(null),
+  runtime_id: z.string().nullable().default(null),
+  runtime_selection_policy: z
+    .enum(["specified_runtime_first", "idle_first", "issue_creator_first"])
+    .catch("idle_first")
+    .default("idle_first"),
   input: z.unknown().optional(),
   output: z.unknown().nullable().optional(),
   started_at: z.string().default(""),
   completed_at: z.string().nullable().default(null),
   created_at: z.string().default(""),
+  source_config_revision: z.number().int().optional(),
+  definition_schema_version: z.number().int().nullable().optional(),
+  definition_snapshot: WorkflowDefinitionSnapshotSchema.optional(),
+  max_retries: z.number().int().optional(),
+  failure_reason: z.string().nullable().optional(),
+  validation_errors: z.array(WorkflowConfigIssueSchema).nullable().optional(),
 }).loose();
 
 export { WorkflowRunSchema };
@@ -988,6 +1072,8 @@ export const EMPTY_WORKFLOW_RUN: WorkflowRun = {
   status: "running",
   triggered_by_type: "member",
   triggered_by_id: null,
+  runtime_id: null,
+  runtime_selection_policy: "idle_first",
   input: {},
   output: null,
   started_at: "",
@@ -1006,7 +1092,9 @@ export const WorkflowNodeRunSchema = z.object({
   id: z.string(),
   workflow_run_id: z.string(),
   workflow_node_id: z.string(),
+  source_workflow_node_id: z.string().optional(),
   node_title: z.string().default(""),
+  node_description: z.string().optional(),
   status: z.string().default("pending"),
   retry_count: z.number().default(0),
   worker_type: z.string().default("human"),
@@ -1021,6 +1109,8 @@ export const WorkflowNodeRunSchema = z.object({
   agent_task_id: z.string().nullable().default(null),
   session_id: z.string().nullable().default(null),
   runtime_id: z.string().nullable().default(null),
+  runtime_selection_reason: z.string().nullable().default(null),
+  failure_reason: z.string().nullable().default(null),
   device_id: z.string().nullable().default(null),
   split_review_chat_session_id: z.string().nullable().default(null),
   split_config_version: z.number().int().positive().default(1),
@@ -1028,6 +1118,14 @@ export const WorkflowNodeRunSchema = z.object({
   completed_at: z.string().nullable().default(null),
   created_at: z.string().default(""),
   updated_at: z.string().default(""),
+  format_schema: z.unknown().optional(),
+  critic_api_url: z.string().nullable().optional(),
+  stage_snapshot: z.unknown().optional(),
+  worker_role_snapshot: z.unknown().optional(),
+  critic_role_snapshot: z.unknown().optional(),
+  runtime_config: z.unknown().optional(),
+  worker_name_snapshot: z.string().optional(),
+  critic_name_snapshot: z.string().optional(),
 }).loose();
 
 export const WorkflowNodeRunListSchema = z.array(WorkflowNodeRunSchema);
@@ -1051,6 +1149,8 @@ export const EMPTY_WORKFLOW_NODE_RUN: WorkflowNodeRun = {
   agent_task_id: null,
   session_id: null,
   runtime_id: null,
+  runtime_selection_reason: null,
+  failure_reason: null,
   device_id: null,
   split_review_chat_session_id: null,
   split_config_version: 1,
@@ -1340,7 +1440,7 @@ export const EMPTY_MERGE_REQUESTS_RESPONSE = { merge_requests: [] };
 
 const GitlabSettingsSchema = z.object({
   configured: z.boolean().default(false),
-  enabled: z.boolean().default(false),
+  enabled: z.boolean().default(true),
   canManage: z.boolean().default(false),
   settings: z.object({
     mrSidebarEnabled: z.boolean().default(false),
@@ -1352,10 +1452,62 @@ export const GitlabSettingsResponseSchema = GitlabSettingsSchema;
 
 export const EMPTY_GITLAB_SETTINGS_RESPONSE = {
   configured: false,
-  enabled: false,
+  enabled: true,
   canManage: false,
   settings: {
     mrSidebarEnabled: false,
     autoLinkEnabled: false,
   },
 };
+
+// ── Deliverable schemas (restored: document deliverable git-storage) ────────
+
+const WorkflowNodeDeliverableSchema = z.object({
+  id: z.string(),
+  workflow_node_id: z.string(),
+  title: z.string().default(""),
+  description: z.string().default(""),
+  required: z.boolean().default(true),
+  sort_order: z.number().default(0),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+export const WorkflowNodeDeliverablesResponseSchema = z.object({
+  deliverables: z.array(WorkflowNodeDeliverableSchema).default([]),
+}).loose();
+
+export const EMPTY_WORKFLOW_NODE_DELIVERABLES_RESPONSE = { deliverables: [] };
+
+const WorkflowNodeDeliverableSubmissionSchema = z.object({
+  id: z.string(),
+  workflow_node_run_id: z.string(),
+  deliverable_id: z.string(),
+  submitted_by_type: z.string().default("member"),
+  submitted_by_id: z.string().nullable().default(null),
+  status: z.string().default("submitted"),
+  content: z.string().default(""),
+  attachment_id: z.string().nullable().default(null),
+  pull_request_url: z.string().default(""),
+  review_comment: z.string().default(""),
+  submitted_at: z.string().default(""),
+  reviewed_at: z.string().nullable().default(null),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+export const WorkflowNodeDeliverableSubmissionsResponseSchema = z.object({
+  submissions: z.array(WorkflowNodeDeliverableSubmissionSchema).default([]),
+  deliverables: z.array(WorkflowNodeDeliverableSchema).default([]),
+}).loose();
+
+export const EMPTY_WORKFLOW_NODE_DELIVERABLE_SUBMISSIONS_RESPONSE = { submissions: [], deliverables: [] };
+
+// Member deliverable uploads answer a bare acknowledgement. The upload only
+// failed when fetch itself throws (non-2xx), so a drifted body degrades to the
+// same success the status line already reported.
+export const UploadIssueDeliverableResponseSchema = z.object({
+  ok: z.boolean().default(true),
+}).loose();
+
+export const EMPTY_UPLOAD_ISSUE_DELIVERABLE_RESPONSE = { ok: true };

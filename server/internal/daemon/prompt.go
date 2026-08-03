@@ -37,6 +37,19 @@ func BuildPrompt(task Task, provider string) string {
 	b.WriteString("You are running as a local coding agent for a Multica workspace.\n\n")
 	fmt.Fprintf(&b, "Your assigned issue ID is: %s\n\n", task.IssueID)
 
+	if task.WorkflowPhase == "critic" {
+		b.WriteString("## Workflow Critic Review\n\n")
+		b.WriteString("You are reviewing the worker's submitted deliverables for this workflow node. Inspect the issue context and deliverable PRs, then finish with a JSON object only:\n\n")
+		b.WriteString("```json\n{\"approved\":true,\"comment\":\"short review opinion\"}\n```\n\n")
+		b.WriteString("Use `approved:false` when the work needs rework, and put the actionable rejection reason in `comment`.\n\n")
+		b.WriteString("---\n\n")
+	} else if task.WorkflowPhase == "worker" {
+		b.WriteString("## Workflow Worker Task\n\n")
+		b.WriteString("You are the worker for this workflow node. Complete the assigned work and submit every required deliverable before finishing.\n")
+		b.WriteString("Do NOT perform critic review. Do NOT approve or reject the work. If the issue text mentions a critic/reviewer, treat that as context for the later review phase, not your current task.\n\n")
+		b.WriteString("---\n\n")
+	}
+
 	// Inject upstream-stage context so the agent reads prior-stage sub-issues
 	// and downloads their attachments before proceeding.
 	if len(task.UpstreamStageContext) > 0 {
@@ -61,6 +74,33 @@ func BuildPrompt(task Task, provider string) string {
 			fmt.Fprintf(&b, "  Read the full sub-issue: `cs-workflow issue get %s --output json`\n", up.IssueID)
 			fmt.Fprintf(&b, "  Read comments: `cs-workflow issue comment list %s --output json`\n\n", up.IssueID)
 		}
+		b.WriteString("---\n\n")
+	}
+
+	// Deliverables: every deliverable is a PR slot — satisfied by registering
+	// a PR/MR URL. How the agent creates that PR depends on what the task asks
+	// for (document vs. code); the prompt lists both paths and the agent picks
+	// the right one.
+	if task.WorkflowPhase != "critic" && task.GiteaDeliverables != nil {
+		b.WriteString("## Deliverables\n\n")
+		b.WriteString("This node has deliverables. Each must be satisfied by registering a PR/MR URL before the node is complete. Choose the method based on what the deliverable asks for:\n\n")
+		b.WriteString("**Document deliverable** — write the content to a local file and submit it with the CLI (which creates a node branch off the run's instance branch, pushes the file, opens a review PR in the platform repository, and registers the URL):\n")
+		for _, d := range task.GiteaDeliverables.Deliverables {
+			fmt.Fprintf(&b, "- **%s** (id=%s): `cs-cloud workflow deliverable submit --deliverable %s --file <local-path>`\n", d.Title, d.ID, d.ID)
+		}
+		b.WriteString("\n**Code deliverable** — push a branch to the linked Git repo and open a Merge Request, then register the MR URL:\n")
+		b.WriteString("1. Open an MR with `cs-workflow mr create --source-branch <branch> --title \"<title>\" --push` (run inside a checkout whose `origin` points at the Git repo; the CLI reads the PAT from the workspace).\n")
+		b.WriteString("2. Submit the MR web URL: `curl -X POST -H \"Authorization: Bearer $MULTICA_TOKEN\" -H \"X-Workspace-ID: $MULTICA_WORKSPACE_ID\" -H \"Content-Type: application/json\" -d '{\"pull_request_url\":\"<MR URL>\"}' $MULTICA_SERVER_URL/api/node-runs/$MULTICA_NODE_RUN_ID/deliverables/<deliverable_id>/submit`\n\n")
+		b.WriteString("Complete every required deliverable before finishing.\n\n")
+		b.WriteString("---\n\n")
+	} else if task.WorkflowPhase != "critic" {
+		// Fallback: nodes without Gitea context may still have deliverables.
+		// Tell the agent how to list and submit them.
+		b.WriteString("## Deliverables\n\n")
+		b.WriteString("This node may have deliverables that must be satisfied by registering a PR/MR URL. Check and submit them:\n")
+		b.WriteString("1. List deliverables: `curl -s -H \"Authorization: Bearer $MULTICA_TOKEN\" -H \"X-Workspace-ID: $MULTICA_WORKSPACE_ID\" $MULTICA_SERVER_URL/api/node-runs/$MULTICA_NODE_RUN_ID/deliverables`\n")
+		b.WriteString("2. For each deliverable: push a branch, open an MR (`cs-workflow mr create --source-branch <branch> --title \"<title>\" --push`), then submit the MR web URL: `curl -X POST -H \"Authorization: Bearer $MULTICA_TOKEN\" -H \"X-Workspace-ID: $MULTICA_WORKSPACE_ID\" -H \"Content-Type: application/json\" -d '{\"pull_request_url\":\"<MR URL>\"}' $MULTICA_SERVER_URL/api/node-runs/$MULTICA_NODE_RUN_ID/deliverables/<deliverable_id>/submit`\n\n")
+		b.WriteString("Complete every required deliverable before finishing.\n\n")
 		b.WriteString("---\n\n")
 	}
 

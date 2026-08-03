@@ -24,6 +24,8 @@ function splitTask(id: string, dependsOn: string[] = []): SplitTask {
     title: id,
     description: "",
     workflow_id: "workflow-1",
+    assignee_type: "workflow",
+    assignee_id: "workflow-1",
     depends_on: dependsOn,
     sort_order: 0,
     status: "draft",

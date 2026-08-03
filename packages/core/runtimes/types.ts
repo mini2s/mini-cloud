@@ -8,3 +8,13 @@ export type RuntimeHealth =
   | "recently_lost" // amber — offline < 5 minutes (likely transient)
   | "offline" // grey — offline 5 minutes ~ 7 days
   | "about_to_gc"; // dim — within 1 day of the 7-day GC threshold
+
+// Providers whose runtimes can execute agents: "csc" is a local daemon
+// running the csc CLI; "cs-cloud" is a cloud device runtime. Other local
+// CLI providers (claude/codex/...) must stay excluded from agent binding
+// pickers — but dropping "cs-cloud" makes cloud-only workspaces show
+// "no available runtimes" (see the create-agent dialog regression).
+export const AGENT_RUNTIME_PROVIDERS: ReadonlySet<string> = new Set([
+  "csc",
+  "cs-cloud",
+]);

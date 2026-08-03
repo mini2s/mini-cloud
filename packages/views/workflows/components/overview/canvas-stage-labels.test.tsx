@@ -125,6 +125,33 @@ describe("CanvasStageLabels", () => {
     expect(baseProps.onDelete).toHaveBeenCalledWith(baseProps.stages[0]);
   });
 
+  it("keeps the unassigned lane visible without stage actions", () => {
+    const onEdit = vi.fn();
+    const unassigned = makeStage({
+      id: "unassigned",
+      name: "Unassigned",
+      sort_order: 1,
+    });
+
+    render(
+      <CanvasStageLabels
+        {...baseProps}
+        stages={[baseProps.stages[0]!, unassigned]}
+        onEdit={onEdit}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Unassigned").closest("[data-testid='stage-label-card']")!);
+
+    expect(onEdit).not.toHaveBeenCalled();
+    expect(screen.getAllByLabelText("Edit stage")).toHaveLength(1);
+    expect(screen.getAllByLabelText("Delete stage")).toHaveLength(1);
+    expect(screen.getAllByLabelText("Move stage up")).toHaveLength(1);
+    expect(screen.getAllByLabelText("Move stage down")).toHaveLength(1);
+    expect(screen.getAllByLabelText("Drag to reorder")).toHaveLength(1);
+    expect(screen.getByLabelText("Move stage down")).toBeDisabled();
+  });
+
   it("calls onReorder when up button clicked", () => {
     render(<CanvasStageLabels {...baseProps} />);
     // Second stage (sort_order=1) — move up

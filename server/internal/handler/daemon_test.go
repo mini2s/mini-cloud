@@ -19,6 +19,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/middleware"
+	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
@@ -94,6 +95,23 @@ func newDaemonTokenRequest(method, path string, body any, workspaceID, daemonID 
 	// No X-User-ID — daemon tokens don't set it.
 	ctx := middleware.WithDaemonContext(req.Context(), workspaceID, daemonID)
 	return req.WithContext(ctx)
+}
+
+func TestWorkflowCompletionFailureReason(t *testing.T) {
+	workflowTask := db.MulticaAgentTaskQueue{
+		WorkflowNodeRunID: pgtype.UUID{Valid: true},
+	}
+	regularTask := db.MulticaAgentTaskQueue{}
+
+	if got := workflowCompletionFailureReason(workflowTask, TaskCompleteRequest{Output: "   "}); got != "agent_empty_output" {
+		t.Fatalf("blank workflow output failure reason = %q, want agent_empty_output", got)
+	}
+	if got := workflowCompletionFailureReason(workflowTask, TaskCompleteRequest{Output: "done"}); got != "" {
+		t.Fatalf("non-empty workflow output failure reason = %q, want empty", got)
+	}
+	if got := workflowCompletionFailureReason(regularTask, TaskCompleteRequest{Output: "   "}); got != "" {
+		t.Fatalf("blank regular task output failure reason = %q, want empty", got)
+	}
 }
 
 func createClaimReclaimRuntime(t *testing.T, ctx context.Context, name string) string {
@@ -834,6 +852,112 @@ func TestGetIssueGCCheck_WithDaemonToken_CrossWorkspace(t *testing.T) {
 	}
 	if resp.UpdatedAt == "" {
 		t.Fatal("expected updated_at to be set")
+	}
+}
+
+func TestGetWorkflowNodeRunGCCheck(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	// seedDeliverableAndNodeRunIn builds workflow→node→run→node_run under the
+	// test workspace with the node_run in 'working' status. Stamp it terminal
+	// and stale so a GC caller sees a reclaimable record.
+	nodeRunID, _ := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
+	if _, err := testPool.Exec(context.Background(), `
+		UPDATE multica_workflow_node_run SET status = 'completed', completed_at = NOW() - INTERVAL '10 days'
+		WHERE id = $1`, nodeRunID); err != nil {
+		t.Fatalf("stamp node run: %v", err)
+	}
+
+	// Cross-workspace daemon token → 404 (anti-enumeration, same shape as the
+	// issue gc-check endpoint).
+	w := httptest.NewRecorder()
+	req := newDaemonTokenRequest(http.MethodGet, "/api/daemon/workflow-node-runs/"+nodeRunID+"/gc-check", nil,
+		"00000000-0000-0000-0000-000000000000", "attacker-daemon")
+	req = withURLParam(req, "nodeRunId", nodeRunID)
+	testHandler.GetWorkflowNodeRunGCCheck(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("cross-workspace token: expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Same-workspace daemon token → 200 + status + completed_at.
+	w = httptest.NewRecorder()
+	req = newDaemonTokenRequest(http.MethodGet, "/api/daemon/workflow-node-runs/"+nodeRunID+"/gc-check", nil,
+		testWorkspaceID, "legit-daemon")
+	req = withURLParam(req, "nodeRunId", nodeRunID)
+	testHandler.GetWorkflowNodeRunGCCheck(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("same-workspace token: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Status      string `json:"status"`
+		CompletedAt string `json:"completed_at"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Status != "completed" {
+		t.Fatalf("expected status %q, got %q", "completed", resp.Status)
+	}
+	if resp.CompletedAt == "" {
+		t.Fatal("expected completed_at to be set")
+	}
+}
+
+// TestGetIssueGCCheck_WithUserToken locks spec §257 option 2: gc-check endpoints
+// must accept a user (PAT/JWT/Casdoor) token via DaemonAuth's fallback path,
+// gated by workspace membership — not only a daemon (mdt_) token. The handler
+// observes the post-DaemonAuth state (X-User-ID set, no daemon-workspace ctx),
+// so requireDaemonWorkspaceAccess resolves through the membership cache /
+// requireWorkspaceMember. A member gets 200; a non-member gets the same 404 as
+// "issue not found" (no UUID enumeration oracle). This is the auth path cs-cloud
+// rides on — its CoStrict PAT authenticates as a user token, not a daemon token.
+func TestGetIssueGCCheck_WithUserToken(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	var issueID string
+	err := testPool.QueryRow(context.Background(), `
+		INSERT INTO multica_issue (workspace_id, title, status, priority, creator_id, creator_type)
+		VALUES ($1, 'gc-check-user-token-issue', 'done', 'medium', $2, 'member')
+		RETURNING id
+	`, testWorkspaceID, testUserID).Scan(&issueID)
+	if err != nil {
+		t.Fatalf("setup: create issue: %v", err)
+	}
+	defer testPool.Exec(context.Background(), `DELETE FROM multica_issue WHERE id = $1`, issueID)
+
+	// Member user token → 200 + status + updated_at.
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/daemon/issues/"+issueID+"/gc-check", nil)
+	req.Header.Set("X-User-ID", testUserID)
+	req = withURLParam(req, "issueId", issueID)
+	testHandler.GetIssueGCCheck(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("member user token: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Status    string `json:"status"`
+		UpdatedAt string `json:"updated_at"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Status != "done" {
+		t.Fatalf("expected status %q, got %q", "done", resp.Status)
+	}
+
+	// Non-member user token → 404 (anti-enumeration, same shape as cross-workspace daemon token).
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/daemon/issues/"+issueID+"/gc-check", nil)
+	req.Header.Set("X-User-ID", "11111111-1111-1111-1111-111111111111")
+	req = withURLParam(req, "issueId", issueID)
+	testHandler.GetIssueGCCheck(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("non-member user token: expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -2094,6 +2218,118 @@ func TestClaimTaskByRuntime_TaskWorkspaceMismatch_CancelsAndRejects(t *testing.T
 	}
 	if status != "cancelled" {
 		t.Fatalf("ClaimTaskByRuntime (mismatch): expected task status=cancelled, got %q", status)
+	}
+}
+
+func TestClaimTaskByRuntime_WorkflowTaskWorkspaceMismatch_FailsNodeRun(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+
+	var localAgentID, localRuntimeID string
+	if err := testPool.QueryRow(ctx,
+		`SELECT id, runtime_id FROM multica_agent WHERE workspace_id = $1 LIMIT 1`,
+		testWorkspaceID,
+	).Scan(&localAgentID, &localRuntimeID); err != nil {
+		t.Fatalf("setup: get local agent: %v", err)
+	}
+
+	var foreignWorkspaceID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workspace (name, slug, description, issue_prefix)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id
+	`, "Workflow Mismatch Foreign", "workflow-mismatch-claim", "", "WMC").Scan(&foreignWorkspaceID); err != nil {
+		t.Fatalf("setup: create foreign workspace: %v", err)
+	}
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM multica_workspace WHERE id = $1`, foreignWorkspaceID)
+	})
+
+	var workflowID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow (workspace_id, title, description, status, created_by_type, created_by_id)
+		VALUES ($1, 'Mismatch Workflow', '', 'active', 'member', $2)
+		RETURNING id
+	`, foreignWorkspaceID, testUserID).Scan(&workflowID); err != nil {
+		t.Fatalf("setup: create workflow: %v", err)
+	}
+
+	var nodeID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node (workflow_id, title, description, worker_type, worker_id, critic_type)
+		VALUES ($1, 'Mismatch Node', '', 'agent', $2, 'human')
+		RETURNING id
+	`, workflowID, localAgentID).Scan(&nodeID); err != nil {
+		t.Fatalf("setup: create workflow node: %v", err)
+	}
+
+	var runID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_run (workflow_id, workspace_id, workflow_title, status, triggered_by_type, triggered_by_id)
+		VALUES ($1, $2, 'Mismatch Workflow', 'running', 'member', $3)
+		RETURNING id
+	`, workflowID, foreignWorkspaceID, testUserID).Scan(&runID); err != nil {
+		t.Fatalf("setup: create workflow run: %v", err)
+	}
+
+	var nodeRunID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_run (
+			workflow_run_id, workflow_node_id, node_title, status,
+			worker_type, worker_id, critic_type, started_at
+		)
+		VALUES ($1, $2, 'Mismatch Node', 'working', 'agent', $3, 'human', now())
+		RETURNING id
+	`, runID, nodeID, localAgentID).Scan(&nodeRunID); err != nil {
+		t.Fatalf("setup: create workflow node run: %v", err)
+	}
+
+	var taskID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_agent_task_queue (agent_id, runtime_id, workflow_node_run_id, status, priority, context)
+		VALUES ($1, $2, $3, 'queued', 2, '{"phase":"worker"}'::jsonb)
+		RETURNING id
+	`, localAgentID, localRuntimeID, nodeRunID).Scan(&taskID); err != nil {
+		t.Fatalf("setup: create workflow task: %v", err)
+	}
+	if _, err := testPool.Exec(ctx,
+		`UPDATE multica_workflow_node_run SET worker_agent_task_id = $1 WHERE id = $2`,
+		taskID, nodeRunID,
+	); err != nil {
+		t.Fatalf("setup: bind worker task: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	req := newDaemonTokenRequest("POST", "/api/daemon/runtimes/"+localRuntimeID+"/claim", nil,
+		testWorkspaceID, "legit-daemon")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("runtimeId", localRuntimeID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	testHandler.ClaimTaskByRuntime(w, req)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("ClaimTaskByRuntime (workflow mismatch): expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var taskStatus, nodeRunStatus string
+	if err := testPool.QueryRow(ctx,
+		`SELECT status FROM multica_agent_task_queue WHERE id = $1`, taskID,
+	).Scan(&taskStatus); err != nil {
+		t.Fatalf("read task status: %v", err)
+	}
+	if err := testPool.QueryRow(ctx,
+		`SELECT status FROM multica_workflow_node_run WHERE id = $1`, nodeRunID,
+	).Scan(&nodeRunStatus); err != nil {
+		t.Fatalf("read node-run status: %v", err)
+	}
+	if taskStatus != "cancelled" {
+		t.Fatalf("ClaimTaskByRuntime (workflow mismatch): expected task status=cancelled, got %q", taskStatus)
+	}
+	if nodeRunStatus != service.NodeRunStatusFailed {
+		t.Fatalf("ClaimTaskByRuntime (workflow mismatch): expected node-run status=failed, got %q", nodeRunStatus)
 	}
 }
 
@@ -3679,11 +3915,12 @@ func createUpstreamStageContextFixture(t *testing.T, ctx context.Context, suffix
 		INSERT INTO multica_workflow_node_run (
 			workflow_run_id, workflow_node_id, node_title, status,
 			worker_type, worker_id, critic_type, critic_id,
-			worker_output, completed_at
+			worker_output, completed_at, stage_snapshot
 		)
-		VALUES ($1, $2, 'Node 1', 'completed', 'agent', $3, 'human', NULL, $4, now())
+		VALUES ($1, $2, 'Node 1', 'completed', 'agent', $3, 'human', NULL, $4, now(),
+		        jsonb_build_object('id', $5::text, 'name', 'Stage 1', 'sort_order', 0))
 		RETURNING id
-	`, parseUUID(f.runID), parseUUID(f.node1ID), parseUUID(f.agentID), []byte(`{"output":"upstream output"}`)).Scan(&f.nodeRun1ID); err != nil {
+	`, parseUUID(f.runID), parseUUID(f.node1ID), parseUUID(f.agentID), []byte(`{"output":"upstream output"}`), f.stage1ID).Scan(&f.nodeRun1ID); err != nil {
 		t.Fatalf("setup: create node run 1: %v", err)
 	}
 
@@ -3691,24 +3928,33 @@ func createUpstreamStageContextFixture(t *testing.T, ctx context.Context, suffix
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO multica_workflow_node_run (
 			workflow_run_id, workflow_node_id, node_title, status,
-			worker_type, worker_id, critic_type, critic_id
+			worker_type, worker_id, critic_type, critic_id, stage_snapshot
 		)
-		VALUES ($1, $2, 'Node 2', 'worker_assigned', 'agent', $3, 'human', NULL)
+		VALUES ($1, $2, 'Node 2', 'worker_assigned', 'agent', $3, 'human', NULL,
+		        jsonb_build_object('id', $4::text, 'name', 'Stage 2', 'sort_order', 1))
 		RETURNING id
-	`, parseUUID(f.runID), parseUUID(f.node2ID), parseUUID(f.agentID)).Scan(&f.nodeRun2ID); err != nil {
+	`, parseUUID(f.runID), parseUUID(f.node2ID), parseUUID(f.agentID), f.stage2ID).Scan(&f.nodeRun2ID); err != nil {
 		t.Fatalf("setup: create node run 2: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO multica_workflow_run_edge (
+			workflow_run_id, source_node_run_id, target_node_run_id, condition
+		) VALUES ($1, $2, $3, '{}'::jsonb)
+	`, f.runID, f.nodeRun1ID, f.nodeRun2ID); err != nil {
+		t.Fatalf("setup: create runtime edge: %v", err)
 	}
 
 	// Sub-issue for upstream node run 1
 	issue1, err := testHandler.Queries.CreateIssueWithOrigin(ctx, db.CreateIssueWithOriginParams{
-		WorkspaceID: parseUUID(testWorkspaceID),
-		Title:       "Upstream issue " + suffix,
-		Description: pgtype.Text{String: "", Valid: true},
-		Status:      "done",
-		Priority:    "none",
-		CreatorType: "member",
-		CreatorID:   parseUUID(testUserID),
-		Position:    0,
+		WorkspaceID:       parseUUID(testWorkspaceID),
+		Title:             "Upstream issue " + suffix,
+		Description:       pgtype.Text{String: "", Valid: true},
+		Status:            "done",
+		Priority:          "none",
+		ResponsibleUserID: parseUUID(testUserID),
+		CreatorType:       "member",
+		CreatorID:         parseUUID(testUserID),
+		Position:          0,
 		Number: func() int32 {
 			var n int32
 			_ = testPool.QueryRow(ctx, `SELECT COALESCE(MAX(number), 90000) + 1 FROM multica_issue WHERE workspace_id = $1`, testWorkspaceID).Scan(&n)
@@ -3724,14 +3970,15 @@ func createUpstreamStageContextFixture(t *testing.T, ctx context.Context, suffix
 
 	// Sub-issue for downstream node run 2 (task's issue_id)
 	issue2, err := testHandler.Queries.CreateIssueWithOrigin(ctx, db.CreateIssueWithOriginParams{
-		WorkspaceID: parseUUID(testWorkspaceID),
-		Title:       "Downstream issue " + suffix,
-		Description: pgtype.Text{String: "", Valid: true},
-		Status:      "todo",
-		Priority:    "none",
-		CreatorType: "member",
-		CreatorID:   parseUUID(testUserID),
-		Position:    0,
+		WorkspaceID:       parseUUID(testWorkspaceID),
+		Title:             "Downstream issue " + suffix,
+		Description:       pgtype.Text{String: "", Valid: true},
+		Status:            "todo",
+		Priority:          "none",
+		ResponsibleUserID: parseUUID(testUserID),
+		CreatorType:       "member",
+		CreatorID:         parseUUID(testUserID),
+		Position:          0,
 		Number: func() int32 {
 			var n int32
 			_ = testPool.QueryRow(ctx, `SELECT COALESCE(MAX(number), 90000) + 1 FROM multica_issue WHERE workspace_id = $1`, testWorkspaceID).Scan(&n)
@@ -3879,11 +4126,13 @@ func TestClaimTaskByRuntime_NoUpstreamContextForSameStage(t *testing.T) {
 	ctx := context.Background()
 	f := createUpstreamStageContextFixture(t, ctx, "same-stage")
 
-	// Move node 2 into the same stage as node 1 so they are no longer cross-stage.
+	// Model a run that captured both nodes in the same stage.
 	if _, err := testPool.Exec(ctx, `
-		UPDATE multica_workflow_node SET stage_id = $1 WHERE id = $2
-	`, parseUUID(f.stage1ID), parseUUID(f.node2ID)); err != nil {
-		t.Fatalf("move node 2 to stage 1: %v", err)
+		UPDATE multica_workflow_node_run
+		SET stage_snapshot = jsonb_build_object('id', $1::text, 'name', 'Stage 1', 'sort_order', 0)
+		WHERE id = $2
+	`, f.stage1ID, f.nodeRun2ID); err != nil {
+		t.Fatalf("set node run 2 stage snapshot: %v", err)
 	}
 
 	task, body := claimUpstreamTaskByRuntime(t, f.runtimeID)
@@ -3957,12 +4206,20 @@ func TestClaimTaskByRuntime_UpstreamContextLimit(t *testing.T) {
 			INSERT INTO multica_workflow_node_run (
 				workflow_run_id, workflow_node_id, node_title, status,
 				worker_type, worker_id, critic_type, critic_id,
-				completed_at
+				completed_at, stage_snapshot
 			)
-			VALUES ($1, $2, $3, 'completed', 'agent', $4, 'human', NULL, now())
+			VALUES ($1, $2, $3, 'completed', 'agent', $4, 'human', NULL, now(),
+			        jsonb_build_object('id', $5::text, 'name', 'Stage 1', 'sort_order', 0))
 			RETURNING id
-		`, parseUUID(f.runID), parseUUID(nodeID), fmt.Sprintf("Extra Node %d", i), parseUUID(f.agentID)).Scan(&nodeRunID); err != nil {
+		`, parseUUID(f.runID), parseUUID(nodeID), fmt.Sprintf("Extra Node %d", i), parseUUID(f.agentID), f.stage1ID).Scan(&nodeRunID); err != nil {
 			t.Fatalf("setup: create extra node run %d: %v", i, err)
+		}
+		if _, err := testPool.Exec(ctx, `
+			INSERT INTO multica_workflow_run_edge (
+				workflow_run_id, source_node_run_id, target_node_run_id, condition
+			) VALUES ($1, $2, $3, '{}'::jsonb)
+		`, f.runID, nodeRunID, f.nodeRun2ID); err != nil {
+			t.Fatalf("setup: create extra runtime edge %d: %v", i, err)
 		}
 
 		var issueID string

@@ -22,7 +22,7 @@ import {
 } from "@multica/core/issues/queries";
 import { useUpdateIssue } from "@multica/core/issues/mutations";
 import { useModalStore } from "@multica/core/modals";
-import { memberListOptions, agentListOptions } from "@multica/core/workspace/queries";
+import { memberListOptions } from "@multica/core/workspace/queries";
 import { isActiveWorkspaceMember } from "@multica/core/workspace/members";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useCurrentWorkspace, useWorkspacePaths } from "@multica/core/paths";
@@ -33,6 +33,7 @@ import { createIssueViewStore } from "@multica/core/issues/stores/view-store";
 import { ViewStoreProvider, useViewStore } from "@multica/core/issues/stores/view-store-context";
 import { filterIssues } from "../../issues/utils/filter";
 import { getProjectIssueMetrics } from "./project-issue-metrics";
+import { PlaceholderBody } from "../../common/placeholder-page";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { AppLink, useNavigation } from "../../navigation";
 import { TitleEditor, ContentEditor, type ContentEditorRef } from "../../editor";
@@ -107,6 +108,11 @@ function PropRow({
 // ---------------------------------------------------------------------------
 
 const projectViewStore = createIssueViewStore("project_issues_view");
+
+// Project IA tabs. "issues" renders the real board/list/gantt surface; the
+// rest are placeholders pending their own implementations.
+type ProjectTab = "overview" | "backlog" | "issues" | "design" | "review" | "settings";
+const PROJECT_TABS: ProjectTab[] = ["overview", "backlog", "issues", "design", "review", "settings"];
 
 function ProjectIssuesContent({
   projectId,
@@ -346,7 +352,6 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
     [projectId],
   );
   const { data: members = [] } = useQuery(memberListOptions(wsId));
-  const { data: agents = [] } = useQuery(agentListOptions(wsId));
   const { getActorName } = useActorName();
   const updateProject = useUpdateProject();
   const deleteProject = useDeleteProject();
@@ -361,6 +366,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
   const isMobile = useIsMobile();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<ProjectTab>("issues");
   const [propertiesOpen, setPropertiesOpen] = useState(true);
   const [progressOpen, setProgressOpen] = useState(true);
   const [descriptionOpen, setDescriptionOpen] = useState(true);
@@ -389,7 +395,6 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
   const [leadFilter, setLeadFilter] = useState("");
   const leadQuery = leadFilter.toLowerCase();
   const filteredMembers = members.filter((m) => isActiveWorkspaceMember(m) && (m.name.toLowerCase().includes(leadQuery) || matchesPinyin(m.name, leadQuery)));
-  const filteredAgents = agents.filter((a) => !a.archived_at && (a.name.toLowerCase().includes(leadQuery) || matchesPinyin(a.name, leadQuery)));
 
   const handleUpdateField = useCallback(
     (data: Parameters<typeof updateProject.mutate>[0] extends { id: string } & infer R ? R : never) => {
@@ -567,23 +572,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
                       ))}
                     </>
                   )}
-                  {filteredAgents.length > 0 && (
-                    <>
-                      <div className="px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">{t(($) => $.lead.agents_group)}</div>
-                      {filteredAgents.map((a) => (
-                        <button
-                          type="button"
-                          key={a.id}
-                          onClick={() => { handleUpdateField({ lead_type: "agent", lead_id: a.id }); setLeadOpen(false); }}
-                          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors"
-                        >
-                          <ActorAvatar actorType="agent" actorId={a.id} size={16} showStatusDot />
-                          <span>{a.name}</span>
-                        </button>
-                      ))}
-                    </>
-                  )}
-                  {filteredMembers.length === 0 && filteredAgents.length === 0 && leadFilter && (
+                  {filteredMembers.length === 0 && leadFilter && (
                     <div className="px-2 py-3 text-center text-sm text-muted-foreground">{t(($) => $.lead.no_results)}</div>
                   )}
                 </div>
@@ -728,13 +717,35 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
             </div>
           </PageHeader>
 
-          <ViewStoreProvider store={projectViewStore}>
+          <div className="flex items-center gap-1 border-b px-2">
+            {PROJECT_TABS.map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setActiveTab(tab)}
+                className={cn(
+                  "relative -mb-px border-b-2 px-3 py-2 text-sm transition-colors",
+                  activeTab === tab
+                    ? "border-foreground font-medium text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t(($) => $.detail.tabs[tab])}
+              </button>
+            ))}
+          </div>
+
+          {activeTab === "issues" ? (
+            <ViewStoreProvider store={projectViewStore}>
               <ProjectIssuesSurface
                 projectId={projectId}
                 scope={projectScope}
                 filter={projectFilter}
               />
             </ViewStoreProvider>
+          ) : (
+            <PlaceholderBody title={t(($) => $.detail.tabs[activeTab])} />
+          )}
           </div>
         </ResizablePanel>
         {!isMobile && <ResizableHandle />}

@@ -43,6 +43,7 @@ export interface Issue {
   priority: IssuePriority;
   assignee_type: IssueAssigneeType | null;
   assignee_id: string | null;
+  responsible_user_id?: string | null;
   creator_type: IssueAssigneeType;
   creator_id: string;
   parent_issue_id: string | null;

@@ -30,6 +30,7 @@ const WORKSPACE_ROUTE_SEGMENTS = new Set([
   "skills",
   "workflows",
   "settings",
+  "roles",
 ]);
 
 /**

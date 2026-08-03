@@ -5,14 +5,14 @@ This document is designed for AI agents to execute. Follow these steps exactly t
 ## Prerequisites
 
 - Docker and Docker Compose installed
-- Homebrew installed (for CLI)
+- curl installed (for the install script)
 - At least one AI agent CLI on PATH: `claude` or `codex`
 
 ## Install
 
 ```bash
 # Install CLI + provision self-host server
-curl -fsSL https://raw.githubusercontent.com/multica-ai/multica/main/scripts/install.sh | bash -s -- --with-server
+curl -fsSL https://raw.githubusercontent.com/Askhz/multica/main/scripts/install.sh | bash -s -- --with-server
 
 # Configure CLI for localhost, authenticate, and start daemon
 cs-workflow setup self-host
@@ -28,10 +28,10 @@ Wait for the server output `✓ Multica server is running and CLI is ready!` bef
 ## Alternative: Manual Setup
 
 ```bash
-git clone https://github.com/multica-ai/multica.git
+git clone https://github.com/Askhz/multica.git
 cd multica
 make selfhost
-brew install multica-ai/tap/multica
+curl -fsSL https://raw.githubusercontent.com/Askhz/multica/main/scripts/install.sh | bash
 cs-workflow setup self-host
 ```
 

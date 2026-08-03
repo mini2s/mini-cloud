@@ -2,11 +2,13 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/multica-ai/multica/server/internal/csuser"
 	"github.com/multica-ai/multica/server/internal/deptsync"
 )
 
@@ -66,162 +68,53 @@ func (f fakeWorkspaceDeptClient) SearchDepartments(ctx context.Context, query st
 	return out, nil
 }
 
-func TestSearchDeptDepartmentsReturnsRealDepartmentResults(t *testing.T) {
-	prev := testHandler.DeptSync
-	testHandler.DeptSync = fakeWorkspaceDeptClient{departments: []deptsync.Department{
-		{DeptID: "D100", DeptName: "Platform Dept", DeptPath: "研发体系/Platform Dept"},
-		{DeptID: "D200", DeptName: "Customer Success", DeptPath: "研发体系/Costrict研发部/客户成功组"},
-	}}
-	t.Cleanup(func() { testHandler.DeptSync = prev })
-
-	w := httptest.NewRecorder()
-	req := newRequest(http.MethodGet, "/api/dept/departments/search?q=platform", nil)
-	testHandler.SearchDeptDepartments(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("SearchDeptDepartments: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "Platform Dept") || !strings.Contains(w.Body.String(), "D100") {
-		t.Fatalf("expected canonical department result, got %s", w.Body.String())
-	}
-
-	w = httptest.NewRecorder()
-	req = newRequest(http.MethodGet, "/api/dept/departments/search?q=Costrict研发部", nil)
-	testHandler.SearchDeptDepartments(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("SearchDeptDepartments by path: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "Customer Success") || !strings.Contains(w.Body.String(), "D200") {
-		t.Fatalf("expected department path match, got %s", w.Body.String())
-	}
-
-	w = httptest.NewRecorder()
-	req = newRequest(http.MethodGet, "/api/dept/departments/search?q=D200", nil)
-	testHandler.SearchDeptDepartments(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("SearchDeptDepartments by id: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if strings.Contains(w.Body.String(), "Customer Success") {
-		t.Fatalf("did not expect department id-only match, got %s", w.Body.String())
-	}
+type fakeCsUserClient struct {
+	users map[string]csuser.User // keyed by subject_id
 }
 
-func TestSearchDeptDepartmentsReturnsInitialDepartmentsForEmptyQuery(t *testing.T) {
-	prev := testHandler.DeptSync
-	testHandler.DeptSync = fakeWorkspaceDeptClient{departments: []deptsync.Department{
-		{DeptID: "D100", DeptName: "Platform Dept", DeptPath: "/D000/D100"},
-	}}
-	t.Cleanup(func() { testHandler.DeptSync = prev })
-
-	w := httptest.NewRecorder()
-	req := newRequest(http.MethodGet, "/api/dept/departments/search", nil)
-	testHandler.SearchDeptDepartments(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("SearchDeptDepartments: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "Platform Dept") {
-		t.Fatalf("expected initial department result, got %s", w.Body.String())
-	}
+func (f fakeCsUserClient) SearchUsers(_ context.Context, _ string, _ int) ([]csuser.User, error) {
+	return nil, nil
 }
 
-func TestSearchDeptUsersReturnsNameAndEmployeeMatches(t *testing.T) {
-	prev := testHandler.DeptSync
-	testHandler.DeptSync = fakeWorkspaceDeptClient{users: []deptsync.User{
-		{UserID: "E001", Username: "Active Dept User", UniversalID: "uni-active", DeptID: "D100", DeptName: "Platform", Position: "Engineer", Status: 1},
-		{UserID: "29219", Username: "Universal Only User", UniversalID: "bcdce73f-0f2c-4699-ad21-501a4bc13245", DeptID: "D100", DeptName: "Costrict", Position: "Engineer", Status: 1},
-	}}
-	t.Cleanup(func() { testHandler.DeptSync = prev })
-
-	w := httptest.NewRecorder()
-	req := newRequest(http.MethodGet, "/api/dept/users/search?q=E001", nil)
-	testHandler.SearchDeptUsers(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("SearchDeptUsers: expected 200, got %d: %s", w.Code, w.Body.String())
+func (f fakeCsUserClient) GetUser(_ context.Context, subjectID string) (csuser.User, error) {
+	u, ok := f.users[subjectID]
+	if !ok {
+		return csuser.User{}, fmt.Errorf("cs-user not found: %s", subjectID)
 	}
-	if !strings.Contains(w.Body.String(), "Active Dept User") || !strings.Contains(w.Body.String(), "E001") {
-		t.Fatalf("expected dept user result, got %s", w.Body.String())
-	}
-
-	w = httptest.NewRecorder()
-	req = newRequest(http.MethodGet, "/api/dept/users/search?q=Dept", nil)
-	testHandler.SearchDeptUsers(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("SearchDeptUsers by partial name: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "Active Dept User") {
-		t.Fatalf("expected partial name match, got %s", w.Body.String())
-	}
-
-	w = httptest.NewRecorder()
-	req = newRequest(http.MethodGet, "/api/dept/users/search?q=001", nil)
-	testHandler.SearchDeptUsers(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("SearchDeptUsers by partial employee id: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "E001") {
-		t.Fatalf("expected partial employee id match, got %s", w.Body.String())
-	}
-
-	w = httptest.NewRecorder()
-	req = newRequest(http.MethodGet, "/api/dept/users/search?q=c", nil)
-	testHandler.SearchDeptUsers(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("SearchDeptUsers by universal id character: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if strings.Contains(w.Body.String(), "Universal Only User") {
-		t.Fatalf("did not expect universal id-only match, got %s", w.Body.String())
-	}
+	return u, nil
 }
 
-func TestListDeptDepartmentUsersReturnsRecursiveMembers(t *testing.T) {
-	prev := testHandler.DeptSync
-	testHandler.DeptSync = fakeWorkspaceDeptClient{users: []deptsync.User{
-		{UserID: "E004", Username: "Runtime Dept User", UniversalID: "uni-runtime", DeptID: "D110", DeptName: "Platform Runtime", Position: "SRE", Status: 1},
-	}}
-	t.Cleanup(func() { testHandler.DeptSync = prev })
-
-	w := httptest.NewRecorder()
-	req := withURLParam(newRequest(http.MethodGet, "/api/dept/departments/D100/users", nil), "id", "D100")
-	testHandler.ListDeptDepartmentUsers(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("ListDeptDepartmentUsers: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "Runtime Dept User") || !strings.Contains(w.Body.String(), "Platform Runtime") {
-		t.Fatalf("expected recursive department user result, got %s", w.Body.String())
-	}
-}
-
-func TestBatchAddDeptMembersAddsResolvedAndPendingUsers(t *testing.T) {
+func TestBatchAddDeptMembersCreatesUserAndActiveMember(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
 
 	ctx := context.Background()
-	const slug = "handler-batch-add-dept-members"
+	const slug = "handler-batch-add-subject-id-new"
 	_, _ = testPool.Exec(ctx, `DELETE FROM multica_workspace WHERE slug = $1`, slug)
 	t.Cleanup(func() {
 		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_workspace WHERE slug = $1`, slug)
-		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_user WHERE email = 'batch-dept-resolved@example.test'`)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_user WHERE email = 'batch-subject-new@example.test'`)
 	})
 
-	var resolvedUserID string
-	if err := testPool.QueryRow(ctx, `
-		INSERT INTO multica_user (name, email, casdoor_universal_id)
-		VALUES ('Resolved Batch Dept User', 'batch-dept-resolved@example.test', 'uni-batch-resolved')
-		RETURNING id
-	`).Scan(&resolvedUserID); err != nil {
-		t.Fatalf("create resolved user: %v", err)
-	}
-
-	prev := testHandler.DeptSync
-	testHandler.DeptSync = fakeWorkspaceDeptClient{users: []deptsync.User{
-		{UserID: "E010", Username: "Resolved Batch Dept User", UniversalID: "uni-batch-resolved", DeptID: "D100", DeptName: "Platform", DeptPath: "/D000/D100", Position: "Engineer", Status: 1, IsMain: 1},
-		{UserID: "E011", Username: "Pending Batch Dept User", UniversalID: "uni-batch-pending", DeptID: "D100", DeptName: "Platform", DeptPath: "/D000/D100", Position: "Designer", Status: 1, IsMain: 1},
+	// Set up fakes
+	prevCsUser := testHandler.CsUser
+	csUserFake := fakeCsUserClient{users: map[string]csuser.User{
+		"sub_new_1": {SubjectID: "sub_new_1", Username: "New User", Email: ptrStr("batch-subject-new@example.test"), CasdoorUniversalID: ptrStr("uni-new-1")},
 	}}
-	t.Cleanup(func() { testHandler.DeptSync = prev })
+	testHandler.CsUser = csUserFake
+	t.Cleanup(func() { testHandler.CsUser = prevCsUser })
 
+	prevDeptSync := testHandler.DeptSync
+	testHandler.DeptSync = fakeWorkspaceDeptClient{users: []deptsync.User{
+		{UserID: "E100", Username: "New User", UniversalID: "uni-new-1", DeptID: "D100", DeptName: "Platform", DeptPath: "/D000/D100", Position: "Engineer", Status: 1, IsMain: 1},
+	}}
+	t.Cleanup(func() { testHandler.DeptSync = prevDeptSync })
+
+	// Create workspace
 	w := httptest.NewRecorder()
 	req := newRequest(http.MethodPost, "/api/workspaces", map[string]any{
-		"name": "Batch Dept Members",
+		"name": "Subject ID New Members",
 		"slug": slug,
 	})
 	testHandler.CreateWorkspace(w, req)
@@ -234,86 +127,11 @@ func TestBatchAddDeptMembersAddsResolvedAndPendingUsers(t *testing.T) {
 		t.Fatalf("lookup workspace: %v", err)
 	}
 
+	// Batch add by subject_id
 	w = httptest.NewRecorder()
 	req = withURLParam(newRequest(http.MethodPost, "/api/workspaces/"+workspaceID+"/dept-members", map[string]any{
 		"users": []map[string]string{
-			{"external_user_id": "E010", "external_universal_id": "uni-batch-resolved"},
-			{"external_user_id": "E011", "external_universal_id": "uni-batch-pending"},
-		},
-	}), "id", workspaceID)
-	testHandler.BatchAddDeptMembers(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("BatchAddDeptMembers: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), `"added":2`) {
-		t.Fatalf("expected added count, got %s", w.Body.String())
-	}
-
-	var resolvedStatus, pendingStatus, pendingDept, pendingEmployee string
-	var resolvedMemberUserID, pendingMemberUserID *string
-	if err := testPool.QueryRow(ctx, `
-		SELECT status, user_id FROM multica_member
-		WHERE workspace_id = $1 AND external_universal_id = 'uni-batch-resolved'
-	`, workspaceID).Scan(&resolvedStatus, &resolvedMemberUserID); err != nil {
-		t.Fatalf("lookup resolved member: %v", err)
-	}
-	if resolvedStatus != "active" || resolvedMemberUserID == nil || *resolvedMemberUserID != resolvedUserID {
-		t.Fatalf("resolved member mismatch: status=%q user_id=%v want active %s", resolvedStatus, resolvedMemberUserID, resolvedUserID)
-	}
-	if err := testPool.QueryRow(ctx, `
-		SELECT status, user_id, dept_name, employee_id FROM multica_member
-		WHERE workspace_id = $1 AND external_universal_id = 'uni-batch-pending'
-	`, workspaceID).Scan(&pendingStatus, &pendingMemberUserID, &pendingDept, &pendingEmployee); err != nil {
-		t.Fatalf("lookup pending member: %v", err)
-	}
-	if pendingStatus != "pending_activation" || pendingMemberUserID != nil || pendingDept != "Platform" || pendingEmployee != "E011" {
-		t.Fatalf("pending member mismatch: status=%q user_id=%v dept=%q employee=%q", pendingStatus, pendingMemberUserID, pendingDept, pendingEmployee)
-	}
-}
-
-// dept-sync's /users/search does not index universal_id, so a caller that only
-// knows the universal_id (no external_user_id) must be resolved via the direct
-// GetUserDepartmentsByUniversalID lookup, not SearchUsers. Regression test for
-// the "dept user not found" failure when batch-adding by universal_id only.
-func TestBatchAddDeptMembersResolvesByUniversalIDOnly(t *testing.T) {
-	if testHandler == nil {
-		t.Skip("database not available")
-	}
-
-	ctx := context.Background()
-	const slug = "handler-batch-add-universal-only"
-	_, _ = testPool.Exec(ctx, `DELETE FROM multica_workspace WHERE slug = $1`, slug)
-	t.Cleanup(func() {
-		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_workspace WHERE slug = $1`, slug)
-		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_member WHERE external_universal_id = 'uni-universal-only'`)
-	})
-
-	prev := testHandler.DeptSync
-	testHandler.DeptSync = fakeWorkspaceDeptClient{users: []deptsync.User{
-		{UserID: "E020", Username: "Universal Only User", UniversalID: "uni-universal-only", DeptID: "D200", DeptName: "Platform", DeptPath: "/D000/D200", Position: "Engineer", Status: 1, IsMain: 1},
-	}}
-	t.Cleanup(func() { testHandler.DeptSync = prev })
-
-	w := httptest.NewRecorder()
-	req := newRequest(http.MethodPost, "/api/workspaces", map[string]any{
-		"name": "Universal Only Members",
-		"slug": slug,
-	})
-	testHandler.CreateWorkspace(w, req)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("CreateWorkspace: expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var workspaceID string
-	if err := testPool.QueryRow(ctx, `SELECT id FROM multica_workspace WHERE slug = $1`, slug).Scan(&workspaceID); err != nil {
-		t.Fatalf("lookup workspace: %v", err)
-	}
-
-	// Resolve by universal_id ONLY (no external_user_id).
-	w = httptest.NewRecorder()
-	req = withURLParam(newRequest(http.MethodPost, "/api/workspaces/"+workspaceID+"/dept-members", map[string]any{
-		"users": []map[string]string{
-			{"external_universal_id": "uni-universal-only"},
+			{"subject_id": "sub_new_1"},
 		},
 	}), "id", workspaceID)
 	testHandler.BatchAddDeptMembers(w, req)
@@ -324,43 +142,64 @@ func TestBatchAddDeptMembersResolvesByUniversalIDOnly(t *testing.T) {
 		t.Fatalf("expected added:1, got %s", w.Body.String())
 	}
 
-	var deptPath, deptName, status string
+	// Verify: user was created with subject_id
+	var userID, userSubjectID string
+	if err := testPool.QueryRow(ctx, `SELECT id, COALESCE(subject_id, '') FROM multica_user WHERE email = 'batch-subject-new@example.test'`).Scan(&userID, &userSubjectID); err != nil {
+		t.Fatalf("lookup user: %v", err)
+	}
+	if userSubjectID != "sub_new_1" {
+		t.Fatalf("expected user subject_id=sub_new_1, got %q", userSubjectID)
+	}
+
+	// Verify: member is active with subject_id, no pending_activation
+	var memberStatus, memberSubjectID, deptName string
 	if err := testPool.QueryRow(ctx, `
-		SELECT dept_path, dept_name, status FROM multica_member
-		WHERE workspace_id = $1 AND external_universal_id = 'uni-universal-only'
-	`, workspaceID).Scan(&deptPath, &deptName, &status); err != nil {
+		SELECT status, COALESCE(subject_id, ''), dept_name FROM multica_member
+		WHERE workspace_id = $1 AND user_id = $2
+	`, workspaceID, userID).Scan(&memberStatus, &memberSubjectID, &deptName); err != nil {
 		t.Fatalf("lookup member: %v", err)
 	}
-	if deptPath != "/D000/D200" || deptName != "Platform" || status != "pending_activation" {
-		t.Fatalf("member mismatch: dept_path=%q dept_name=%q status=%q", deptPath, deptName, status)
+	if memberStatus != "active" {
+		t.Fatalf("expected member status=active, got %q", memberStatus)
+	}
+	if memberSubjectID != "sub_new_1" {
+		t.Fatalf("expected member subject_id=sub_new_1, got %q", memberSubjectID)
+	}
+	if deptName != "Platform" {
+		t.Fatalf("expected dept_name=Platform, got %q", deptName)
 	}
 }
 
-func TestBatchAddDeptMembersUsesSubmittedSnapshotsWithoutRemoteResolve(t *testing.T) {
+func TestBatchAddDeptMembersSkipsExistingSubjectID(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
 
 	ctx := context.Background()
-	const slug = "handler-batch-add-snapshot-only"
+	const slug = "handler-batch-add-subject-id-skip"
 	_, _ = testPool.Exec(ctx, `DELETE FROM multica_workspace WHERE slug = $1`, slug)
 	t.Cleanup(func() {
 		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_workspace WHERE slug = $1`, slug)
-		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_member WHERE external_universal_id = 'uni-snapshot-only'`)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM multica_user WHERE email = 'batch-subject-skip@example.test'`)
 	})
 
-	searchUsersCalls := 0
-	getUserDepartmentsCalls := 0
-	prev := testHandler.DeptSync
-	testHandler.DeptSync = fakeWorkspaceDeptClient{
-		searchUsersCalls:                     &searchUsersCalls,
-		getUserDepartmentsByUniversalIDCalls: &getUserDepartmentsCalls,
-	}
-	t.Cleanup(func() { testHandler.DeptSync = prev })
+	prevCsUser := testHandler.CsUser
+	csUserFake := fakeCsUserClient{users: map[string]csuser.User{
+		"sub_skip_1": {SubjectID: "sub_skip_1", Username: "Skip User", Email: ptrStr("batch-subject-skip@example.test"), CasdoorUniversalID: ptrStr("uni-skip-1")},
+	}}
+	testHandler.CsUser = csUserFake
+	t.Cleanup(func() { testHandler.CsUser = prevCsUser })
 
+	prevDeptSync := testHandler.DeptSync
+	testHandler.DeptSync = fakeWorkspaceDeptClient{users: []deptsync.User{
+		{UserID: "E200", Username: "Skip User", UniversalID: "uni-skip-1", DeptID: "D200", DeptName: "Platform", DeptPath: "/D000/D200", Position: "Engineer", Status: 1, IsMain: 1},
+	}}
+	t.Cleanup(func() { testHandler.DeptSync = prevDeptSync })
+
+	// Create workspace
 	w := httptest.NewRecorder()
 	req := newRequest(http.MethodPost, "/api/workspaces", map[string]any{
-		"name": "Snapshot Dept Members",
+		"name": "Subject ID Skip Members",
 		"slug": slug,
 	})
 	testHandler.CreateWorkspace(w, req)
@@ -373,42 +212,46 @@ func TestBatchAddDeptMembersUsesSubmittedSnapshotsWithoutRemoteResolve(t *testin
 		t.Fatalf("lookup workspace: %v", err)
 	}
 
+	// First call: should add
 	w = httptest.NewRecorder()
 	req = withURLParam(newRequest(http.MethodPost, "/api/workspaces/"+workspaceID+"/dept-members", map[string]any{
-		"users": []map[string]any{
-			{
-				"external_user_id":      "E030",
-				"external_universal_id": "uni-snapshot-only",
-				"name":                  "Snapshot Only User",
-				"employee_id":           "EMP030",
-				"department_id":         "D300",
-				"department_name":       "Snapshot Platform",
-				"department_path":       "/D000/D300",
-				"position":              "Engineer",
-				"is_main_department":    true,
-				"dept_user_status":      1,
-			},
+		"users": []map[string]string{
+			{"subject_id": "sub_skip_1"},
 		},
 	}), "id", workspaceID)
 	testHandler.BatchAddDeptMembers(w, req)
 	if w.Code != http.StatusOK {
-		t.Fatalf("BatchAddDeptMembers: expected 200, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("BatchAddDeptMembers (1st): expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	if !strings.Contains(w.Body.String(), `"added":1`) {
-		t.Fatalf("expected added:1, got %s", w.Body.String())
-	}
-	if searchUsersCalls != 0 || getUserDepartmentsCalls != 0 {
-		t.Fatalf("expected no remote resolve calls, SearchUsers=%d GetUserDepartmentsByUniversalID=%d", searchUsersCalls, getUserDepartmentsCalls)
+		t.Fatalf("1st call: expected added:1, got %s", w.Body.String())
 	}
 
-	var name, employeeID, deptName, status string
-	if err := testPool.QueryRow(ctx, `
-		SELECT org_display_name, employee_id, dept_name, status FROM multica_member
-		WHERE workspace_id = $1 AND external_universal_id = 'uni-snapshot-only'
-	`, workspaceID).Scan(&name, &employeeID, &deptName, &status); err != nil {
-		t.Fatalf("lookup member: %v", err)
+	// Second call: same subject_id → should skip
+	w = httptest.NewRecorder()
+	req = withURLParam(newRequest(http.MethodPost, "/api/workspaces/"+workspaceID+"/dept-members", map[string]any{
+		"users": []map[string]string{
+			{"subject_id": "sub_skip_1"},
+		},
+	}), "id", workspaceID)
+	testHandler.BatchAddDeptMembers(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("BatchAddDeptMembers (2nd): expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	if name != "Snapshot Only User" || employeeID != "EMP030" || deptName != "Snapshot Platform" || status != "pending_activation" {
-		t.Fatalf("member mismatch: name=%q employee=%q dept=%q status=%q", name, employeeID, deptName, status)
+	if !strings.Contains(w.Body.String(), `"skipped":1`) {
+		t.Fatalf("2nd call: expected skipped:1, got %s", w.Body.String())
 	}
+
+	// Verify only one member row exists
+	var count int
+	if err := testPool.QueryRow(ctx, `SELECT COUNT(*) FROM multica_member WHERE workspace_id = $1 AND source = 'dept'`, workspaceID).Scan(&count); err != nil {
+		t.Fatalf("count members: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 member row, got %d", count)
+	}
+}
+
+func ptrStr(s string) *string {
+	return &s
 }

@@ -23,7 +23,7 @@ export function BuiltinAgentCardSection({
       <div className="flex items-center gap-2 mb-2">
         <Zap className="h-3.5 w-3.5 text-amber-500" />
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          内置 Agent
+          内置数智人
         </span>
         {agents.length > 0 && (
           <span className="font-mono text-[10px] tabular-nums text-muted-foreground/70">

@@ -46,6 +46,11 @@ describe("NodeRunStatusIcon", () => {
     expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
   });
 
+  it("renders failed runtime display status as a distinct error", () => {
+    render(<RuntimeDisplayStatusIcon status="failed" />);
+    expect(screen.getByLabelText("Failed")).toHaveClass("text-destructive");
+  });
+
   it("overrides gateway completed labels", () => {
     render(<RuntimeDisplayStatusIcon status="completed" gatewayKind="fork" />);
     expect(screen.getByLabelText("Dispatched")).toBeInTheDocument();

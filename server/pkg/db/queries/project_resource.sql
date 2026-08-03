@@ -34,3 +34,10 @@ SELECT project_id, count(*)::bigint AS resource_count
 FROM multica_project_resource
 WHERE project_id = ANY(sqlc.arg('project_ids')::uuid[])
 GROUP BY project_id;
+
+-- name: DeleteProjectResourcesByWorkspaceAndURL :execrows
+-- Cascade: when a repo URL is removed from workspace.repos (Settings →
+-- Repositories), detach it from every project in this workspace so the
+-- project page and the settings page agree.
+DELETE FROM multica_project_resource
+WHERE workspace_id = $1 AND resource_type = 'github_repo' AND resource_ref->>'url' = sqlc.arg('url')::text;

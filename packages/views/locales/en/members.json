@@ -6,10 +6,10 @@
   },
   "card": {
     "unavailable": "Member unavailable",
-    "agents_section": "Agents ({{count}})",
+    "agents_section": "Digital Humans ({{count}})",
     "detail_link": "Detail →",
-    "more_agents_one": "and {{count}} other agent",
-    "more_agents_other": "and {{count}} other agents"
+    "more_agents_one": "and {{count}} other digital human",
+    "more_agents_other": "and {{count}} other digital humans"
   },
   "detail": {
     "workspace_fallback": "Workspace",

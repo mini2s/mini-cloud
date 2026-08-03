@@ -85,6 +85,8 @@ export interface ContextAnchor {
 
 export interface ChatState {
   isOpen: boolean;
+  /** Ephemeral UI suppression for surfaces that occupy the FAB action area. */
+  isFabHidden: boolean;
   activeSessionId: string | null;
   selectedAgentId: string | null;
   /** Drafts per session: sessionId (or DRAFT_NEW_SESSION) → markdown text. */
@@ -100,6 +102,7 @@ export interface ChatState {
   chatHeight: number;
   isExpanded: boolean;
   setOpen: (open: boolean) => void;
+  setFabHidden: (hidden: boolean) => void;
   toggle: () => void;
   setActiveSession: (id: string | null) => void;
   setSelectedAgentId: (id: string) => void;
@@ -132,6 +135,7 @@ export function createChatStore(options: ChatStoreOptions) {
 
   const store = create<ChatState>((set, get) => ({
     isOpen: initialIsOpen,
+    isFabHidden: false,
     activeSessionId: storage.getItem(wsKey(SESSION_STORAGE_KEY)),
     selectedAgentId: storage.getItem(wsKey(AGENT_STORAGE_KEY)),
     inputDrafts: readDrafts(storage, wsKey(DRAFTS_KEY)),
@@ -143,6 +147,9 @@ export function createChatStore(options: ChatStoreOptions) {
       logger.debug("setOpen", { from: get().isOpen, to: open });
       storage.setItem(OPEN_KEY, String(open));
       set({ isOpen: open });
+    },
+    setFabHidden: (hidden) => {
+      set({ isFabHidden: hidden });
     },
     toggle: () => {
       const next = !get().isOpen;

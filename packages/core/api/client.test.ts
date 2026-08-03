@@ -6,6 +6,34 @@ afterEach(() => {
 });
 
 describe("ApiClient", () => {
+  it("posts one split draft assignee batch and falls back on a malformed response", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ tasks: "invalid", progress: null }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new ApiClient("https://api.example.test");
+    const request = {
+      assignee_type: "member" as const,
+      assignee_id: "member-1",
+      tasks: [
+        { task_id: "task-1", expected_version: 2 },
+        { task_id: "task-2", expected_version: 5 },
+      ],
+    };
+
+    const response = await client.batchPatchSplitTaskAssignees("node-run-1", request);
+
+    expect(response.tasks).toEqual([]);
+    expect(response.progress).toMatchObject({ total: 0, created: 0, running: 0, done: 0 });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("https://api.example.test/api/node-runs/node-run-1/split/draft-tasks/assignees");
+    expect(init?.method).toBe("PATCH");
+    expect(JSON.parse(init?.body as string)).toEqual(request);
+  });
+
   it("uses the authenticated raw transport for absolute proxy requests", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response("event stream", { status: 200 }),
@@ -90,6 +118,54 @@ describe("ApiClient", () => {
         statusText: "Conflict",
       });
     }
+  });
+
+  it("posts deliverable uploads and falls back on a malformed response", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: "yes" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new ApiClient("https://api.example.test");
+
+    // Document upload: malformed body degrades to the 200 acknowledgement.
+    const docResponse = await client.uploadIssueDeliverable(
+      "issue-1",
+      [{ name: "doc.md", content: "Ym9keQ==" }],
+      "done",
+      "deliverable-doc",
+    );
+    expect(docResponse).toEqual({ ok: true });
+    const [docUrl, docInit] = fetchMock.mock.calls[0]!;
+    expect(docUrl).toBe("https://api.example.test/api/issues/issue-1/deliverables/upload");
+    expect(JSON.parse(docInit?.body as string)).toEqual({
+      files: [{ name: "doc.md", content: "Ym9keQ==" }],
+      summary: "done",
+      deliverable_id: "deliverable-doc",
+    });
+
+    // Code-link upload: every link rides in one pull_request_urls array.
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify(null), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const prResponse = await client.uploadIssueDeliverablePR(
+      "issue-1",
+      ["https://git.example/pr/9", "https://git.example/pr/10"],
+      undefined,
+      "deliverable-code",
+    );
+    expect(prResponse).toEqual({ ok: true });
+    const [prUrl, prInit] = fetchMock.mock.calls[1]!;
+    expect(prUrl).toBe("https://api.example.test/api/issues/issue-1/deliverables/upload-pr");
+    expect(JSON.parse(prInit?.body as string)).toEqual({
+      pull_request_urls: ["https://git.example/pr/9", "https://git.example/pr/10"],
+      deliverable_id: "deliverable-code",
+    });
   });
 
   it("uses the expected HTTP contract for autopilot endpoints", async () => {

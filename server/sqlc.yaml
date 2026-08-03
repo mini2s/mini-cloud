@@ -2,7 +2,11 @@ version: "2"
 sql:
   - engine: "postgresql"
     queries: "pkg/db/queries/"
-    schema: "migrations/"
+    schema:
+      - "migrations/"
+      # Generation-only stub for tables owned by external services (cs-user)
+      # that share the database in cloud deployments. Never applied.
+      - "pkg/db/schema_external.sql"
     gen:
       go:
         package: "db"

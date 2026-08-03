@@ -21,7 +21,7 @@ import "@xyflow/react/dist/style.css";
 
 import { useWorkflowEditorStore } from "@multica/core/workflows/store";
 import type { WorkflowNode as WorkflowNodeType, WorkflowEdge as WorkflowEdgeType } from "@multica/core/types";
-import { parseNodeShape } from "@multica/core/types";
+import { parseNodeFormat as parseSemanticNodeFormat, parseNodeShape } from "@multica/core/types";
 import {
   WorkflowNode,
   AnnotationNode,
@@ -35,6 +35,12 @@ import {
   HEXAGON_SIZE,
   type WorkflowNodeData,
 } from "./reactflow-nodes";
+import {
+  BoundaryNode,
+  BOUNDARY_HEIGHT,
+  BOUNDARY_WIDTH,
+  type BoundaryNodeData,
+} from "./overview/reactflow-nodes/boundary-node";
 import { computeAlignmentSnap, type AlignmentGuide } from "./alignment-snap";
 import {
   workflowCanvasControlsClassName,
@@ -42,7 +48,7 @@ import {
   workflowCanvasMiniMapStyle,
 } from "./canvas/workflow-canvas-controls";
 
-function parseNodeFormat(formatSchema: unknown): {
+function parseVisualNodeFormat(formatSchema: unknown): {
   shape: ReturnType<typeof parseNodeShape>;
   nodeColor: string | undefined;
   fontSize: number | undefined;
@@ -64,7 +70,7 @@ function parseNodeFormat(formatSchema: unknown): {
   return { shape, nodeColor, fontSize, nodeWidth, nodeHeight };
 }
 
-const nodeTypes = { workflow: WorkflowNode, annotation: AnnotationNode };
+const nodeTypes = { workflow: WorkflowNode, annotation: AnnotationNode, boundary: BoundaryNode };
 const edgeTypes = { workflow: WorkflowEdgeComponent, annotation: AnnotationConnectorEdge };
 
 const WORKFLOW_NODE_DATA_KEYS = [
@@ -90,6 +96,10 @@ function isWorkflowNodeDataEqual(
     if (a[key] !== b[key]) return false;
   }
   return true;
+}
+
+function isBoundaryNodeDataEqual(a: BoundaryNodeData, b: BoundaryNodeData): boolean {
+  return a.kind === b.kind && a.node.title === b.node.title && a.node.description === b.node.description;
 }
 
 export interface WorkflowCanvasProps {
@@ -172,15 +182,31 @@ export function WorkflowCanvas({
   // Build ReactFlow nodes from props — positions frozen in a ref so they
   // only change when the caller explicitly updates nodes (not during drag).
   // Also filters out nodes that have been marked for deletion.
-  const propNodes: Node<WorkflowNodeData>[] = useMemo(
+  const propNodes: Node[] = useMemo(
     () => {
       return nodes
         .filter((n) => !deletedNodeIds.includes(n.id))
         .filter((n) => !isAnnotationNode(n.format_schema))
         .map((n) => {
+          const semanticFormat = parseSemanticNodeFormat(n.format_schema);
+          if (semanticFormat.kind === "start" || semanticFormat.kind === "end") {
+            return {
+              id: n.id,
+              type: "boundary",
+              position: { x: n.position_x, y: n.position_y },
+              zIndex: 0,
+              width: BOUNDARY_WIDTH,
+              height: BOUNDARY_HEIGHT,
+              data: {
+                node: n,
+                kind: semanticFormat.kind,
+                stageColorIndex: 0,
+              } satisfies BoundaryNodeData,
+            };
+          }
           const annotation = isAnnotationNode(n.format_schema);
           const split = isSplitNode(n.format_schema);
-          const { shape, nodeColor, fontSize, nodeWidth, nodeHeight } = parseNodeFormat(n.format_schema);
+          const { shape, nodeColor, fontSize, nodeWidth, nodeHeight } = parseVisualNodeFormat(n.format_schema);
           const splitExpansion = splitNodeExpansion?.[n.id];
 
           return {
@@ -256,7 +282,7 @@ export function WorkflowCanvas({
       }
       const prevById = new Map(prev.map((n) => [n.id, n]));
       let changed = false;
-      const result: Node<WorkflowNodeData>[] = [];
+      const result: Node[] = [];
       for (const nextNode of propNodes) {
         const prevNode = prevById.get(nextNode.id);
         if (!prevNode) {
@@ -264,7 +290,16 @@ export function WorkflowCanvas({
           result.push(nextNode);
           continue;
         }
-        if (!isWorkflowNodeDataEqual(prevNode.data, nextNode.data)) {
+        const dataEqual = nextNode.type === "boundary" && prevNode.type === "boundary"
+          ? isBoundaryNodeDataEqual(
+              prevNode.data as unknown as BoundaryNodeData,
+              nextNode.data as unknown as BoundaryNodeData,
+            )
+          : nextNode.type === prevNode.type && isWorkflowNodeDataEqual(
+              prevNode.data as unknown as WorkflowNodeData,
+              nextNode.data as unknown as WorkflowNodeData,
+            );
+        if (!dataEqual) {
           changed = true;
           result.push({ ...prevNode, data: nextNode.data });
         } else {
@@ -280,8 +315,12 @@ export function WorkflowCanvas({
   // Nodes with larger vertical gap   → Bottom source, Top target.
   const handlePairs = useMemo(() => {
     const posMap = new Map(nodes.map((n) => [n.id, { x: n.position_x, y: n.position_y }]));
+    const semanticKindMap = new Map(nodes.map((n) => [n.id, parseSemanticNodeFormat(n.format_schema).kind]));
     return new Map<string, { sourceHandle: string; targetHandle: string }>(
       edges.map((e) => {
+        if (semanticKindMap.get(e.source_node_id) === "start" || semanticKindMap.get(e.target_node_id) === "end") {
+          return [e.id, { sourceHandle: "right", targetHandle: "left" }];
+        }
         const src = posMap.get(e.source_node_id);
         const tgt = posMap.get(e.target_node_id);
         if (!src || !tgt) return [e.id, { sourceHandle: "bottom", targetHandle: "top" }];
@@ -471,7 +510,7 @@ export function WorkflowCanvas({
 
       setAlignmentGuides(guides);
       setRfNodes((nds) => {
-        const next = applyNodeChanges(snappedChanges, nds) as Node<WorkflowNodeData>[];
+        const next = applyNodeChanges(snappedChanges, nds) as Node[];
         // Sync the ref synchronously so handleNodeDragStop (which fires
         // in the same event tick) reads the snapped positions, not the
         // pre-snap values from the previous render.
@@ -595,7 +634,7 @@ export function WorkflowCanvas({
   const miniMapNodeColors = useMemo(() => {
     const map: Record<string, string> = {};
     for (const n of nodes) {
-      const { nodeColor } = parseNodeFormat(n.format_schema);
+      const { nodeColor } = parseVisualNodeFormat(n.format_schema);
       if (nodeColor) map[n.id] = nodeColor;
     }
     return map;

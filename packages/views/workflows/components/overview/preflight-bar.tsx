@@ -30,18 +30,15 @@ function checkLabel(checkId: PreflightIssue["checkId"], t: ReturnType<typeof use
     case "invalid-critic-ref":                     return t(($) => $.preflight.check_invalid_critic);
     case "stage-missing":                          return t(($) => $.preflight.check_stage_missing);
     case "split-planner-missing":                  return t(($) => $.preflight.check_split_planner_missing);
-    case "split-critic-missing":                   return t(($) => $.preflight.check_split_critic_missing);
-    case "split-critic-automated":                 return t(($) => $.preflight.check_split_critic_automated);
-    case "split-default-issue-workflow-missing":   return t(($) => $.preflight.check_split_default_issue_workflow_missing);
-    case "split-default-issue-workflow-invalid":   return t(($) => $.preflight.check_split_default_issue_workflow_invalid);
-    case "split-default-issue-workflow-inactive":  return t(($) => $.preflight.check_split_default_issue_workflow_inactive);
-    case "split-default-issue-workflow-nested":    return t(($) => $.preflight.check_split_default_issue_workflow_nested);
-    case "split-default-issue-workflow-self":      return t(($) => $.preflight.check_split_default_issue_workflow_self);
+    case "split-reviewer-invalid":                 return t(($) => $.preflight.check_split_reviewer_invalid);
     case "split-max-concurrency-invalid":          return t(($) => $.preflight.check_split_max_concurrency_invalid);
     case "gateway-fork-outgoing":                  return t(($) => $.preflight.check_gateway_fork_outgoing);
     case "gateway-join-incoming":                  return t(($) => $.preflight.check_gateway_join_incoming);
     case "gateway-kind-invalid":                   return t(($) => $.preflight.check_gateway_kind_invalid);
     case "gateway-join-multiple-outgoing":         return t(($) => $.preflight.check_gateway_join_multiple_outgoing);
+    case "boundary-start-outgoing":                return t(($) => $.preflight.check_boundary_start_outgoing);
+    case "boundary-end-incoming":                  return t(($) => $.preflight.check_boundary_end_incoming);
+    case "boundary-edge-direction":                return t(($) => $.preflight.check_boundary_edge_direction);
     default:                                       return checkId;
   }
 }
@@ -55,18 +52,15 @@ export function checkDetailLabel(issue: PreflightIssue, t: ReturnType<typeof use
     case "invalid-critic-ref":                     return t(($) => $.preflight.detail_invalid_critic);
     case "stage-missing":                          return t(($) => $.preflight.detail_stage_missing);
     case "split-planner-missing":                  return t(($) => $.preflight.detail_split_planner_missing);
-    case "split-critic-missing":                   return t(($) => $.preflight.detail_split_critic_missing);
-    case "split-critic-automated":                 return t(($) => $.preflight.detail_split_critic_automated);
-    case "split-default-issue-workflow-missing":   return t(($) => $.preflight.detail_split_default_issue_workflow_missing);
-    case "split-default-issue-workflow-invalid":   return t(($) => $.preflight.detail_split_default_issue_workflow_invalid);
-    case "split-default-issue-workflow-inactive":  return t(($) => $.preflight.detail_split_default_issue_workflow_inactive);
-    case "split-default-issue-workflow-nested":    return t(($) => $.preflight.detail_split_default_issue_workflow_nested);
-    case "split-default-issue-workflow-self":      return t(($) => $.preflight.detail_split_default_issue_workflow_self);
+    case "split-reviewer-invalid":                 return t(($) => $.preflight.detail_split_reviewer_invalid);
     case "split-max-concurrency-invalid":          return t(($) => $.preflight.detail_split_max_concurrency_invalid);
     case "gateway-fork-outgoing":                  return t(($) => $.preflight.detail_gateway_fork_outgoing);
     case "gateway-join-incoming":                  return t(($) => $.preflight.detail_gateway_join_incoming);
     case "gateway-kind-invalid":                   return t(($) => $.preflight.detail_gateway_kind_invalid);
     case "gateway-join-multiple-outgoing":         return t(($) => $.preflight.detail_gateway_join_multiple_outgoing);
+    case "boundary-start-outgoing":                return t(($) => $.preflight.detail_boundary_start_outgoing);
+    case "boundary-end-incoming":                  return t(($) => $.preflight.detail_boundary_end_incoming);
+    case "boundary-edge-direction":                return t(($) => $.preflight.detail_boundary_edge_direction);
     default:                                       return issue.message;
   }
 }

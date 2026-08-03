@@ -18,7 +18,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/daemonws"
+	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/middleware"
+	"github.com/multica-ai/multica/server/internal/plugincatalog"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -1154,7 +1156,7 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		// Populate plugin metadata and inject plugin content into
 		// agent instructions. Best-effort -- failures must not block
 		// task startup.
-		pd := fetchPluginData(r.Context(), h.cfg.BuiltinPluginAPIBaseURL, agent.PluginID.String)
+		pd := plugincatalog.Fetch(r.Context(), h.cfg.BuiltinPluginAPIBaseURL, agent.PluginID.String)
 		if pd != nil {
 			// Marketplace identity is owned by server config, not the catalog.
 			// Override whatever the catalog returned; an empty config value is
@@ -1188,6 +1190,22 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 				if resp.Agent != nil {
 					resp.Agent.Instructions += awaitingInputInstructions
 				}
+			}
+		}
+	}
+
+	// Inject the critic's review feedback when this is a rework (the node-run
+	// was rejected + has a critic_comment). Journey 8: "驳回 → 评审意见注入
+	// 到对应运行时、对应会话、对应工作目录，让它基于意见去优化改进".
+	if task.WorkflowNodeRunID.Valid {
+		if nr, err := h.Queries.GetWorkflowNodeRun(r.Context(), task.WorkflowNodeRunID); err == nil && nr.CriticComment.Valid && nr.CriticComment.String != "" {
+			if resp.Agent != nil {
+				if resp.Agent.Instructions != "" {
+					resp.Agent.Instructions += "\n\n"
+				}
+				resp.Agent.Instructions += "## Review Feedback (your previous submission was rejected)\n\n" +
+					"The reviewer rejected your previous work. Address the feedback below, improve, and resubmit:\n\n" +
+					"> " + nr.CriticComment.String + "\n"
 			}
 		}
 	}
@@ -1609,9 +1627,16 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 			"has_autopilot_run", task.AutopilotRunID.Valid,
 			"has_quick_create", hasQuickCreate,
 		)
-		if _, cerr := h.TaskService.CancelTask(r.Context(), task.ID); cerr != nil {
+		if cancelled, cerr := h.TaskService.CancelTask(r.Context(), task.ID); cerr != nil {
 			slog.Error("task claim: cancel after workspace check failed",
 				"task_id", uuidToString(task.ID), "error", cerr)
+		} else if cancelled != nil && cancelled.WorkflowNodeRunID.Valid && h.WorkflowService != nil {
+			if ferr := h.WorkflowService.HandleWorkflowTaskFailure(r.Context(), *cancelled); ferr != nil {
+				slog.Error("task claim: fail workflow node after workspace check failed",
+					"task_id", uuidToString(task.ID),
+					"node_run_id", uuidToString(cancelled.WorkflowNodeRunID),
+					"error", ferr)
+			}
 		}
 		writeError(w, http.StatusInternalServerError, "task workspace isolation check failed")
 		return
@@ -1623,6 +1648,14 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		if upstream := h.buildUpstreamStageContext(r.Context(), *task); len(upstream) > 0 {
 			resp.UpstreamStageContext = upstream
 		}
+	}
+
+	// Workflow task: attach the platform-Gitea document-deliverable context so
+	// the daemon (M3) can forward it to the CLI (M5), which pushes the body
+	// and opens a PR. nil when dormant (Gitea unconfigured, no document
+	// deliverables, or transient DB error) — see buildGiteaDeliverableContext.
+	if gctx := h.buildGiteaDeliverableContext(r.Context(), *task); gctx != nil {
+		resp.GiteaDeliverables = gctx
 	}
 
 	slog.Info("task claimed by runtime", "task_id", uuidToString(task.ID), "runtime_id", runtimeID, "agent_id", uuidToString(task.AgentID), "prior_session", resp.PriorSessionID)
@@ -1651,10 +1684,8 @@ func (h *Handler) buildUpstreamStageContext(ctx context.Context, task db.Multica
 	}
 
 	// Fetch completed upstream node runs from earlier stages.
-	upstreamRows, err := h.Queries.ListCompletedUpstreamNodeRuns(ctx, db.ListCompletedUpstreamNodeRunsParams{
-		WorkflowRunID:  nodeRun.WorkflowRunID,
-		WorkflowNodeID: nodeRun.WorkflowNodeID,
-		Limit:          10,
+	upstreamRows, err := h.Queries.ListCompletedRuntimeUpstreamNodeRuns(ctx, db.ListCompletedRuntimeUpstreamNodeRunsParams{
+		NodeRunID: nodeRun.ID, ResultLimit: 10,
 	})
 	if err != nil {
 		slog.Warn("buildUpstreamStageContext: failed to list upstream node runs", "task_id", uuidToString(task.ID), "error", err)
@@ -1666,7 +1697,7 @@ func (h *Handler) buildUpstreamStageContext(ctx context.Context, task db.Multica
 
 	// Resolve sub-issue for each upstream node run.
 	type upstreamInfo struct {
-		row     db.ListCompletedUpstreamNodeRunsRow
+		row     db.ListCompletedRuntimeUpstreamNodeRunsRow
 		issueID pgtype.UUID
 	}
 	upstreams := make([]upstreamInfo, 0, len(upstreamRows))
@@ -1775,6 +1806,74 @@ func (h *Handler) buildUpstreamStageContext(ctx context.Context, task db.Multica
 	return result
 }
 
+// buildGiteaDeliverableContext attaches the platform-Gitea context the daemon
+// + CLI need to push deliverables, when (a) Gitea is configured, (b) the task
+// executes a workflow node-run, and (c) that node has ≥1 deliverable.
+// Returns nil otherwise (dormant). Errors are swallowed (nil return) — a
+// transient DB blip here must not break the claim; the agent would simply lack
+// the Gitea context and the run surfaces a clone failure later.
+func (h *Handler) buildGiteaDeliverableContext(ctx context.Context, task db.MulticaAgentTaskQueue) *GiteaDeliverableContext {
+	if !isGiteaConfigured() || !task.WorkflowNodeRunID.Valid {
+		return nil
+	}
+	return h.giteaContextForNodeRun(ctx, task.WorkflowNodeRunID)
+}
+
+// giteaContextForNodeRun builds the Gitea deliverable context for an arbitrary
+// node-run (the task's own, or any other — used by the gitea-context endpoint
+// so an agent can read another node's deliverables). Returns nil if Gitea is
+// unconfigured, the node-run/run can't be loaded, or the node has no deliverables.
+// Errors are swallowed (caller decides 404 vs nil-context).
+func (h *Handler) giteaContextForNodeRun(ctx context.Context, nodeRunID pgtype.UUID) *GiteaDeliverableContext {
+	if !isGiteaConfigured() || !nodeRunID.Valid {
+		return nil
+	}
+	nr, err := h.Queries.GetWorkflowNodeRun(ctx, nodeRunID)
+	if err != nil {
+		return nil
+	}
+	run, err := h.Queries.GetWorkflowRun(ctx, nr.WorkflowRunID)
+	if err != nil {
+		return nil
+	}
+	// Node topological position drives the readable <NN> prefix in repo paths.
+	topo, err := service.RunNodeTopoOrder(ctx, h.Queries, run.ID)
+	if err != nil {
+		return nil
+	}
+	seq := topo[util.UUIDToString(nr.ID)]
+	deliverables, err := h.Queries.ListNodeRunDeliverableRequirements(ctx, nr.ID)
+	if err != nil {
+		return nil
+	}
+	nodeRunIDStr := util.UUIDToString(nr.ID)
+	var refs []GiteaDeliverableRef
+	for _, d := range deliverables {
+		refs = append(refs, GiteaDeliverableRef{
+			ID:    util.UUIDToString(d.ID),
+			Title: d.Title,
+			Path:  gitea.DeliverablePath(seq, nr.NodeTitle, nodeRunIDStr, d.Title),
+		})
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
+	snapshot, err := (service.WorkflowRuntimeRepository{Queries: h.Queries}).GetRunDefinitionSnapshot(ctx, run.ID)
+	if err != nil {
+		return nil
+	}
+	repo := service.DeliverableRepoName(run.WorkflowID, snapshot.Workflow.IsDefault)
+	return &GiteaDeliverableContext{
+		Owner:        owner,
+		Repo:         repo,
+		CloneURL:     strings.TrimRight(giteaPublicBaseURL(), "/") + "/" + owner + "/" + repo + ".git",
+		InstBranch:   gitea.InstBranch(util.UUIDToString(run.ID)),
+		NodeBranch:   gitea.NodeBranch(seq, nodeRunIDStr),
+		Deliverables: refs,
+	}
+}
+
 // ListPendingTasksByRuntime returns queued/dispatched tasks for a runtime.
 func (h *Handler) ListPendingTasksByRuntime(w http.ResponseWriter, r *http.Request) {
 	runtimeID := chi.URLParam(r, "runtimeId")
@@ -1861,19 +1960,56 @@ type TaskCompleteRequest struct {
 	Output    string `json:"output"`
 	SessionID string `json:"session_id"` // Claude session ID for future resumption
 	WorkDir   string `json:"work_dir"`   // working directory used during execution
+	// Decision/Reason carry a critic's explicit review decision when the agent
+	// invoked the "complete task" tool (decision=approve|reject). When present,
+	// the workflow service uses them directly instead of parsing the critic's
+	// free-text output. Worker completions leave them empty.
+	Decision string `json:"decision,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+}
+
+func workflowCompletionFailureReason(task db.MulticaAgentTaskQueue, req TaskCompleteRequest) string {
+	if task.WorkflowNodeRunID.Valid && strings.TrimSpace(req.Output) == "" {
+		return "agent_empty_output"
+	}
+	return ""
 }
 
 func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "taskId")
 
 	// Verify the caller owns this task's workspace.
-	if _, ok := h.requireDaemonTaskAccess(w, r, taskID); !ok {
+	currentTask, ok := h.requireDaemonTaskAccess(w, r, taskID)
+	if !ok {
 		return
 	}
 
 	var req TaskCompleteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if failureReason := workflowCompletionFailureReason(currentTask, req); failureReason != "" {
+		task, err := h.TaskService.FailTask(
+			r.Context(),
+			parseUUID(taskID),
+			"workflow task completed without output",
+			req.SessionID,
+			req.WorkDir,
+			failureReason,
+		)
+		if err != nil {
+			slog.Warn("fail empty-output workflow task", "task_id", taskID, "error", err)
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		slog.Warn("workflow task reported completion without output",
+			"task_id", taskID,
+			"agent_id", uuidToString(task.AgentID),
+			"failure_reason", failureReason,
+		)
+		writeJSON(w, http.StatusOK, taskToResponse(*task))
 		return
 	}
 
@@ -2426,5 +2562,38 @@ func (h *Handler) GetTaskGCCheck(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":       task.Status,
 		"completed_at": task.CompletedAt.Time,
+	})
+}
+
+// GetWorkflowNodeRunGCCheck returns the status and completed_at of a workflow
+// node run for the cs-cloud GC loop. Workspace ownership is resolved via the
+// parent workflow_run row — same parent-resolution shape as GetAutopilotRunGCCheck.
+// Terminal node-run statuses (completed/failed/blocked/skipped/cancelled/
+// format_failed) past GCTTL let cs-cloud reclaim the workdir; a 404 lets it
+// fall through to orphan-by-mtime.
+func (h *Handler) GetWorkflowNodeRunGCCheck(w http.ResponseWriter, r *http.Request) {
+	nodeRunID := chi.URLParam(r, "nodeRunId")
+	nodeRunUUID, ok := parseUUIDOrBadRequest(w, nodeRunID, "node_run_id")
+	if !ok {
+		return
+	}
+	run, err := h.Queries.GetWorkflowNodeRun(r.Context(), nodeRunUUID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "workflow node run not found")
+		return
+	}
+	wfRun, err := h.Queries.GetWorkflowRun(r.Context(), run.WorkflowRunID)
+	if err != nil {
+		// Parent run gone — treat as not found so cs-cloud falls through to its
+		// orphan-by-mtime path rather than surfacing a 500.
+		writeError(w, http.StatusNotFound, "workflow node run not found")
+		return
+	}
+	if !h.requireDaemonWorkspaceAccess(w, r, uuidToString(wfRun.WorkspaceID)) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":       run.Status,
+		"completed_at": run.CompletedAt.Time,
 	})
 }

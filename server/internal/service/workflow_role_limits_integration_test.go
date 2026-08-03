@@ -224,6 +224,54 @@ func TestWorkflowRoleResolutionLimits_RetryRateLimit(t *testing.T) {
 	}
 }
 
+func TestWorkflowRoleResolutionRetryRejectsRunningInvalidatedSlot(t *testing.T) {
+	f := newRoleResolutionFixture(t, []roleSlotSpec{
+		{slotType: "worker", roleName: "developer"},
+	})
+	defer f.cleanup()
+
+	ctx := context.Background()
+	if _, err := f.pool.Exec(ctx, `
+		UPDATE multica_workflow_role_resolution
+		SET status = 'invalidated', resolved_user_id = $2, source = 'llm',
+		    reason_code = 'member_inactive', updated_at = now()
+		WHERE workflow_run_id = $1
+	`, f.runID, f.userIDs[0]); err != nil {
+		t.Fatalf("invalidate role resolution: %v", err)
+	}
+	if _, err := f.pool.Exec(ctx, `
+		UPDATE multica_workflow_run SET status = 'running' WHERE id = $1
+	`, f.runID); err != nil {
+		t.Fatalf("mark run running: %v", err)
+	}
+
+	svc := &WorkflowService{
+		Queries:                     f.queries,
+		TxStarter:                   pgxTxStarter{pool: f.pool},
+		AutoResolveRoles:            true,
+		RoleResolutionModel:         "test-model",
+		RoleResolutionPromptVersion: "v1",
+		RoleResolutionMaxActiveJobs: 5,
+	}
+	if _, err := svc.RetryWorkflowRoleResolution(ctx, f.runID); !errors.Is(err, ErrWorkflowRoleAssignmentStage) {
+		t.Fatalf("RetryWorkflowRoleResolution() error = %v, want ErrWorkflowRoleAssignmentStage", err)
+	}
+
+	resolution := f.loadResolutions(t)[0]
+	if resolution.Status != "invalidated" {
+		t.Fatalf("resolution status = %s, want invalidated", resolution.Status)
+	}
+	var jobs int
+	if err := f.pool.QueryRow(ctx, `
+		SELECT count(*) FROM multica_workflow_role_resolution_job WHERE workflow_run_id = $1
+	`, f.runID).Scan(&jobs); err != nil {
+		t.Fatalf("count role resolution jobs: %v", err)
+	}
+	if jobs != 0 {
+		t.Fatalf("role resolution jobs = %d, want 0", jobs)
+	}
+}
+
 // TestWorkflowRoleResolutionLimits_OrgRetryExhaustion covers E2E-14: when the
 // org provider returns a transient error on every call, the worker retries up
 // to workflowRoleOrganizationMaxAttempts (3) and then downgrades every slot to

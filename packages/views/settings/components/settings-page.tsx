@@ -4,7 +4,8 @@ import React from "react";
 import {
   User,
   SlidersHorizontal,
-  Key,
+  // Hidden: API tokens tab no longer needed.
+  // Key,
   Settings,
   FolderGit2,
   // Hidden per 2026-06-16 product decision.
@@ -14,7 +15,7 @@ import {
   // Plug,
   Workflow,
   GitBranch,
-  UserRoundCog,
+  Fingerprint,
 } from "lucide-react";
 import { GitHubMark } from "./github-mark";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@multica/ui/components/ui/tabs";
@@ -22,7 +23,9 @@ import { useCurrentWorkspace } from "@multica/core/paths";
 import { useNavigation } from "../../navigation";
 import { AccountTab } from "./account-tab";
 import { PreferencesTab } from "./preferences-tab";
-import { TokensTab } from "./tokens-tab";
+import { IdentitiesTab } from "./identities-tab";
+// Hidden: API tokens tab no longer needed.
+// import { TokensTab } from "./tokens-tab";
 import { WorkspaceTab } from "./workspace-tab";
 import { RepositoriesTab } from "./repositories-tab";
 import { GitHubTab } from "./github-tab";
@@ -32,23 +35,31 @@ import { GitlabTab } from "./gitlab-tab";
 // import { LabsTab } from "./labs-tab";
 import { NotificationsTab } from "./notifications-tab";
 import { WorkflowAdminsTab } from "./workflow-admins-tab";
-import { WorkflowRolesTab } from "./workflow-roles-tab";
 import { useWorkflowAdmins } from "@multica/core/workflows/queries";
 import { useAuthStore } from "@multica/core/auth";
 import { useT } from "../../i18n";
 
-const ACCOUNT_TAB_KEYS = ["profile", "preferences", "notifications", "tokens", "workflow-admins"] as const;
+const ACCOUNT_TAB_KEYS = [
+  "profile",
+  "preferences",
+  "identities",
+  "notifications",
+  // Hidden: API tokens tab no longer needed.
+  // "tokens",
+  "workflow-admins",
+] as const;
 const ACCOUNT_TAB_ICONS = {
   profile: User,
   preferences: SlidersHorizontal,
+  identities: Fingerprint,
   notifications: Bell,
-  tokens: Key,
+  // Hidden: API tokens tab no longer needed.
+  // tokens: Key,
   "workflow-admins": Workflow,
 } as const;
 
 const WORKSPACE_TAB_KEYS = [
   "general",
-  "roles",
   "repositories",
   "github",
   "gitlab",
@@ -58,7 +69,6 @@ const WORKSPACE_TAB_KEYS = [
 ] as const;
 const WORKSPACE_TAB_VALUES = {
   general: "workspace",
-  roles: "roles",
   repositories: "repositories",
   github: "github",
   gitlab: "gitlab",
@@ -68,7 +78,6 @@ const WORKSPACE_TAB_VALUES = {
 } as const;
 const WORKSPACE_TAB_ICONS = {
   general: Settings,
-  roles: UserRoundCog,
   repositories: FolderGit2,
   github: GitHubMark,
   gitlab: GitBranch,
@@ -101,13 +110,13 @@ export function SettingsPage({ extraAccountTabs }: SettingsPageProps = {}) {
   const { data: admins = [] } = useWorkflowAdmins();
   const isWorkflowAdmin = user ? admins.some((a) => a.id === user.id) : false;
 
-  // Default to "gitlab" if code_platform is not set
+  // Keep existing GitHub PR integrations reachable for workspaces that already
+  // use GitHub, while the Repositories tab no longer exposes platform switching.
   const codePlatform =
     (workspace?.settings as Record<string, unknown> | undefined)?.code_platform === "github"
       ? "github"
       : "gitlab";
 
-  // Filter workspace tabs based on code platform (only one platform tab shown)
   const visibleWorkspaceTabs = WORKSPACE_TAB_KEYS.filter((key) => {
     if (key === "github") return codePlatform === "github";
     if (key === "gitlab") return codePlatform === "gitlab";
@@ -191,11 +200,12 @@ export function SettingsPage({ extraAccountTabs }: SettingsPageProps = {}) {
         <div className="w-full max-w-3xl mx-auto p-4 md:p-6">
           <TabsContent value="profile"><AccountTab /></TabsContent>
           <TabsContent value="preferences"><PreferencesTab /></TabsContent>
+          <TabsContent value="identities"><IdentitiesTab /></TabsContent>
           <TabsContent value="notifications"><NotificationsTab /></TabsContent>
-          <TabsContent value="tokens"><TokensTab /></TabsContent>
+          {/* Hidden: API tokens tab no longer needed. */}
+          {/* <TabsContent value="tokens"><TokensTab /></TabsContent> */}
           {isWorkflowAdmin && <TabsContent value="workflow-admins"><WorkflowAdminsTab /></TabsContent>}
           <TabsContent value="workspace"><WorkspaceTab /></TabsContent>
-          <TabsContent value="roles"><WorkflowRolesTab /></TabsContent>
           <TabsContent value="repositories"><RepositoriesTab /></TabsContent>
           <TabsContent value="github"><GitHubTab /></TabsContent>
           <TabsContent value="gitlab"><GitlabTab /></TabsContent>

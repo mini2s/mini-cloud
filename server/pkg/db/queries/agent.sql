@@ -20,8 +20,8 @@ WHERE id = $1 AND workspace_id = $2;
 INSERT INTO multica_agent (
     workspace_id, name, description, avatar_url, runtime_mode,
     runtime_config, runtime_id, visibility, max_concurrent_tasks, owner_id,
-    instructions, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+    instructions, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, plugin_name
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 RETURNING *;
 
 -- name: UpdateAgent :one
@@ -42,6 +42,7 @@ UPDATE multica_agent SET
     model = COALESCE(sqlc.narg('model'), model),
     thinking_level = COALESCE(sqlc.narg('thinking_level'), thinking_level),
     plugin_id = COALESCE(sqlc.narg('plugin_id'), plugin_id),
+    plugin_name = COALESCE(sqlc.narg('plugin_name'), plugin_name),
     updated_at = now()
 WHERE id = $1
 RETURNING *;
@@ -128,7 +129,8 @@ WHERE id = $1 AND issue_id IS NULL;
 -- incremented; max_attempts, trigger_comment_id, and is_leader_task are
 -- inherited so the retried task keeps the same multica_squad-role provenance as its
 -- parent and the self-trigger guard in shouldEnqueueSquadLeaderOnComment
--- continues to recognise it as a leader task.
+-- continues to recognise it as a leader task. runtime_id defaults to the
+-- parent's runtime but workflow retries may supply a freshly selected runtime.
 INSERT INTO multica_agent_task_queue (
     agent_id, runtime_id, issue_id, chat_session_id, autopilot_run_id,
     status, priority, trigger_comment_id, trigger_summary, context,
@@ -137,7 +139,7 @@ INSERT INTO multica_agent_task_queue (
     workflow_node_run_id
 )
 SELECT
-    p.agent_id, p.runtime_id, p.issue_id, p.chat_session_id, p.autopilot_run_id,
+    p.agent_id, COALESCE(sqlc.narg('runtime_id')::uuid, p.runtime_id), p.issue_id, p.chat_session_id, p.autopilot_run_id,
     'queued', p.priority, p.trigger_comment_id, p.trigger_summary, p.context,
     CASE WHEN p.failure_reason IS NOT DISTINCT FROM 'codex_semantic_inactivity' THEN NULL ELSE p.session_id END,
     CASE WHEN p.failure_reason IS NOT DISTINCT FROM 'codex_semantic_inactivity' THEN NULL ELSE p.work_dir END,
@@ -146,7 +148,7 @@ SELECT
     p.is_leader_task,
     p.workflow_node_run_id
 FROM multica_agent_task_queue p
-WHERE p.id = $1
+WHERE p.id = sqlc.arg('parent_task_id')
 RETURNING *;
 
 -- name: CancelAgentTasksByIssue :many
@@ -599,6 +601,13 @@ RETURNING *;
 -- set the column back to NULL, so the API layer routes "user removed plugin"
 -- through this dedicated query.
 UPDATE multica_agent SET plugin_id = NULL, updated_at = now()
+WHERE id = $1 AND workspace_id = $2
+RETURNING *;
+
+-- name: ClearAgentPluginName :one
+-- Explicit NULL-clear for plugin_name, paired with ClearAgentPluginId so a
+-- plugin unbind clears both the catalog id and the install slug together.
+UPDATE multica_agent SET plugin_name = NULL, updated_at = now()
 WHERE id = $1 AND workspace_id = $2
 RETURNING *;
 

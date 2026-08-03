@@ -3,14 +3,19 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
+	"github.com/multica-ai/multica/server/internal/workflowmeta"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
@@ -24,10 +29,12 @@ type CreateWorkflowRequest struct {
 }
 
 type UpdateWorkflowRequest struct {
-	Title       *string `json:"title"`
-	Description *string `json:"description"`
-	Status      *string `json:"status"`
-	MaxRetries  *int32  `json:"max_retries"`
+	Title                         *string `json:"title"`
+	Description                   *string `json:"description"`
+	Status                        *string `json:"status"`
+	MaxRetries                    *int32  `json:"max_retries"`
+	DefaultRuntimeSelectionPolicy *string `json:"default_runtime_selection_policy"`
+	DefaultRuntimeID              *string `json:"default_runtime_id"`
 }
 
 type CreateNodeRequest struct {
@@ -53,9 +60,11 @@ type UpdateNodeRequest struct {
 	PositionY    *float64        `json:"position_y"`
 	FormatSchema json.RawMessage `json:"format_schema"`
 	WorkerType   *string         `json:"worker_type"`
+	WorkerRole   *string         `json:"worker_role"`
 	WorkerID     *string         `json:"worker_id"`
 	WorkerRoleID *string         `json:"worker_role_id"`
 	CriticType   *string         `json:"critic_type"`
+	CriticRole   *string         `json:"critic_role"`
 	CriticID     *string         `json:"critic_id"`
 	CriticRoleID *string         `json:"critic_role_id"`
 	CriticApiURL *string         `json:"critic_api_url"`
@@ -68,22 +77,38 @@ type CreateEdgeRequest struct {
 	Condition    json.RawMessage `json:"condition"`
 }
 
+type CreateWorkflowNodeDeliverableRequest struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Required    *bool  `json:"required"`
+	SortOrder   int32  `json:"sort_order"`
+}
+
+type UpdateWorkflowNodeDeliverableRequest struct {
+	Title       *string `json:"title"`
+	Description *string `json:"description"`
+	Required    *bool   `json:"required"`
+	SortOrder   *int32  `json:"sort_order"`
+}
+
 // ── Response types ───────────────────────────────────────────────────────────
 
 type WorkflowResponse struct {
-	ID               string `json:"id"`
-	WorkspaceID      string `json:"workspace_id"`
-	Title            string `json:"title"`
-	Description      string `json:"description"`
-	Status           string `json:"status"`
-	MaxRetries       int32  `json:"max_retries"`
-	CreatedByType    string `json:"created_by_type"`
-	CreatedByID      string `json:"created_by_id"`
-	NodeCount        int64  `json:"node_count"`
-	IsTemplate       bool   `json:"is_template"`
-	SourceTemplateID string `json:"source_template_id"`
-	CreatedAt        string `json:"created_at"`
-	UpdatedAt        string `json:"updated_at"`
+	ID                            string  `json:"id"`
+	WorkspaceID                   string  `json:"workspace_id"`
+	Title                         string  `json:"title"`
+	Description                   string  `json:"description"`
+	Status                        string  `json:"status"`
+	MaxRetries                    int32   `json:"max_retries"`
+	CreatedByType                 string  `json:"created_by_type"`
+	CreatedByID                   string  `json:"created_by_id"`
+	NodeCount                     int64   `json:"node_count"`
+	IsTemplate                    bool    `json:"is_template"`
+	SourceTemplateID              string  `json:"source_template_id"`
+	DefaultRuntimeSelectionPolicy string  `json:"default_runtime_selection_policy"`
+	DefaultRuntimeID              *string `json:"default_runtime_id"`
+	CreatedAt                     string  `json:"created_at"`
+	UpdatedAt                     string  `json:"updated_at"`
 }
 
 type WorkflowNodeResponse struct {
@@ -114,6 +139,17 @@ type WorkflowEdgeResponse struct {
 	TargetNodeID string          `json:"target_node_id"`
 	Condition    json.RawMessage `json:"condition"`
 	CreatedAt    string          `json:"created_at"`
+}
+
+type WorkflowNodeDeliverableResponse struct {
+	ID             string `json:"id"`
+	WorkflowNodeID string `json:"workflow_node_id"`
+	Title          string `json:"title"`
+	Description    string `json:"description"`
+	Required       bool   `json:"required"`
+	SortOrder      int32  `json:"sort_order"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
 }
 
 type ToggleTemplateRequest struct {
@@ -164,37 +200,41 @@ type WorkflowAdminResponse struct {
 
 func workflowToResponse(wf db.MulticaWorkflow, nodeCount int64) WorkflowResponse {
 	return WorkflowResponse{
-		ID:               uuidToString(wf.ID),
-		WorkspaceID:      uuidToString(wf.WorkspaceID),
-		Title:            wf.Title,
-		Description:      wf.Description,
-		Status:           wf.Status,
-		MaxRetries:       wf.MaxRetries,
-		CreatedByType:    wf.CreatedByType,
-		CreatedByID:      uuidToString(wf.CreatedByID),
-		NodeCount:        nodeCount,
-		IsTemplate:       wf.IsTemplate,
-		SourceTemplateID: uuidToString(wf.SourceTemplateID),
-		CreatedAt:        timestampToString(wf.CreatedAt),
-		UpdatedAt:        timestampToString(wf.UpdatedAt),
+		ID:                            uuidToString(wf.ID),
+		WorkspaceID:                   uuidToString(wf.WorkspaceID),
+		Title:                         wf.Title,
+		Description:                   wf.Description,
+		Status:                        wf.Status,
+		MaxRetries:                    wf.MaxRetries,
+		CreatedByType:                 wf.CreatedByType,
+		CreatedByID:                   uuidToString(wf.CreatedByID),
+		NodeCount:                     nodeCount,
+		IsTemplate:                    wf.IsTemplate,
+		SourceTemplateID:              uuidToString(wf.SourceTemplateID),
+		DefaultRuntimeSelectionPolicy: wf.DefaultRuntimeSelectionPolicy,
+		DefaultRuntimeID:              uuidToPtr(wf.DefaultRuntimeID),
+		CreatedAt:                     timestampToString(wf.CreatedAt),
+		UpdatedAt:                     timestampToString(wf.UpdatedAt),
 	}
 }
 
 func splitIssueWorkflowOptionToResponse(wf db.ListSplitIssueWorkflowOptionsRow) WorkflowResponse {
 	return WorkflowResponse{
-		ID:               uuidToString(wf.ID),
-		WorkspaceID:      uuidToString(wf.WorkspaceID),
-		Title:            wf.Title,
-		Description:      wf.Description,
-		Status:           wf.Status,
-		MaxRetries:       wf.MaxRetries,
-		CreatedByType:    wf.CreatedByType,
-		CreatedByID:      uuidToString(wf.CreatedByID),
-		NodeCount:        wf.NodeCount,
-		IsTemplate:       wf.IsTemplate,
-		SourceTemplateID: uuidToString(wf.SourceTemplateID),
-		CreatedAt:        timestampToString(wf.CreatedAt),
-		UpdatedAt:        timestampToString(wf.UpdatedAt),
+		ID:                            uuidToString(wf.ID),
+		WorkspaceID:                   uuidToString(wf.WorkspaceID),
+		Title:                         wf.Title,
+		Description:                   wf.Description,
+		Status:                        wf.Status,
+		MaxRetries:                    wf.MaxRetries,
+		CreatedByType:                 wf.CreatedByType,
+		CreatedByID:                   uuidToString(wf.CreatedByID),
+		NodeCount:                     wf.NodeCount,
+		IsTemplate:                    wf.IsTemplate,
+		SourceTemplateID:              uuidToString(wf.SourceTemplateID),
+		DefaultRuntimeSelectionPolicy: wf.DefaultRuntimeSelectionPolicy,
+		DefaultRuntimeID:              uuidToPtr(wf.DefaultRuntimeID),
+		CreatedAt:                     timestampToString(wf.CreatedAt),
+		UpdatedAt:                     timestampToString(wf.UpdatedAt),
 	}
 }
 
@@ -229,6 +269,19 @@ func workflowEdgeToResponse(edge db.MulticaWorkflowEdge) WorkflowEdgeResponse {
 		TargetNodeID: uuidToString(edge.TargetNodeID),
 		Condition:    edge.Condition,
 		CreatedAt:    timestampToString(edge.CreatedAt),
+	}
+}
+
+func workflowNodeDeliverableToResponse(d db.MulticaWorkflowNodeDeliverable) WorkflowNodeDeliverableResponse {
+	return WorkflowNodeDeliverableResponse{
+		ID:             uuidToString(d.ID),
+		WorkflowNodeID: uuidToString(d.WorkflowNodeID),
+		Title:          d.Title,
+		Description:    d.Description,
+		Required:       d.Required,
+		SortOrder:      d.SortOrder,
+		CreatedAt:      timestampToString(d.CreatedAt),
+		UpdatedAt:      timestampToString(d.UpdatedAt),
 	}
 }
 
@@ -287,15 +340,38 @@ func workflowNodeFormatType(formatSchema []byte) string {
 	return schema.Type
 }
 
-// isNonExecutableNode returns true for annotation and gateway nodes.
-// Split nodes still need Worker/Critic validation because their Worker
-// generates draft tasks and their Critic reviews those drafts.
-func isNonExecutableNode(formatSchema []byte) bool {
-	switch workflowNodeFormatType(formatSchema) {
-	case "annotation", "gateway":
-		return true
+func isWorkflowBoundaryUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) &&
+		pgErr.Code == "23505" &&
+		pgErr.ConstraintName == "multica_workflow_node_boundary_kind_unique"
+}
+
+func defaultWorkflowBoundaryNodes(workflowID pgtype.UUID) []db.CreateWorkflowNodeParams {
+	return []db.CreateWorkflowNodeParams{
+		{
+			WorkflowID:   workflowID,
+			Title:        "Start",
+			Description:  nonNullText(""),
+			PositionX:    120,
+			PositionY:    0,
+			FormatSchema: []byte(`{"type":"start","shape":"pill","template_id":"workflow-start","template_category":"trigger"}`),
+			WorkerType:   "human",
+			CriticType:   "human",
+			SortOrder:    0,
+		},
+		{
+			WorkflowID:   workflowID,
+			Title:        "End",
+			Description:  nonNullText(""),
+			PositionX:    600,
+			PositionY:    0,
+			FormatSchema: []byte(`{"type":"end","shape":"pill","template_id":"workflow-end","template_category":"trigger"}`),
+			WorkerType:   "human",
+			CriticType:   "human",
+			SortOrder:    1,
+		},
 	}
-	return false
 }
 
 func isSplitWorkflowNode(formatSchema []byte) bool {
@@ -378,6 +454,14 @@ func (h *Handler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to clone template: %v", err))
 			return
 		}
+		// Async: provision the Gitea repo. CloneWorkflowFromTemplate creates the
+		// workflow already-active, so — mirroring UpdateWorkflow's status→active
+		// branch — provision here too. Without this, a workflow enabled directly
+		// from a template is left without a repo: the activation hook only lives
+		// on the PATCH path, which the template-clone flow never hits.
+		if h.WorkflowService != nil {
+			go h.WorkflowService.ProvisionWorkflowRepo(context.Background(), cloned.ID)
+		}
 		count, _ := h.Queries.CountWorkflowNodes(r.Context(), cloned.ID)
 		resp := workflowToResponse(cloned, count)
 		h.publish(protocol.EventWorkflowCreated, workspaceID, "member", userID, map[string]any{"workflow": resp})
@@ -385,7 +469,15 @@ func (h *Handler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wf, err := h.Queries.CreateWorkflow(r.Context(), db.CreateWorkflowParams{
+	tx, err := h.TxStarter.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to start transaction")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	qtx := h.Queries.WithTx(tx)
+
+	wf, err := qtx.CreateWorkflow(r.Context(), db.CreateWorkflowParams{
 		WorkspaceID:   wsUUID,
 		Title:         req.Title,
 		Description:   nonNullText(req.Description),
@@ -399,7 +491,20 @@ func (h *Handler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := workflowToResponse(wf, 0)
+	for _, params := range defaultWorkflowBoundaryNodes(wf.ID) {
+		if _, err := qtx.CreateWorkflowNode(r.Context(), params); err != nil {
+			log.Printf("create default workflow boundary %q: %v", params.Title, err)
+			writeError(w, http.StatusInternalServerError, "failed to create workflow boundaries")
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to commit workflow")
+		return
+	}
+
+	resp := workflowToResponse(wf, 2)
 
 	h.publish(protocol.EventWorkflowCreated, workspaceID, "member", userID, map[string]any{"workflow": resp})
 	writeJSON(w, http.StatusCreated, resp)
@@ -490,37 +595,23 @@ func (h *Handler) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-
-	// Validate all nodes have worker and critic assigned when activating.
-	if req.Status != nil && *req.Status == "active" && !wf.IsTemplate {
+	if req.Status != nil && *req.Status == "active" {
 		nodes, err := h.Queries.ListWorkflowNodes(r.Context(), wf.ID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to list nodes")
+			writeError(w, http.StatusInternalServerError, "failed to validate workflow nodes")
 			return
 		}
-		var nodeNames []string
-		for _, n := range nodes {
-			if isNonExecutableNode(n.FormatSchema) {
-				continue
+		for _, node := range nodes {
+			if err := validateRequiredSplitReviewerConfig(
+				node.FormatSchema,
+				node.CriticType,
+				node.CriticID,
+				node.CriticRoleID,
+				node.CriticApiUrl,
+			); err != nil {
+				writeError(w, http.StatusUnprocessableEntity, err.Error())
+				return
 			}
-			isSplit := isSplitWorkflowNode(n.FormatSchema)
-			var missingRoles []string
-			if n.WorkerType == "" || (!n.WorkerID.Valid && !n.WorkerRoleID.Valid && (n.WorkerType == "agent" || isSplit)) {
-				missingRoles = append(missingRoles, "worker")
-			}
-			if n.CriticType == "" ||
-				(!n.CriticID.Valid && !n.CriticRoleID.Valid && n.CriticType == "agent") ||
-				(isSplit && n.CriticType == "api" && !n.CriticApiUrl.Valid) ||
-				(isSplit && n.CriticType != "api" && !n.CriticID.Valid && !n.CriticRoleID.Valid) {
-				missingRoles = append(missingRoles, "critic")
-			}
-			if len(missingRoles) > 0 {
-				nodeNames = append(nodeNames, fmt.Sprintf("%s (%s)", n.Title, strings.Join(missingRoles, ", ")))
-			}
-		}
-		if len(nodeNames) > 0 {
-			writeError(w, http.StatusBadRequest, "These nodes need assignees: "+strings.Join(nodeNames, ", "))
-			return
 		}
 	}
 
@@ -533,12 +624,62 @@ func (h *Handler) UpdateWorkflow(w http.ResponseWriter, r *http.Request) {
 	if req.MaxRetries != nil {
 		params.MaxRetries = pgtype.Int4{Int32: *req.MaxRetries, Valid: true}
 	}
-	updated, err := h.Queries.UpdateWorkflow(r.Context(), params)
+	if req.DefaultRuntimeSelectionPolicy != nil {
+		policy := strings.TrimSpace(*req.DefaultRuntimeSelectionPolicy)
+		if !service.IsWorkflowRuntimeSelectionPolicy(policy) {
+			writeError(w, http.StatusBadRequest, "invalid default_runtime_selection_policy")
+			return
+		}
+		params.DefaultRuntimeSelectionPolicy = pgtype.Text{String: policy, Valid: true}
+	}
+	defaultRuntimeID, validRuntime := h.validateWorkflowRuntimePreference(
+		w,
+		r,
+		req.DefaultRuntimeID,
+		wf.WorkspaceID,
+	)
+	if !validRuntime {
+		return
+	}
+	if defaultRuntimeID.Valid {
+		params.DefaultRuntimeID = defaultRuntimeID
+	}
+	effectivePolicy := wf.DefaultRuntimeSelectionPolicy
+	if params.DefaultRuntimeSelectionPolicy.Valid {
+		effectivePolicy = params.DefaultRuntimeSelectionPolicy.String
+	}
+	effectiveRuntimeID := wf.DefaultRuntimeID
+	if defaultRuntimeID.Valid {
+		effectiveRuntimeID = defaultRuntimeID
+	}
+	if effectivePolicy == service.RuntimeSelectionPolicySpecifiedRuntimeFirst && !effectiveRuntimeID.Valid {
+		writeError(w, http.StatusBadRequest, "specified default runtime selection policy requires default_runtime_id")
+		return
+	}
+	if effectivePolicy != service.RuntimeSelectionPolicySpecifiedRuntimeFirst && defaultRuntimeID.Valid {
+		writeError(w, http.StatusBadRequest, "default_runtime_id is only valid with specified_runtime_first")
+		return
+	}
+	var updated db.MulticaWorkflow
+	err := h.WorkflowService.RunDefinitionWrite(
+		r.Context(), wf.WorkspaceID, wf.ID, service.DefinitionLockWorkflowOnly,
+		func(qtx *db.Queries) error {
+			var err error
+			updated, err = qtx.UpdateWorkflow(r.Context(), params)
+			return err
+		},
+	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update workflow")
 		return
 	}
 
+	// Async: provision the Gitea repo when the workflow is activated (not
+	// lazily on the first run). Best-effort. Uses context.Background() so the
+	// goroutine survives after the HTTP response is sent (r.Context() cancels).
+	if req.Status != nil && *req.Status == "active" && h.WorkflowService != nil {
+		go h.WorkflowService.ProvisionWorkflowRepo(context.Background(), updated.ID)
+	}
 	count, _ := h.Queries.CountWorkflowNodes(r.Context(), updated.ID)
 	resp := workflowToResponse(updated, count)
 	h.publish(protocol.EventWorkflowUpdated, workspaceID, "member", userID, map[string]any{"workflow": resp})
@@ -568,7 +709,11 @@ func (h *Handler) DeleteWorkflow(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.Queries.DeleteWorkflow(r.Context(), wf.ID); err != nil {
+	if err := h.WorkflowService.DeleteWorkflowDefinition(r.Context(), wf.ID); err != nil {
+		if errors.Is(err, service.ErrWorkflowHasRuns) {
+			writeCodeError(w, http.StatusConflict, "workflow_has_runs", "workflow has run history and cannot be deleted")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to delete workflow")
 		return
 	}
@@ -599,6 +744,29 @@ func (h *Handler) ListWorkflowNodes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"nodes": resp})
 }
 
+func validateSplitReviewerConfig(formatSchema []byte, criticType string, criticID, criticRoleID pgtype.UUID, criticAPIURL pgtype.Text) error {
+	if workflowmeta.KindOf(formatSchema) != "split" {
+		return nil
+	}
+	if criticType == "human" && !criticID.Valid && !criticRoleID.Valid && !criticAPIURL.Valid {
+		return nil
+	}
+	if criticAPIURL.Valid || criticType != "human" || criticID.Valid == criticRoleID.Valid {
+		return errors.New("split reviewer must be one workspace member or one member role")
+	}
+	return nil
+}
+
+func validateRequiredSplitReviewerConfig(formatSchema []byte, criticType string, criticID, criticRoleID pgtype.UUID, criticAPIURL pgtype.Text) error {
+	if err := validateSplitReviewerConfig(formatSchema, criticType, criticID, criticRoleID, criticAPIURL); err != nil {
+		return err
+	}
+	if workflowmeta.KindOf(formatSchema) == "split" && !criticID.Valid && !criticRoleID.Valid {
+		return errors.New("split reviewer must be one workspace member or one member role")
+	}
+	return nil
+}
+
 func (h *Handler) CreateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	wfID := chi.URLParam(r, "id")
 	wf, ok := h.loadWorkflowInWorkspace(w, r, wfID)
@@ -619,6 +787,15 @@ func (h *Handler) CreateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 		req.WorkerType = "agent"
 	}
 	if req.CriticType == "" {
+		req.CriticType = "human"
+	}
+	if workflowmeta.IsBoundary(req.FormatSchema) {
+		if req.WorkerID != nil || req.WorkerRoleID != nil || req.CriticID != nil ||
+			req.CriticRoleID != nil || req.CriticApiURL != nil {
+			writeError(w, http.StatusUnprocessableEntity, "boundary nodes cannot configure workers or critics")
+			return
+		}
+		req.WorkerType = "human"
 		req.CriticType = "human"
 	}
 	workerRoleID, ok := h.parseWorkflowRoleID(w, r, req.WorkerRoleID, "worker_role_id", wf.WorkspaceID)
@@ -671,15 +848,6 @@ func (h *Handler) CreateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
-		stage, err := h.Queries.GetWorkflowStage(r.Context(), sID)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "stage not found")
-			return
-		}
-		if stage.WorkflowID != wf.ID {
-			writeError(w, http.StatusBadRequest, "stage does not belong to this workflow")
-			return
-		}
 		stageID = sID
 	}
 
@@ -691,25 +859,50 @@ func (h *Handler) CreateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if err := validateSplitReviewerConfig(req.FormatSchema, req.CriticType, criticID, criticRoleID, ptrToText(req.CriticApiURL)); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
 
-	node, err := h.Queries.CreateWorkflowNode(r.Context(), db.CreateWorkflowNodeParams{
-		WorkflowID:   wf.ID,
-		Title:        req.Title,
-		Description:  nonNullText(req.Description),
-		PositionX:    req.PositionX,
-		PositionY:    req.PositionY,
-		FormatSchema: req.FormatSchema,
-		WorkerType:   req.WorkerType,
-		WorkerID:     workerID,
-		WorkerRoleID: workerRoleID,
-		CriticType:   req.CriticType,
-		CriticID:     criticID,
-		CriticApiUrl: ptrToText(req.CriticApiURL),
-		CriticRoleID: criticRoleID,
-		SortOrder:    0,
-		StageID:      stageID,
-	})
+	var node db.MulticaWorkflowNode
+	err := h.WorkflowService.RunDefinitionWrite(
+		r.Context(), wf.WorkspaceID, wf.ID, service.DefinitionLockRoleSensitive,
+		func(qtx *db.Queries) error {
+			if workerRoleID.Valid {
+				if _, err := qtx.GetWorkflowRoleInWorkspace(r.Context(), db.GetWorkflowRoleInWorkspaceParams{ID: workerRoleID, WorkspaceID: wf.WorkspaceID}); err != nil {
+					return err
+				}
+			}
+			if criticRoleID.Valid {
+				if _, err := qtx.GetWorkflowRoleInWorkspace(r.Context(), db.GetWorkflowRoleInWorkspaceParams{ID: criticRoleID, WorkspaceID: wf.WorkspaceID}); err != nil {
+					return err
+				}
+			}
+			if stageID.Valid {
+				if _, err := qtx.GetWorkflowStageInWorkflow(r.Context(), db.GetWorkflowStageInWorkflowParams{ID: stageID, WorkflowID: wf.ID}); err != nil {
+					return err
+				}
+			}
+			var err error
+			node, err = qtx.CreateWorkflowNode(r.Context(), db.CreateWorkflowNodeParams{
+				WorkflowID: wf.ID, Title: req.Title, Description: nonNullText(req.Description),
+				PositionX: req.PositionX, PositionY: req.PositionY, FormatSchema: req.FormatSchema,
+				WorkerType: req.WorkerType, WorkerID: workerID, WorkerRoleID: workerRoleID,
+				CriticType: req.CriticType, CriticID: criticID, CriticApiUrl: ptrToText(req.CriticApiURL),
+				CriticRoleID: criticRoleID, SortOrder: 0, StageID: stageID,
+			})
+			return err
+		},
+	)
 	if err != nil {
+		if isWorkflowBoundaryUniqueViolation(err) {
+			writeError(w, http.StatusConflict, "workflow already has this boundary node")
+			return
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusBadRequest, "stage or workflow role not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to create node")
 		return
 	}
@@ -735,6 +928,21 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	var req UpdateNodeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	currentKind := workflowmeta.KindOf(currentNode.FormatSchema)
+	if len(req.FormatSchema) > 0 {
+		updatedKind := workflowmeta.KindOf(req.FormatSchema)
+		if updatedKind != currentKind {
+			writeError(w, http.StatusUnprocessableEntity, "workflow node type cannot be changed")
+			return
+		}
+	}
+	if workflowmeta.IsBoundary(currentNode.FormatSchema) &&
+		(len(req.FormatSchema) > 0 || req.SortOrder != nil ||
+			req.WorkerType != nil || req.WorkerID != nil || req.WorkerRoleID != nil ||
+			req.CriticType != nil || req.CriticID != nil || req.CriticRoleID != nil || req.CriticApiURL != nil) {
+		writeError(w, http.StatusUnprocessableEntity, "boundary nodes only support title, description, and position updates")
 		return
 	}
 	workerRoleID, ok := h.parseWorkflowRoleID(w, r, req.WorkerRoleID, "worker_role_id", wf.WorkspaceID)
@@ -800,6 +1008,24 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	effectiveCriticID := criticIDParam
 	if criticRoleID.Valid {
 		effectiveCriticID = pgtype.UUID{}
+	} else if req.CriticID == nil {
+		effectiveCriticID = currentNode.CriticID
+	}
+	effectiveCriticRoleID := currentNode.CriticRoleID
+	if criticRoleID.Valid {
+		effectiveCriticRoleID = criticRoleID
+	} else if req.CriticID != nil || req.CriticType != nil || req.CriticApiURL != nil {
+		effectiveCriticRoleID = pgtype.UUID{}
+	}
+	effectiveCriticAPIURL := currentNode.CriticApiUrl
+	if criticRoleID.Valid {
+		effectiveCriticAPIURL = pgtype.Text{}
+	} else if req.CriticApiURL != nil {
+		effectiveCriticAPIURL = ptrToText(req.CriticApiURL)
+	}
+	effectiveFormatSchema := currentNode.FormatSchema
+	if len(req.FormatSchema) > 0 {
+		effectiveFormatSchema = req.FormatSchema
 	}
 
 	if err := h.validateWorkflowHumanActor(r.Context(), workerType, effectiveWorkerID, workspaceID, "worker"); err != nil {
@@ -808,6 +1034,10 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.validateWorkflowHumanActor(r.Context(), criticType, effectiveCriticID, workspaceID, "critic"); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := validateSplitReviewerConfig(effectiveFormatSchema, criticType, effectiveCriticID, effectiveCriticRoleID, effectiveCriticAPIURL); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 
@@ -828,9 +1058,34 @@ func (h *Handler) UpdateWorkflowNode(w http.ResponseWriter, r *http.Request) {
 		SortOrder:    int32ToInt4(req.SortOrder),
 	}
 
-	updated, err := h.Queries.UpdateWorkflowNode(r.Context(), params)
+	var updated db.MulticaWorkflowNode
+	err := h.WorkflowService.RunDefinitionWrite(
+		r.Context(), wf.WorkspaceID, wf.ID, service.DefinitionLockRoleSensitive,
+		func(qtx *db.Queries) error {
+			if _, err := qtx.GetWorkflowNodeInWorkflow(r.Context(), db.GetWorkflowNodeInWorkflowParams{ID: currentNode.ID, WorkflowID: wf.ID}); err != nil {
+				return err
+			}
+			if workerRoleID.Valid {
+				if _, err := qtx.GetWorkflowRoleInWorkspace(r.Context(), db.GetWorkflowRoleInWorkspaceParams{ID: workerRoleID, WorkspaceID: wf.WorkspaceID}); err != nil {
+					return err
+				}
+			}
+			if criticRoleID.Valid {
+				if _, err := qtx.GetWorkflowRoleInWorkspace(r.Context(), db.GetWorkflowRoleInWorkspaceParams{ID: criticRoleID, WorkspaceID: wf.WorkspaceID}); err != nil {
+					return err
+				}
+			}
+			var err error
+			updated, err = qtx.UpdateWorkflowNode(r.Context(), params)
+			return err
+		},
+	)
 	if err != nil {
 		log.Printf("failed to update node %s: %v", uuidToString(currentNode.ID), err)
+		if isWorkflowBoundaryUniqueViolation(err) {
+			writeError(w, http.StatusConflict, "workflow already has this boundary node")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to update node")
 		return
 	}
@@ -844,7 +1099,7 @@ func (h *Handler) DeleteWorkflowNode(w http.ResponseWriter, r *http.Request) {
 	wfID := chi.URLParam(r, "id")
 	nodeID := chi.URLParam(r, "nodeId")
 
-	_, ok := h.loadWorkflowInWorkspace(w, r, wfID)
+	wf, ok := h.loadWorkflowInWorkspace(w, r, wfID)
 	if !ok {
 		return
 	}
@@ -853,22 +1108,34 @@ func (h *Handler) DeleteWorkflowNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify the node belongs to the workflow.
-	node, err := h.Queries.GetWorkflowNode(r.Context(), nID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "node not found")
-		return
-	}
-	wfUUID := parseUUID(wfID)
-	if uuidToString(node.WorkflowID) != uuidToString(wfUUID) {
-		writeError(w, http.StatusNotFound, "node not found in this workflow")
-		return
-	}
-
 	workspaceID := h.resolveWorkspaceID(r)
 	userID, _ := requireUserID(w, r)
 
-	if err := h.Queries.DeleteWorkflowNode(r.Context(), nID); err != nil {
+	err := h.WorkflowService.RunDefinitionWrite(
+		r.Context(), wf.WorkspaceID, wf.ID, service.DefinitionLockRoleSensitive,
+		func(qtx *db.Queries) error {
+			if _, err := qtx.GetWorkflowNodeInWorkflow(r.Context(), db.GetWorkflowNodeInWorkflowParams{ID: nID, WorkflowID: wf.ID}); err != nil {
+				return err
+			}
+			inUse, err := qtx.WorkflowNodeHasActiveRunReferences(r.Context(), nID)
+			if err != nil {
+				return err
+			}
+			if inUse {
+				return service.ErrWorkflowDefinitionInUse
+			}
+			return qtx.DeleteWorkflowNode(r.Context(), nID)
+		},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "node not found in this workflow")
+		return
+	}
+	if errors.Is(err, service.ErrWorkflowDefinitionInUse) {
+		writeCodeError(w, http.StatusConflict, "workflow_definition_in_use", "workflow definition is used by an active run")
+		return
+	}
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete node")
 		return
 	}
@@ -925,20 +1192,6 @@ func (h *Handler) CreateWorkflowEdge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate nodes exist
-	sourceNode, err := h.Queries.GetWorkflowNode(r.Context(), srcID)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "source node not found")
-		return
-	}
-	targetNode, err := h.Queries.GetWorkflowNode(r.Context(), tgtID)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "target node not found")
-		return
-	}
-	_ = sourceNode // used for future validation
-	_ = targetNode
-
 	workspaceID := h.resolveWorkspaceID(r)
 	userID, _ := requireUserID(w, r)
 	condition := []byte(nil)
@@ -946,13 +1199,38 @@ func (h *Handler) CreateWorkflowEdge(w http.ResponseWriter, r *http.Request) {
 		condition = req.Condition
 	}
 
-	edge, err := h.Queries.CreateWorkflowEdge(r.Context(), db.CreateWorkflowEdgeParams{
-		WorkflowID:   wf.ID,
-		SourceNodeID: srcID,
-		TargetNodeID: tgtID,
-		Condition:    condition,
-	})
+	var edge db.MulticaWorkflowEdge
+	var boundaryErr error
+	err := h.WorkflowService.RunDefinitionWrite(
+		r.Context(), wf.WorkspaceID, wf.ID, service.DefinitionLockWorkflowOnly,
+		func(qtx *db.Queries) error {
+			sourceNode, err := qtx.GetWorkflowNodeInWorkflow(r.Context(), db.GetWorkflowNodeInWorkflowParams{ID: srcID, WorkflowID: wf.ID})
+			if err != nil {
+				return err
+			}
+			targetNode, err := qtx.GetWorkflowNodeInWorkflow(r.Context(), db.GetWorkflowNodeInWorkflowParams{ID: tgtID, WorkflowID: wf.ID})
+			if err != nil {
+				return err
+			}
+			if err := workflowmeta.ValidateBoundaryEdge(sourceNode.FormatSchema, targetNode.FormatSchema); err != nil {
+				boundaryErr = err
+				return err
+			}
+			edge, err = qtx.CreateWorkflowEdge(r.Context(), db.CreateWorkflowEdgeParams{
+				WorkflowID: wf.ID, SourceNodeID: srcID, TargetNodeID: tgtID, Condition: condition,
+			})
+			return err
+		},
+	)
 	if err != nil {
+		if boundaryErr != nil {
+			writeError(w, http.StatusUnprocessableEntity, boundaryErr.Error())
+			return
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusUnprocessableEntity, "edge nodes must belong to this workflow")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to create edge")
 		return
 	}
@@ -966,7 +1244,7 @@ func (h *Handler) DeleteWorkflowEdge(w http.ResponseWriter, r *http.Request) {
 	wfID := chi.URLParam(r, "id")
 	edgeID := chi.URLParam(r, "edgeId")
 
-	_, ok := h.loadWorkflowInWorkspace(w, r, wfID)
+	wf, ok := h.loadWorkflowInWorkspace(w, r, wfID)
 	if !ok {
 		return
 	}
@@ -978,7 +1256,20 @@ func (h *Handler) DeleteWorkflowEdge(w http.ResponseWriter, r *http.Request) {
 	workspaceID := h.resolveWorkspaceID(r)
 	userID, _ := requireUserID(w, r)
 
-	if err := h.Queries.DeleteWorkflowEdge(r.Context(), eID); err != nil {
+	err := h.WorkflowService.RunDefinitionWrite(
+		r.Context(), wf.WorkspaceID, wf.ID, service.DefinitionLockWorkflowOnly,
+		func(qtx *db.Queries) error {
+			if _, err := qtx.GetWorkflowEdgeInWorkflow(r.Context(), db.GetWorkflowEdgeInWorkflowParams{ID: eID, WorkflowID: wf.ID}); err != nil {
+				return err
+			}
+			return qtx.DeleteWorkflowEdge(r.Context(), eID)
+		},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "edge not found in this workflow")
+		return
+	}
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete edge")
 		return
 	}
@@ -988,6 +1279,172 @@ func (h *Handler) DeleteWorkflowEdge(w http.ResponseWriter, r *http.Request) {
 }
 
 // ── Stage Handlers ─────────────────────────────────────────────────────────────
+
+func (h *Handler) ListWorkflowNodeDeliverables(w http.ResponseWriter, r *http.Request) {
+	wfID := chi.URLParam(r, "id")
+	nodeID := chi.URLParam(r, "nodeId")
+	node, ok := h.loadWorkflowNode(w, r, wfID, nodeID)
+	if !ok {
+		return
+	}
+
+	deliverables, err := h.Queries.ListWorkflowNodeDeliverables(r.Context(), node.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list deliverables")
+		return
+	}
+	resp := make([]WorkflowNodeDeliverableResponse, 0, len(deliverables))
+	for _, d := range deliverables {
+		resp = append(resp, workflowNodeDeliverableToResponse(d))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deliverables": resp})
+}
+
+func (h *Handler) CreateWorkflowNodeDeliverable(w http.ResponseWriter, r *http.Request) {
+	wfID := chi.URLParam(r, "id")
+	nodeID := chi.URLParam(r, "nodeId")
+	node, ok := h.loadWorkflowNode(w, r, wfID, nodeID)
+	if !ok {
+		return
+	}
+
+	var req CreateWorkflowNodeDeliverableRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Title == "" {
+		writeError(w, http.StatusBadRequest, "title is required")
+		return
+	}
+	required := true
+	if req.Required != nil {
+		required = *req.Required
+	}
+
+	wf, err := h.Queries.GetWorkflow(r.Context(), node.WorkflowID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "workflow not found")
+		return
+	}
+	var deliverable db.MulticaWorkflowNodeDeliverable
+	err = h.WorkflowService.RunDefinitionWrite(
+		r.Context(), wf.WorkspaceID, wf.ID, service.DefinitionLockWorkflowOnly,
+		func(qtx *db.Queries) error {
+			if _, err := qtx.GetWorkflowNodeInWorkflow(r.Context(), db.GetWorkflowNodeInWorkflowParams{ID: node.ID, WorkflowID: wf.ID}); err != nil {
+				return err
+			}
+			var err error
+			deliverable, err = qtx.CreateWorkflowNodeDeliverable(r.Context(), db.CreateWorkflowNodeDeliverableParams{
+				WorkflowNodeID: node.ID, Title: req.Title, Description: req.Description,
+				Required: required, SortOrder: req.SortOrder,
+			})
+			return err
+		},
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create deliverable")
+		return
+	}
+	writeJSON(w, http.StatusCreated, workflowNodeDeliverableToResponse(deliverable))
+}
+
+func (h *Handler) UpdateWorkflowNodeDeliverable(w http.ResponseWriter, r *http.Request) {
+	wfID := chi.URLParam(r, "id")
+	nodeID := chi.URLParam(r, "nodeId")
+	node, ok := h.loadWorkflowNode(w, r, wfID, nodeID)
+	if !ok {
+		return
+	}
+	deliverableID := chi.URLParam(r, "deliverableId")
+	dID, ok := parseUUIDOrBadRequest(w, deliverableID, "deliverableId")
+	if !ok {
+		return
+	}
+
+	var req UpdateWorkflowNodeDeliverableRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	wf, err := h.Queries.GetWorkflow(r.Context(), node.WorkflowID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "workflow not found")
+		return
+	}
+	var updated db.MulticaWorkflowNodeDeliverable
+	err = h.WorkflowService.RunDefinitionWrite(
+		r.Context(), wf.WorkspaceID, wf.ID, service.DefinitionLockWorkflowOnly,
+		func(qtx *db.Queries) error {
+			if _, err := qtx.GetWorkflowNodeDeliverableInWorkflow(r.Context(), db.GetWorkflowNodeDeliverableInWorkflowParams{ID: dID, WorkflowNodeID: node.ID, WorkflowID: wf.ID}); err != nil {
+				return err
+			}
+			var err error
+			updated, err = qtx.UpdateWorkflowNodeDeliverable(r.Context(), db.UpdateWorkflowNodeDeliverableParams{
+				ID: dID, Title: ptrToText(req.Title), Description: ptrToText(req.Description),
+				Required: boolToBool(req.Required), SortOrder: int32ToInt4(req.SortOrder),
+			})
+			return err
+		},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "deliverable not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update deliverable")
+		return
+	}
+	writeJSON(w, http.StatusOK, workflowNodeDeliverableToResponse(updated))
+}
+
+func (h *Handler) DeleteWorkflowNodeDeliverable(w http.ResponseWriter, r *http.Request) {
+	wfID := chi.URLParam(r, "id")
+	nodeID := chi.URLParam(r, "nodeId")
+	node, ok := h.loadWorkflowNode(w, r, wfID, nodeID)
+	if !ok {
+		return
+	}
+	deliverableID := chi.URLParam(r, "deliverableId")
+	dID, ok := parseUUIDOrBadRequest(w, deliverableID, "deliverableId")
+	if !ok {
+		return
+	}
+	wf, err := h.Queries.GetWorkflow(r.Context(), node.WorkflowID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "workflow not found")
+		return
+	}
+	err = h.WorkflowService.RunDefinitionWrite(
+		r.Context(), wf.WorkspaceID, wf.ID, service.DefinitionLockWorkflowOnly,
+		func(qtx *db.Queries) error {
+			if _, err := qtx.GetWorkflowNodeDeliverableInWorkflow(r.Context(), db.GetWorkflowNodeDeliverableInWorkflowParams{ID: dID, WorkflowNodeID: node.ID, WorkflowID: wf.ID}); err != nil {
+				return err
+			}
+			inUse, err := qtx.WorkflowDeliverableHasActiveRunReferences(r.Context(), dID)
+			if err != nil {
+				return err
+			}
+			if inUse {
+				return service.ErrWorkflowDefinitionInUse
+			}
+			return qtx.DeleteWorkflowNodeDeliverable(r.Context(), dID)
+		},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "deliverable not found")
+		return
+	}
+	if errors.Is(err, service.ErrWorkflowDefinitionInUse) {
+		writeCodeError(w, http.StatusConflict, "workflow_definition_in_use", "workflow definition is used by an active run")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete deliverable")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"deleted": deliverableID})
+}
 
 func (h *Handler) ListWorkflowStages(w http.ResponseWriter, r *http.Request) {
 	wfID := chi.URLParam(r, "id")
@@ -1027,21 +1484,25 @@ func (h *Handler) CreateWorkflowStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auto-assign sort_order: append after the last existing stage.
-	// req.SortOrder defaults to 0 when not sent by the client, so we always
-	// compute the next value from existing stages on creation.
-	sortOrder := req.SortOrder
-	if sortOrder <= 0 {
-		existing, _ := h.Queries.ListWorkflowStagesByWorkflow(r.Context(), wf.ID)
-		sortOrder = int32(len(existing))
-	}
-
-	stage, err := h.Queries.CreateWorkflowStage(r.Context(), db.CreateWorkflowStageParams{
-		WorkflowID:  wf.ID,
-		Name:        req.Name,
-		Description: nonNullText(req.Description),
-		SortOrder:   sortOrder,
-	})
+	var stage db.MulticaWorkflowStage
+	err := h.WorkflowService.RunDefinitionWrite(
+		r.Context(), wf.WorkspaceID, wf.ID, service.DefinitionLockWorkflowOnly,
+		func(qtx *db.Queries) error {
+			sortOrder := req.SortOrder
+			if sortOrder <= 0 {
+				existing, err := qtx.ListWorkflowStagesByWorkflow(r.Context(), wf.ID)
+				if err != nil {
+					return err
+				}
+				sortOrder = int32(len(existing))
+			}
+			var err error
+			stage, err = qtx.CreateWorkflowStage(r.Context(), db.CreateWorkflowStageParams{
+				WorkflowID: wf.ID, Name: req.Name, Description: nonNullText(req.Description), SortOrder: sortOrder,
+			})
+			return err
+		},
+	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create stage")
 		return
@@ -1069,12 +1530,20 @@ func (h *Handler) UpdateWorkflowStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, err := h.Queries.UpdateWorkflowStage(r.Context(), db.UpdateWorkflowStageParams{
-		ID:          stage.ID,
-		Name:        ptrToText(req.Name),
-		Description: ptrToText(req.Description),
-		SortOrder:   int32ToInt4(req.SortOrder),
-	})
+	var updated db.MulticaWorkflowStage
+	err := h.WorkflowService.RunDefinitionWrite(
+		r.Context(), wf.WorkspaceID, wf.ID, service.DefinitionLockWorkflowOnly,
+		func(qtx *db.Queries) error {
+			if _, err := qtx.GetWorkflowStageInWorkflow(r.Context(), db.GetWorkflowStageInWorkflowParams{ID: stage.ID, WorkflowID: wf.ID}); err != nil {
+				return err
+			}
+			var err error
+			updated, err = qtx.UpdateWorkflowStage(r.Context(), db.UpdateWorkflowStageParams{
+				ID: stage.ID, Name: ptrToText(req.Name), Description: ptrToText(req.Description), SortOrder: int32ToInt4(req.SortOrder),
+			})
+			return err
+		},
+	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update stage")
 		return
@@ -1097,17 +1566,24 @@ func (h *Handler) DeleteWorkflowStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Queries.DeleteWorkflowStage(r.Context(), stage.ID); err != nil {
+	err := h.WorkflowService.RunDefinitionWrite(
+		r.Context(), wf.WorkspaceID, wf.ID, service.DefinitionLockWorkflowOnly,
+		func(qtx *db.Queries) error {
+			lockedStage, err := qtx.GetWorkflowStageInWorkflow(r.Context(), db.GetWorkflowStageInWorkflowParams{ID: stage.ID, WorkflowID: wf.ID})
+			if err != nil {
+				return err
+			}
+			if err := qtx.DeleteWorkflowStage(r.Context(), lockedStage.ID); err != nil {
+				return err
+			}
+			return qtx.CompactWorkflowStageOrders(r.Context(), db.CompactWorkflowStageOrdersParams{
+				WorkflowID: wf.ID, SortOrder: lockedStage.SortOrder,
+			})
+		},
+	)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete stage")
 		return
-	}
-
-	// Compact sort_order values so remaining stages stay contiguous (no gaps).
-	if err := h.Queries.CompactWorkflowStageOrders(r.Context(), db.CompactWorkflowStageOrdersParams{
-		WorkflowID: wf.ID,
-		SortOrder:  stage.SortOrder,
-	}); err != nil {
-		log.Printf("failed to compact stage sort orders after delete: %v", err)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
@@ -1144,24 +1620,29 @@ func (h *Handler) ReorderWorkflowStages(w http.ResponseWriter, r *http.Request) 
 		validated = append(validated, validatedItem{ID: id, SortOrder: item.SortOrder})
 	}
 
-	for _, item := range validated {
-		stage, err := h.Queries.GetWorkflowStage(r.Context(), item.ID)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "stage not found")
-			return
-		}
-		if uuidToString(stage.WorkflowID) != uuidToString(wf.ID) {
-			writeError(w, http.StatusBadRequest, "stage does not belong to this workflow")
-			return
-		}
-		_, err = h.Queries.UpdateWorkflowStage(r.Context(), db.UpdateWorkflowStageParams{
-			ID:        item.ID,
-			SortOrder: int32ToInt4(&item.SortOrder),
-		})
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to reorder stages")
-			return
-		}
+	err := h.WorkflowService.RunDefinitionWrite(
+		r.Context(), wf.WorkspaceID, wf.ID, service.DefinitionLockWorkflowOnly,
+		func(qtx *db.Queries) error {
+			for _, item := range validated {
+				if _, err := qtx.GetWorkflowStageInWorkflow(r.Context(), db.GetWorkflowStageInWorkflowParams{ID: item.ID, WorkflowID: wf.ID}); err != nil {
+					return err
+				}
+			}
+			for _, item := range validated {
+				if _, err := qtx.UpdateWorkflowStage(r.Context(), db.UpdateWorkflowStageParams{ID: item.ID, SortOrder: int32ToInt4(&item.SortOrder)}); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusBadRequest, "stage does not belong to this workflow")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to reorder stages")
+		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "reordered"})
@@ -1182,8 +1663,23 @@ func (h *Handler) AssignNodeToStage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.StageID == nil {
-		// Unassign
-		updated, err := h.Queries.UnassignNodeFromStage(r.Context(), node.ID)
+		wf, err := h.Queries.GetWorkflow(r.Context(), node.WorkflowID)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "workflow not found")
+			return
+		}
+		var updated db.MulticaWorkflowNode
+		err = h.WorkflowService.RunDefinitionWrite(
+			r.Context(), wf.WorkspaceID, wf.ID, service.DefinitionLockWorkflowOnly,
+			func(qtx *db.Queries) error {
+				if _, err := qtx.GetWorkflowNodeInWorkflow(r.Context(), db.GetWorkflowNodeInWorkflowParams{ID: node.ID, WorkflowID: wf.ID}); err != nil {
+					return err
+				}
+				var err error
+				updated, err = qtx.UnassignNodeFromStage(r.Context(), node.ID)
+				return err
+			},
+		)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to unassign node")
 			return
@@ -1192,25 +1688,34 @@ func (h *Handler) AssignNodeToStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify target stage belongs to same workflow
 	stageID, ok := parseUUIDOrBadRequest(w, *req.StageID, "stage_id")
 	if !ok {
 		return
 	}
-	stage, err := h.Queries.GetWorkflowStage(r.Context(), stageID)
+	wf, err := h.Queries.GetWorkflow(r.Context(), node.WorkflowID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "stage not found")
+		writeError(w, http.StatusNotFound, "workflow not found")
 		return
 	}
-	if uuidToString(stage.WorkflowID) != uuidToString(node.WorkflowID) {
+	var updated db.MulticaWorkflowNode
+	err = h.WorkflowService.RunDefinitionWrite(
+		r.Context(), wf.WorkspaceID, wf.ID, service.DefinitionLockWorkflowOnly,
+		func(qtx *db.Queries) error {
+			if _, err := qtx.GetWorkflowNodeInWorkflow(r.Context(), db.GetWorkflowNodeInWorkflowParams{ID: node.ID, WorkflowID: wf.ID}); err != nil {
+				return err
+			}
+			if _, err := qtx.GetWorkflowStageInWorkflow(r.Context(), db.GetWorkflowStageInWorkflowParams{ID: stageID, WorkflowID: wf.ID}); err != nil {
+				return err
+			}
+			var err error
+			updated, err = qtx.AssignNodeToStage(r.Context(), db.AssignNodeToStageParams{ID: node.ID, StageID: stageID})
+			return err
+		},
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusBadRequest, "stage does not belong to this workflow")
 		return
 	}
-
-	updated, err := h.Queries.AssignNodeToStage(r.Context(), db.AssignNodeToStageParams{
-		ID:      node.ID,
-		StageID: stageID,
-	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to assign node to stage")
 		return
@@ -1366,10 +1871,7 @@ func (h *Handler) ToggleWorkflowTemplate(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	updated, err := h.Queries.SetWorkflowTemplate(r.Context(), db.SetWorkflowTemplateParams{
-		ID:         wf.ID,
-		IsTemplate: req.IsTemplate,
-	})
+	updated, err := h.WorkflowService.SetWorkflowTemplate(r.Context(), wf.ID, req.IsTemplate)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to toggle template")
 		return
@@ -1547,6 +2049,13 @@ func int32ToInt4(v *int32) pgtype.Int4 {
 		return pgtype.Int4{}
 	}
 	return pgtype.Int4{Int32: *v, Valid: true}
+}
+
+func boolToBool(v *bool) pgtype.Bool {
+	if v == nil {
+		return pgtype.Bool{}
+	}
+	return pgtype.Bool{Bool: *v, Valid: true}
 }
 
 func ptrStrToUUID(s *string) pgtype.UUID {

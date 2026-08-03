@@ -6,9 +6,9 @@
   },
   "card": {
     "unavailable": "成员信息不可用",
-    "agents_section": "智能体（{{count}}）",
+    "agents_section": "数智人（{{count}}）",
     "detail_link": "详情 →",
-    "more_agents_other": "另有 {{count}} 个智能体"
+    "more_agents_other": "另有 {{count}} 个数智人"
   },
   "detail": {
     "workspace_fallback": "工作区",

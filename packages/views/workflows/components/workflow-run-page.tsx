@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, LoaderCircle, MailWarning, RefreshCw, UserRoundCog } from "lucide-react";
+import { AlertTriangle, ArrowRight, CircleUserRound, LoaderCircle, MailWarning, RefreshCw, UserRoundCog } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
@@ -10,8 +10,6 @@ import { memberListOptions } from "@multica/core/workspace/queries";
 import { isActiveWorkspaceMember } from "@multica/core/workspace/members";
 import {
   workflowRunOptions,
-  workflowNodesOptions,
-  workflowEdgesOptions,
   workflowNodeRunsOptions,
   workflowRoleResolutionsOptions,
   useAssignWorkflowRoleResolutions,
@@ -33,36 +31,14 @@ import {
   AlertDialogTitle,
 } from "@multica/ui/components/ui/alert-dialog";
 import { useT } from "../../i18n";
-import { DAGCanvas } from "./dag-canvas";
-import { ReactFlowProvider } from "@xyflow/react";
-import { NodeRunCard } from "./node-run-card";
-import { parseNodeFormat, type WorkflowRunStatus, type NodeRunStatus } from "@multica/core/types";
+import {
+  type WorkflowRunStatus,
+  type WorkflowRuntimeSelectionPolicy,
+} from "@multica/core/types";
 import { useAuthStore } from "@multica/core/auth";
-import { SplitReviewPanel } from "./split/split-review-panel";
+import { ExecutionPanoramaPage } from "../../issues/components/execution";
 
-const RUNNING_STATES = new Set<NodeRunStatus>(["format_checking", "working", "critic_reviewing", "splitting", "split_active"]);
 const TERMINAL_RUN_STATES = new Set(["completed", "failed", "cancelled"]);
-const STATUS_COLOR: Record<NodeRunStatus, string> = {
-  pending: "rgba(107,114,128,0.2)",
-  format_checking: "rgba(245,158,11,0.3)",
-  format_ok: "rgba(34,197,94,0.25)",
-  format_failed: "rgba(239,68,68,0.3)",
-  worker_assigned: "rgba(245,158,11,0.25)",
-  working: "rgba(59,130,246,0.3)",
-  awaiting_input: "rgba(6,182,212,0.3)",
-  awaiting_critic: "rgba(168,85,247,0.25)",
-  critic_reviewing: "rgba(168,85,247,0.3)",
-  critic_approved: "rgba(34,197,94,0.25)",
-  critic_rework: "rgba(249,115,22,0.25)",
-  splitting: "rgba(59,130,246,0.3)",
-  awaiting_split_review: "rgba(245,158,11,0.3)",
-  split_active: "rgba(59,130,246,0.3)",
-  completed: "rgba(34,197,94,0.3)",
-  failed: "rgba(239,68,68,0.3)",
-  blocked: "rgba(239,68,68,0.3)",
-  skipped: "rgba(107,114,128,0.2)",
-  cancelled: "rgba(107,114,128,0.2)",
-};
 
 interface WorkflowRunPageProps {
   workflowId: string;
@@ -86,48 +62,122 @@ function formatWorkflowRunStatus(t: WorkflowTranslator, status: WorkflowRunStatu
   }
 }
 
-function formatNodeRunStatus(t: WorkflowTranslator, status: NodeRunStatus): string {
-  switch (status) {
-    case "pending":
-      return t(($) => $.node_run.status.pending);
-    case "format_checking":
-      return t(($) => $.node_run.status.format_checking);
-    case "format_ok":
-      return t(($) => $.node_run.status.format_ok);
-    case "format_failed":
-      return t(($) => $.node_run.status.format_failed);
-    case "worker_assigned":
-      return t(($) => $.node_run.status.worker_assigned);
-    case "working":
-      return t(($) => $.node_run.status.working);
-    case "awaiting_input":
-      return t(($) => $.node_run.status.awaiting_input);
-    case "awaiting_critic":
-      return t(($) => $.node_run.status.awaiting_critic);
-    case "critic_reviewing":
-      return t(($) => $.node_run.status.critic_reviewing);
-    case "critic_approved":
-      return t(($) => $.node_run.status.critic_approved);
-    case "critic_rework":
-      return t(($) => $.node_run.status.critic_rework);
-    case "splitting":
-      return t(($) => $.node_run.status.splitting);
-    case "awaiting_split_review":
-      return t(($) => $.node_run.status.awaiting_split_review);
-    case "split_active":
-      return t(($) => $.node_run.status.split_active);
-    case "completed":
-      return t(($) => $.node_run.status.completed);
-    case "failed":
-      return t(($) => $.node_run.status.failed);
-    case "blocked":
-      return t(($) => $.node_run.status.blocked);
-    case "skipped":
-      return t(($) => $.node_run.status.skipped);
-    case "cancelled":
-      return t(($) => $.node_run.status.cancelled);
+function formatRuntimeSelectionPolicy(
+  t: WorkflowTranslator,
+  policy: WorkflowRuntimeSelectionPolicy | undefined,
+): string {
+  switch (policy) {
+    case "specified_runtime_first":
+      return t(($) => $.run.runtime_policy_specified);
+    case "issue_creator_first":
+      return t(($) => $.run.runtime_policy_issue_creator);
     default:
-      return status;
+      return t(($) => $.run.runtime_policy_idle);
+  }
+}
+
+// Resolution rows snapshot the built-in role name as the English identifier
+// (developer/qa/tech_lead). Map those to localized labels so the role-assignment
+// panel stays in the active locale; custom roles fall through to their raw name.
+function formatRoleName(t: WorkflowTranslator, rawName: string): string {
+  if (rawName === "developer") return t(($) => $.builtin_roles.developer.name);
+  if (rawName === "qa") return t(($) => $.builtin_roles.qa.name);
+  if (rawName === "tech_lead") return t(($) => $.builtin_roles.tech_lead.name);
+  return rawName;
+}
+
+function formatRoleDescription(t: WorkflowTranslator, rawName: string, rawDescription: string): string {
+  if (rawName === "developer") return t(($) => $.builtin_roles.developer.description);
+  if (rawName === "qa") return t(($) => $.builtin_roles.qa.description);
+  if (rawName === "tech_lead") return t(($) => $.builtin_roles.tech_lead.description);
+  return rawDescription;
+}
+
+// Reason codes are a stable API contract and are intended for UI
+// internationalization. reason_detail is free-form audit context, so it must
+// not leak model-generated English into the localized user-facing panel.
+function formatRoleResolutionReason(t: WorkflowTranslator, reasonCode: string): string {
+  switch (reasonCode) {
+    case "matched_position":
+      return t(($) => $.run.roles.reason_codes.matched_position);
+    case "matched_department":
+      return t(($) => $.run.roles.reason_codes.matched_department);
+    case "insufficient_data":
+      return t(($) => $.run.roles.reason_codes.insufficient_data);
+    case "no_candidate":
+      return t(($) => $.run.roles.reason_codes.no_candidate);
+    case "candidate_limit_exceeded":
+      return t(($) => $.run.roles.reason_codes.candidate_limit_exceeded);
+    case "slot_limit_exceeded":
+      return t(($) => $.run.roles.reason_codes.slot_limit_exceeded);
+    case "input_limit_exceeded":
+      return t(($) => $.run.roles.reason_codes.input_limit_exceeded);
+    case "org_service_unavailable":
+      return t(($) => $.run.roles.reason_codes.org_service_unavailable);
+    case "invalid_org_identity":
+      return t(($) => $.run.roles.reason_codes.invalid_org_identity);
+    case "prompt_injection_suspected":
+      return t(($) => $.run.roles.reason_codes.prompt_injection_suspected);
+    case "invalid_model_output":
+      return t(($) => $.run.roles.reason_codes.invalid_model_output);
+    case "resolver_not_configured":
+      return t(($) => $.run.roles.reason_codes.resolver_not_configured);
+    case "resolver_unavailable":
+      return t(($) => $.run.roles.reason_codes.resolver_unavailable);
+    case "member_inactive":
+      return t(($) => $.run.roles.reason_codes.member_inactive);
+    case "manual_assignment":
+      return t(($) => $.run.roles.reason_codes.manual_assignment);
+    default:
+      return t(($) => $.run.roles.reason_codes.unknown);
+  }
+}
+
+function workflowRoleRetryErrorCode(error: ApiError): string | null {
+  if (!error.body || typeof error.body !== "object") return null;
+  const code = (error.body as { code?: unknown }).code;
+  return typeof code === "string" ? code : null;
+}
+
+function formatWorkflowRoleRetryError(t: WorkflowTranslator, error: unknown): string {
+  if (!(error instanceof ApiError)) {
+    return t(($) => $.run.roles.retry_failed);
+  }
+
+  switch (workflowRoleRetryErrorCode(error)) {
+    case "workflow_role_retry_rate_limited":
+      return t(($) => $.run.roles.retry_errors.rate_limited);
+    case "workflow_role_resolution_limit":
+      return t(($) => $.run.roles.retry_errors.workspace_limit);
+    case "workflow_role_retry_active":
+      return t(($) => $.run.roles.retry_errors.already_active);
+    case "workflow_role_no_unresolved":
+      return t(($) => $.run.roles.retry_errors.no_unresolved);
+    case "workflow_role_retry_unavailable":
+      return t(($) => $.run.roles.retry_errors.unavailable);
+    case "workflow_role_stage_started":
+      return t(($) => $.run.roles.retry_errors.stage_started);
+    case "workflow_run_not_found":
+      return t(($) => $.run.roles.retry_errors.run_not_found);
+    case "workflow_role_retry_failed":
+      return t(($) => $.run.roles.retry_failed);
+  }
+
+  // Compatibility with servers deployed before structured retry error codes.
+  switch (error.status) {
+    case 401:
+    case 403:
+      return t(($) => $.run.roles.retry_errors.permission_denied);
+    case 404:
+      return t(($) => $.run.roles.retry_errors.run_not_found);
+    case 409:
+      return t(($) => $.run.roles.retry_errors.conflict);
+    case 429:
+      return t(($) => $.run.roles.retry_errors.limited);
+    case 503:
+      return t(($) => $.run.roles.retry_errors.unavailable);
+    default:
+      return t(($) => $.run.roles.retry_failed);
   }
 }
 
@@ -135,11 +185,8 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
   const { t } = useT("workflows");
   const wsId = useWorkspaceId();
   const user = useAuthStore((state) => state.user);
-  const [selectedSplitNodeId, setSelectedSplitNodeId] = useState<string | null>(null);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const { data: run, isLoading: runLoading } = useQuery(workflowRunOptions(wsId, workflowId, runId));
-  const { data: nodes = [], isLoading: nodesLoading } = useQuery(workflowNodesOptions(wsId, workflowId));
-  const { data: edges = [] } = useQuery(workflowEdgesOptions(wsId, workflowId));
   const { data: nodeRuns = [], isLoading: nodeRunsLoading } = useQuery(workflowNodeRunsOptions(wsId, workflowId, runId));
   const { data: resolutions = [], refetch: refetchResolutions } = useQuery(
     workflowRoleResolutionsOptions(wsId, workflowId, runId),
@@ -155,8 +202,19 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
     setSelections((current) => {
       const next = { ...current };
       for (const resolution of resolutions) {
-        if (!(resolution.id in next) && resolution.resolved_user_id) {
+        if (
+          resolution.status === "resolved" &&
+          !(resolution.id in next) &&
+          resolution.resolved_user_id
+        ) {
           next[resolution.id] = resolution.resolved_user_id;
+        }
+        if (
+          resolution.status === "invalidated" &&
+          resolution.resolved_user_id &&
+          next[resolution.id] === resolution.resolved_user_id
+        ) {
+          delete next[resolution.id];
         }
       }
       return next;
@@ -172,61 +230,51 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
     [members],
   );
   const currentMember = members.find((member) => member.user_id === user?.id);
+  const issueId = useMemo(() => {
+    if (!run?.input || typeof run.input !== "object" || Array.isArray(run.input)) return undefined;
+    const value = (run.input as Record<string, unknown>).issue_id;
+    return typeof value === "string" && value ? value : undefined;
+  }, [run?.input]);
   const canManageRoles = Boolean(
-    user && run && (
+    user &&
+    run &&
+    currentMember &&
+    isActiveWorkspaceMember(currentMember) &&
+    (
       run.triggered_by_id === user.id ||
-      currentMember?.role === "owner" ||
-      currentMember?.role === "admin"
+      currentMember.role === "owner" ||
+      currentMember.role === "admin"
     ),
   );
 
-  const nodeRunByNodeId = useMemo(() => new Map(nodeRuns.map((nodeRun) => [nodeRun.workflow_node_id, nodeRun])), [nodeRuns]);
   const nodeRunTitleById = useMemo(() => new Map(nodeRuns.map((nodeRun) => [nodeRun.id, nodeRun.node_title])), [nodeRuns]);
-  const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
-  const nodeStatusColors = useMemo(() => {
-    const colors: Record<string, string> = {};
-    for (const node of nodes) {
-      const nodeRun = nodeRunByNodeId.get(node.id);
-      if (nodeRun) {
-        const status = nodeRun.status as NodeRunStatus;
-        colors[node.id] = STATUS_COLOR[status] ?? "fill-muted stroke-muted";
-      }
-    }
-    return colors;
-  }, [nodes, nodeRunByNodeId]);
-  const nodeStatuses = useMemo(() => {
-    const statuses: Record<string, { status: string; isRunning: boolean; isAwaitingInput: boolean }> = {};
-    for (const node of nodes) {
-      const nodeRun = nodeRunByNodeId.get(node.id);
-      if (nodeRun) {
-        const status = nodeRun.status as NodeRunStatus;
-        statuses[node.id] = {
-          status: formatNodeRunStatus(t, status),
-          isRunning: RUNNING_STATES.has(status),
-          isAwaitingInput: status === "awaiting_input",
-        };
-      }
-    }
-    return statuses;
-  }, [nodes, nodeRunByNodeId, t]);
 
   const unresolved = resolutions.filter((resolution) => resolution.status !== "resolved");
+  const manuallyAssignable = resolutions.filter(
+    (resolution) => resolution.status === "needs_human" || resolution.status === "invalidated",
+  );
   const assignments = resolutions
     .filter((resolution) =>
       Boolean(selections[resolution.id]) &&
-      (resolution.status !== "resolved" || selections[resolution.id] !== resolution.resolved_user_id),
+      (
+        resolution.status !== "resolved" ||
+        selections[resolution.id] !== resolution.resolved_user_id
+      ),
     )
     .map((resolution) => ({
       resolution_id: resolution.id,
       user_id: selections[resolution.id]!,
       version: resolution.version,
     }));
-  const allUnresolvedSelected = unresolved.every((resolution) => Boolean(selections[resolution.id]));
+  const allUnresolvedSelected = unresolved.every(
+    (resolution) => Boolean(selections[resolution.id]),
+  );
   const showAssignmentControls = canManageRoles && Boolean(
     run && !TERMINAL_RUN_STATES.has(run.status) &&
-    (run.status === "waiting_role_assignment" || unresolved.some((resolution) => resolution.status === "invalidated")),
+    manuallyAssignable.length > 0,
   );
-  const canSubmitAssignments = showAssignmentControls && allUnresolvedSelected && assignments.length > 0;
+  const canSubmitAssignments =
+    showAssignmentControls && allUnresolvedSelected && assignments.length > 0;
 
   const handleAssign = async () => {
     if (!canSubmitAssignments) return;
@@ -244,23 +292,6 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
     }
   };
 
-  const splitNodeIds = useMemo(
-    () => new Set(
-      nodes
-        .filter((node) => parseNodeFormat(node.format_schema).kind === "split")
-        .map((node) => node.id),
-    ),
-    [nodes],
-  );
-  const selectedSplitNode = selectedSplitNodeId ? nodeById.get(selectedSplitNodeId) ?? null : null;
-  const selectedSplitNodeRun = selectedSplitNodeId ? nodeRunByNodeId.get(selectedSplitNodeId) ?? null : null;
-
-  const handleNodeClick = (nodeId: string) => {
-    if (splitNodeIds.has(nodeId)) {
-      setSelectedSplitNodeId(nodeId);
-    }
-  };
-
   const handleCancel = () => {
     cancelMutation.mutate({ workflowId, runId });
   };
@@ -270,11 +301,11 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
       await retryMutation.mutateAsync();
       toast.success(t(($) => $.run.roles.retry_started));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t(($) => $.run.roles.retry_failed));
+      toast.error(formatWorkflowRoleRetryError(t, error));
     }
   };
 
-  const isLoading = runLoading || nodesLoading || nodeRunsLoading;
+  const isLoading = runLoading || nodeRunsLoading;
   if (isLoading) {
     return <div className="flex h-full items-center justify-center"><Skeleton className="h-[400px] w-[600px]" /></div>;
   }
@@ -283,12 +314,15 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
   }
 
   const canCancel = run.status === "running" || run.status === "resolving_roles" || run.status === "waiting_role_assignment";
+  const isLegacyRun = (run.definition_schema_version ?? 0) <= 0 || !run.definition_snapshot;
   const roleStateMessage = run.status === "resolving_roles"
     ? t(($) => $.run.roles.resolving)
     : run.status === "waiting_role_assignment"
       ? t(($) => $.run.roles.waiting)
-      : unresolved.some((resolution) => resolution.status === "invalidated")
-        ? t(($) => $.run.roles.invalidated)
+      : manuallyAssignable.length > 0
+        ? manuallyAssignable.some((resolution) => resolution.status === "invalidated")
+          ? t(($) => $.run.roles.invalidated)
+          : t(($) => $.run.roles.waiting)
         : "";
 
   return (
@@ -300,6 +334,14 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
           <Badge variant="secondary" className="text-[10px] px-1.5 h-4">
             {formatWorkflowRunStatus(t, run.status as WorkflowRunStatus)}
           </Badge>
+          <Badge variant="outline" className="text-[10px] px-1.5 h-4">
+            {t(($) => $.run.runtime_policy)}: {formatRuntimeSelectionPolicy(t, run.runtime_selection_policy)}
+          </Badge>
+          {isLegacyRun ? (
+            <Badge variant="outline" className="text-[10px] px-1.5 h-4">
+              {t(($) => $.run.historical_config_incomplete)}
+            </Badge>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           {canCancel && (
@@ -323,63 +365,111 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
       ) : null}
 
       <div className="flex min-h-0 flex-1">
-        <div className="flex-1 bg-muted/20">
-          {nodes.length > 0 ? (
-            <ReactFlowProvider>
-              <DAGCanvas
-                nodes={nodes}
-                edges={edges}
-                nodeStatusColors={nodeStatusColors}
-                nodeStatuses={nodeStatuses}
-                onNodeClick={handleNodeClick}
-              />
-            </ReactFlowProvider>
-          ) : (
-            <div className="flex h-full items-center justify-center"><p className="text-sm text-muted-foreground">{t(($) => $.detail.no_nodes)}</p></div>
-          )}
+        <div className="min-w-0 flex-1">
+          <ExecutionPanoramaPage
+            workflowId={workflowId}
+            runId={runId}
+            wsId={wsId}
+            issueId={issueId}
+            fillAvailableHeight
+            showRoleAssignmentEntry={false}
+          />
         </div>
-        <aside className="w-96 shrink-0 space-y-4 overflow-y-auto border-l bg-card p-3">
-          {resolutions.length > 0 ? (
+        {resolutions.length > 0 ? (
+          <aside className="w-96 shrink-0 overflow-y-auto border-l bg-card p-3">
             <section className="space-y-2">
               <div className="flex items-center justify-between px-1">
                 <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   <UserRoundCog className="size-3.5" />
                   {t(($) => $.run.roles.title)}
                 </h3>
-                {canManageRoles && unresolved.length > 0 ? (
-                  <Button type="button" variant="ghost" size="sm" disabled={retryMutation.isPending || run.status === "resolving_roles"} onClick={() => void handleRetry()}>
+                {canManageRoles && run.status === "waiting_role_assignment" && unresolved.length > 0 ? (
+                  <Button type="button" variant="ghost" size="sm" disabled={retryMutation.isPending} onClick={() => void handleRetry()}>
                     <RefreshCw className={retryMutation.isPending ? "mr-1 size-3 animate-spin" : "mr-1 size-3"} />
                     {t(($) => $.run.roles.retry)}
                   </Button>
                 ) : null}
               </div>
 
+              {!canManageRoles && manuallyAssignable.length > 0 ? (
+                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                  {t(($) => $.run.roles.assignment_permission_required)}
+                </p>
+              ) : null}
+
               {resolutions.map((resolution) => {
-                const editable = showAssignmentControls && (run.status === "waiting_role_assignment" || resolution.status !== "resolved");
+                const editable = showAssignmentControls && (
+                  run.status === "waiting_role_assignment" ||
+                  resolution.status !== "resolved"
+                );
                 const notificationFailed = resolution.notification_status === "failed" || resolution.notification_status === "skipped_no_email";
+                const roleName = formatRoleName(t, resolution.role_name);
+                const resolvedMemberName = resolution.resolved_user_id
+                  ? memberNameById.get(resolution.resolved_user_id) ?? resolution.resolved_user_id
+                  : null;
+                const sourceLabel = resolution.source === "llm"
+                  ? t(($) => $.run.roles.mapping_source_llm)
+                  : resolution.source === "manual"
+                    ? t(($) => $.run.roles.mapping_source_manual)
+                    : null;
                 return (
                   <article key={resolution.id} className="space-y-2 rounded-lg border p-3">
                     <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-xs text-muted-foreground">{nodeRunTitleById.get(resolution.workflow_node_run_id) ?? t(($) => $.run.roles.unknown_node)}</p>
-                        <p className="text-sm font-medium">{resolution.role_name} → {resolution.slot_type === "worker" ? t(($) => $.run.roles.worker) : t(($) => $.run.roles.critic)}</p>
+                      <p className="min-w-0 truncate text-xs text-muted-foreground">
+                        {nodeRunTitleById.get(resolution.workflow_node_run_id) ?? t(($) => $.run.roles.unknown_node)}
+                      </p>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Badge variant="outline" className="text-[10px]">
+                          {resolution.slot_type === "worker" ? t(($) => $.run.roles.worker) : t(($) => $.run.roles.critic)}
+                        </Badge>
+                        <Badge variant="secondary" className="text-[10px]">
+                          {t(($) => ($.run.roles.status as Record<string, string>)[resolution.status] ?? resolution.status)}
+                        </Badge>
                       </div>
-                      <Badge variant="secondary" className="shrink-0 text-[10px]">{t(($) => ($.run.roles.status as Record<string, string>)[resolution.status] ?? resolution.status)}</Badge>
                     </div>
-                    <p className="text-xs text-muted-foreground">{resolution.role_description}</p>
-                    {editable ? (
-                      <select
-                        className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-                        value={selections[resolution.id] ?? ""}
-                        onChange={(event) => setSelections((current) => ({ ...current, [resolution.id]: event.target.value }))}
-                      >
-                        <option value="">{t(($) => $.run.roles.select_member)}</option>
-                        {activeMembers.map((member) => <option key={member.user_id} value={member.user_id}>{member.name}</option>)}
-                      </select>
-                    ) : resolution.resolved_user_id ? (
-                      <p className="text-sm">{t(($) => $.run.roles.assigned_to, { name: memberNameById.get(resolution.resolved_user_id) ?? resolution.resolved_user_id })}</p>
+                    <div
+                      data-testid={`role-mapping-${resolution.id}`}
+                      className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1.25fr)] items-center gap-2 rounded-md border bg-muted/25 p-2"
+                    >
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                          <UserRoundCog className="size-3.5" />
+                        </span>
+                        <span className="min-w-0 truncate text-xs font-semibold" title={roleName}>{roleName}</span>
+                      </span>
+                      <ArrowRight className="size-3.5 shrink-0 text-primary" />
+                      {editable ? (
+                        <select
+                          aria-label={t(($) => $.run.roles.select_member_for_role, { role: roleName })}
+                          className="flex h-8 min-w-0 rounded-md border border-input bg-background px-2 text-xs"
+                          value={selections[resolution.id] ?? ""}
+                          onChange={(event) => setSelections((current) => ({ ...current, [resolution.id]: event.target.value }))}
+                        >
+                          <option value="">{t(($) => $.run.roles.select_member)}</option>
+                          {activeMembers.map((member) => <option key={member.user_id} value={member.user_id}>{member.name}</option>)}
+                        </select>
+                      ) : resolvedMemberName ? (
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <CircleUserRound className="size-4 shrink-0 text-foreground/70" />
+                          <span className="min-w-0 truncate text-xs font-semibold" title={resolvedMemberName}>{resolvedMemberName}</span>
+                        </span>
+                      ) : (
+                        <span className="truncate text-xs text-muted-foreground">{t(($) => $.run.roles.mapping_pending)}</span>
+                      )}
+                    </div>
+                    {sourceLabel ? (
+                      <div className="flex justify-end">
+                        <Badge variant="outline" className="text-[10px] text-primary">{sourceLabel}</Badge>
+                      </div>
                     ) : null}
-                    {resolution.reason_code ? <p className="text-[11px] text-muted-foreground">{t(($) => $.run.roles.reason, { code: resolution.reason_code })}{resolution.reason_detail ? " · " + resolution.reason_detail : ""}</p> : null}
+                    <p className="text-xs text-muted-foreground">{formatRoleDescription(t, resolution.role_name, resolution.role_description)}</p>
+                    {resolution.reason_code ? (
+                      <p className="text-[11px] text-muted-foreground">
+                        {t(($) => $.run.roles.reason, {
+                          reason: formatRoleResolutionReason(t, resolution.reason_code),
+                        })}
+                      </p>
+                    ) : null}
                     {notificationFailed ? (
                       <p className="flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-300"><MailWarning className="size-3" />{t(($) => $.run.roles.notification_failed)}</p>
                     ) : null}
@@ -393,34 +483,9 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
                 </Button>
               ) : null}
             </section>
-          ) : null}
-
-          <section className="space-y-2">
-            <h3 className="px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t(($) => $.run.node_runs)}</h3>
-            {nodeRuns.map((nodeRun) => (
-              <NodeRunCard
-                key={nodeRun.id}
-                nodeRun={nodeRun}
-                maxRetries={3}
-                workflowId={workflowId}
-                runId={runId}
-                isSplitNode={splitNodeIds.has(nodeRun.workflow_node_id)}
-                onOpenSplit={() => setSelectedSplitNodeId(nodeRun.workflow_node_id)}
-              />
-            ))}
-          </section>
-        </aside>
+          </aside>
+        ) : null}
       </div>
-      {selectedSplitNode ? (
-        <SplitReviewPanel
-          node={selectedSplitNode}
-          nodeRun={selectedSplitNodeRun}
-          wsId={wsId}
-          workflowId={workflowId}
-          runId={runId}
-          onClose={() => setSelectedSplitNodeId(null)}
-        />
-      ) : null}
       <AlertDialog
         open={cancelDialogOpen}
         onOpenChange={(open) => {

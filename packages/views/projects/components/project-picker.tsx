@@ -9,8 +9,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
   DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@multica/ui/components/ui/dropdown-menu";
 import { ProjectIcon } from "./project-icon";
 import { useT } from "../../i18n";
@@ -21,6 +21,8 @@ export function ProjectPicker({
   triggerRender,
   align = "start",
   defaultOpen = false,
+  open,
+  onOpenChange,
 }: {
   projectId: string | null;
   onUpdate: (updates: Partial<UpdateIssueRequest>) => void;
@@ -29,6 +31,8 @@ export function ProjectPicker({
   /** Open the dropdown on first mount. Used by progressive-disclosure
    *  sidebars so a newly-added field immediately enters edit state. */
   defaultOpen?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const { t } = useT("projects");
   const wsId = useWorkspaceId();
@@ -36,7 +40,7 @@ export function ProjectPicker({
   const current = projects.find((p) => p.id === projectId);
 
   return (
-    <DropdownMenu defaultOpen={defaultOpen}>
+    <DropdownMenu defaultOpen={defaultOpen} open={open} onOpenChange={onOpenChange}>
       <DropdownMenuTrigger
         className={triggerRender ? undefined : "flex items-center gap-1.5 cursor-pointer rounded px-1 -mx-1 hover:bg-accent/30 transition-colors overflow-hidden"}
         render={triggerRender}

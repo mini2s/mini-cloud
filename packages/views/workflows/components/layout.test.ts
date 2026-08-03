@@ -68,6 +68,6 @@ describe("computeStageTransferPositionX", () => {
       "stage-1",
     );
 
-    expect(x).toBe(760);
+    expect(x).toBe(904);
   });
 });

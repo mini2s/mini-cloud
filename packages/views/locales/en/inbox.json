@@ -47,11 +47,11 @@
     "review_requested": "Review requested",
     "task_completed": "Task completed",
     "task_failed": "Task failed",
-    "agent_blocked": "Agent blocked",
-    "agent_completed": "Agent completed",
+    "agent_blocked": "Digital Human blocked",
+    "agent_completed": "Digital Human completed",
     "reaction_added": "Reacted",
-    "quick_create_done": "Created with agent",
-    "quick_create_failed": "Create with agent failed"
+    "quick_create_done": "Created with digital human",
+    "quick_create_failed": "Create with digital human failed"
   },
   "labels": {
     "set_status_to": "Set status to",
@@ -63,7 +63,7 @@
     "set_due_date_to": "Set due date to {{date}}",
     "removed_due_date": "Removed due date",
     "reacted_to_comment": "Reacted {{emoji}} to your comment",
-    "created_with_agent": "Created with agent: {{identifier}}",
+    "created_with_agent": "Created with digital human: {{identifier}}",
     "failed_with_detail": "Failed: {{detail}}"
   },
   "errors": {

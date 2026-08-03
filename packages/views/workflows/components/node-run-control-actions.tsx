@@ -11,16 +11,13 @@ import {
   useHandbackNodeRun,
   useFinalizeNodeRun,
 } from "@multica/core/workflows/queries";
-import { chatSessionsOptions } from "@multica/core/chat/queries";
 import { myRuntimePermissionOptions } from "@multica/core/runtimes/queries";
 import { useNodeRunControlPermission } from "@multica/core/permissions";
-import { useChatStore } from "@multica/core/chat";
 import {
   isEmbeddedInCostrict,
   postCostrictNavigateToSession,
 } from "@multica/core/platform";
 import { useT } from "../../i18n";
-import { resolveChatSessionId } from "../../chat/lib/resolve-chat-session-id";
 
 interface NodeRunControlActionsProps {
   nodeRun: WorkflowNodeRun;
@@ -28,12 +25,14 @@ interface NodeRunControlActionsProps {
   runId?: string;
   wsId: string;
   size?: "sm" | "default";
+  layout?: "inline" | "grid-items";
   /**
    * When true, the buttons are always rendered regardless of the current
    * node-run status or the user's permission. Clicking a button that cannot
    * be performed toasts an error instead of hiding the affordance.
    */
   alwaysShow?: boolean;
+  showOpenSession?: boolean;
 }
 
 export function NodeRunControlActions({
@@ -42,16 +41,15 @@ export function NodeRunControlActions({
   runId,
   wsId,
   size = "sm",
+  layout = "inline",
   alwaysShow = false,
+  showOpenSession = true,
 }: NodeRunControlActionsProps) {
   const { t } = useT("workflows");
 
   const takeoverMutation = useTakeoverNodeRun(wsId);
   const handbackMutation = useHandbackNodeRun(wsId);
   const finalizeMutation = useFinalizeNodeRun(wsId);
-  const setChatSession = useChatStore((s) => s.setActiveSession);
-  const setChatOpen = useChatStore((s) => s.setOpen);
-  const { data: chatSessions = [] } = useQuery(chatSessionsOptions(wsId));
 
   const handleOpenSession = () => {
     const sessionId = nodeRun.session_id;
@@ -59,38 +57,43 @@ export function NodeRunControlActions({
       toast.error(t(($) => $.node_run.open_session_missing));
       return;
     }
-    if (isEmbeddedInCostrict()) {
-      const posted = postCostrictNavigateToSession({ sessionId });
-      if (posted) return;
-    }
-    const chatSessionId = resolveChatSessionId(chatSessions, sessionId);
-    if (!chatSessionId) {
+    if (!isEmbeddedInCostrict() || !postCostrictNavigateToSession({ sessionId })) {
       toast.error(t(($) => $.node_run.open_session_missing));
-      return;
     }
-    setChatSession(chatSessionId);
-    setChatOpen(true);
   };
 
   const { data: sessionPerm } = useSessionPermission(nodeRun.session_id);
   const { data: runtimePerm } = useQuery({
     ...myRuntimePermissionOptions(nodeRun.runtime_id ?? ""),
-    enabled: !!nodeRun.runtime_id && !nodeRun.session_id,
+    enabled: !!nodeRun.runtime_id,
   });
 
-  const canControl = nodeRun.session_id
-    ? sessionPerm?.can_control
-    : runtimePerm?.can_control;
+  const canControl = runtimePerm?.can_control === true;
+  const canOpenSession =
+    isEmbeddedInCostrict() &&
+    !!nodeRun.session_id &&
+    sessionPerm?.can_observe === true;
   const controlDecision = useNodeRunControlPermission(!!canControl, wsId);
 
   const status = nodeRun.status;
   const isWorking = status === "working";
-  const isBlocked = status === "blocked";
+  const isTakenOver = status === "blocked" &&
+    nodeRun.completed_at == null &&
+    nodeRun.runtime_id != null;
 
   const anyControlPending =
     takeoverMutation.isPending || handbackMutation.isPending || finalizeMutation.isPending;
 
-  const buttonClass = size === "sm" ? "h-7 text-xs" : "h-8 text-sm";
+  const buttonClass = layout === "grid-items"
+    ? size === "sm"
+      ? "h-7 w-full min-w-0 text-xs"
+      : "h-8 w-full min-w-0 text-sm"
+    : size === "sm"
+      ? "h-7 min-w-20 text-xs"
+      : "h-8 min-w-24 text-sm";
+  const containerClass = layout === "grid-items"
+    ? "contents"
+    : "flex flex-wrap items-center justify-start gap-3";
   const iconClass = "h-3.5 w-3.5";
 
   const handleTakeover = () => {
@@ -114,7 +117,7 @@ export function NodeRunControlActions({
       toast.error(t(($) => $.node_run.no_control_permission));
       return;
     }
-    if (!isBlocked) {
+    if (!isTakenOver) {
       toast.error(t(($) => $.node_run.hand_back_wrong_status));
       return;
     }
@@ -130,7 +133,7 @@ export function NodeRunControlActions({
       toast.error(t(($) => $.node_run.no_control_permission));
       return;
     }
-    if (!isBlocked) {
+    if (!isTakenOver) {
       toast.error(t(($) => $.node_run.finalize_wrong_status));
       return;
     }
@@ -158,35 +161,36 @@ export function NodeRunControlActions({
   // workflow editor/run page.
   if (!alwaysShow) {
     const canTakeover = isWorking && controlDecision.allowed;
-    const canHandbackOrFinalize = isBlocked && controlDecision.allowed;
+    const canHandbackOrFinalize = isTakenOver && controlDecision.allowed;
     if (!canTakeover && !canHandbackOrFinalize) {
       return null;
     }
     return (
-      <div className="flex items-center gap-1.5 flex-wrap">
+      <div className={containerClass}>
         {canTakeover && (
           <Button
             size={size}
-            variant="outline"
             className={buttonClass}
             onClick={handleTakeover}
             disabled={anyControlPending}
           >
-            <Hand className={iconClass + " mr-1"} />
+            <Hand className={iconClass} />
             {takeoverMutation.isPending ? t(($) => $.node_run.taking_over) : t(($) => $.node_run.take_over)}
           </Button>
         )}
         {canHandbackOrFinalize && (
           <>
-            <Button
-              size={size}
-              variant="outline"
-              className={buttonClass}
-              onClick={handleOpenSession}
-            >
-              <MessageSquare className={iconClass + " mr-1"} />
-              {t(($) => $.node_run.open_session)}
-            </Button>
+            {showOpenSession && canOpenSession ? (
+              <Button
+                size={size}
+                variant="outline"
+                className={buttonClass}
+                onClick={handleOpenSession}
+              >
+                <MessageSquare className={iconClass} />
+                {t(($) => $.node_run.open_session)}
+              </Button>
+            ) : null}
             <Button
               size={size}
               variant="outline"
@@ -194,17 +198,8 @@ export function NodeRunControlActions({
               onClick={handleHandback}
               disabled={anyControlPending}
             >
-              <Play className={iconClass + " mr-1"} />
+              <Play className={iconClass} />
               {handbackMutation.isPending ? t(($) => $.node_run.handing_back) : t(($) => $.node_run.hand_back)}
-            </Button>
-            <Button
-              size={size}
-              className={buttonClass}
-              onClick={() => handleFinalize(true)}
-              disabled={anyControlPending}
-            >
-              <CheckCircle className={iconClass + " mr-1"} />
-              {finalizeMutation.isPending ? t(($) => $.node_run.finalizing) : t(($) => $.node_run.finalize_approve)}
             </Button>
             <Button
               size={size}
@@ -213,8 +208,17 @@ export function NodeRunControlActions({
               onClick={() => handleFinalize(false)}
               disabled={anyControlPending}
             >
-              <XCircle className={iconClass + " mr-1"} />
+              <XCircle className={iconClass} />
               {finalizeMutation.isPending ? t(($) => $.node_run.finalizing) : t(($) => $.node_run.finalize_reject)}
+            </Button>
+            <Button
+              size={size}
+              className={buttonClass}
+              onClick={() => handleFinalize(true)}
+              disabled={anyControlPending}
+            >
+              <CheckCircle className={iconClass} />
+              {finalizeMutation.isPending ? t(($) => $.node_run.finalizing) : t(($) => $.node_run.finalize_approve)}
             </Button>
           </>
         )}
@@ -222,31 +226,22 @@ export function NodeRunControlActions({
     );
   }
 
-  // Always-visible mode: used on issue detail pages. Take Over and Open Session
-  // are always surfaced so users can discover them; Hand Back / Finalize only
-  // appear once the node is blocked (i.e. after a successful takeover).
+  // Issue-detail mode keeps Open Session visible. Take Over is intentionally
+  // hidden here; Hand Back / Finalize still appear once the node is blocked.
   return (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      <Button
-        size={size}
-        variant="outline"
-        className={buttonClass}
-        onClick={handleTakeover}
-        disabled={anyControlPending}
-      >
-        <Hand className={iconClass + " mr-1"} />
-        {takeoverMutation.isPending ? t(($) => $.node_run.taking_over) : t(($) => $.node_run.take_over)}
-      </Button>
-      <Button
-        size={size}
-        variant="outline"
-        className={buttonClass}
-        onClick={handleOpenSession}
-      >
-        <MessageSquare className={iconClass + " mr-1"} />
-        {t(($) => $.node_run.open_session)}
-      </Button>
-      {isBlocked && (
+    <div className={containerClass}>
+      {showOpenSession && canOpenSession ? (
+        <Button
+          size={size}
+          variant="outline"
+          className={buttonClass}
+          onClick={handleOpenSession}
+        >
+          <MessageSquare className={iconClass} />
+          {t(($) => $.node_run.open_session)}
+        </Button>
+      ) : null}
+      {isTakenOver && (
         <>
           <Button
             size={size}
@@ -255,17 +250,8 @@ export function NodeRunControlActions({
             onClick={handleHandback}
             disabled={anyControlPending}
           >
-            <Play className={iconClass + " mr-1"} />
+            <Play className={iconClass} />
             {handbackMutation.isPending ? t(($) => $.node_run.handing_back) : t(($) => $.node_run.hand_back)}
-          </Button>
-          <Button
-            size={size}
-            className={buttonClass}
-            onClick={() => handleFinalize(true)}
-            disabled={anyControlPending}
-          >
-            <CheckCircle className={iconClass + " mr-1"} />
-            {finalizeMutation.isPending ? t(($) => $.node_run.finalizing) : t(($) => $.node_run.finalize_approve)}
           </Button>
           <Button
             size={size}
@@ -274,8 +260,17 @@ export function NodeRunControlActions({
             onClick={() => handleFinalize(false)}
             disabled={anyControlPending}
           >
-            <XCircle className={iconClass + " mr-1"} />
+            <XCircle className={iconClass} />
             {finalizeMutation.isPending ? t(($) => $.node_run.finalizing) : t(($) => $.node_run.finalize_reject)}
+          </Button>
+          <Button
+            size={size}
+            className={buttonClass}
+            onClick={() => handleFinalize(true)}
+            disabled={anyControlPending}
+          >
+            <CheckCircle className={iconClass} />
+            {finalizeMutation.isPending ? t(($) => $.node_run.finalizing) : t(($) => $.node_run.finalize_approve)}
           </Button>
         </>
       )}

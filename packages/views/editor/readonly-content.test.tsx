@@ -141,7 +141,9 @@ describe("ReadonlyContent Mermaid rendering", () => {
       />,
     );
 
-    expect(container.querySelector(".mermaid-diagram")).not.toBeNull();
+    await waitFor(() => {
+      expect(container.querySelector(".mermaid-diagram")).not.toBeNull();
+    });
     expect(container.querySelector("pre code.language-mermaid")).toBeNull();
 
     await waitFor(() => {
@@ -177,7 +179,9 @@ describe("ReadonlyContent Mermaid rendering", () => {
         content={["```mermaid", "graph LR", "  A --> B", "```"].join("\n")}
       />,
     );
-    expect(container.querySelector(".mermaid-diagram")).not.toBeNull();
+    await waitFor(() => {
+      expect(container.querySelector(".mermaid-diagram")).not.toBeNull();
+    });
     // No outer <pre> envelope.
     expect(container.querySelector("pre")).toBeNull();
   });

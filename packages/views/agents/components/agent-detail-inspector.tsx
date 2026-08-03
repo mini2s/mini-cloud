@@ -204,7 +204,9 @@ export function AgentDetailInspector({
           <PluginAttach
             agent={agent}
             canEdit={canEdit}
-            onChange={(pluginId) => update({ plugin_id: pluginId || "" })}
+            onChange={(pluginId, pluginName) =>
+              update({ plugin_id: pluginId || "", plugin_name: pluginName || "" })
+            }
           />
         </div>
       </div>

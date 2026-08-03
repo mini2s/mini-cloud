@@ -35,7 +35,7 @@ services:
       retries: 5
 
   backend:
-    image: ${MULTICA_BACKEND_IMAGE:-ghcr.io/multica-ai/multica-backend}:${MULTICA_IMAGE_TAG:-latest}
+    image: ${MULTICA_BACKEND_IMAGE:-ghcr.io/askhz/multica-backend}:${MULTICA_IMAGE_TAG:-latest}
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,6 +74,7 @@ services:
       ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-}
       GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      GITEA_BASE_URL: ${GITEA_BASE_URL:-}
       # Public URL the API is reachable at from the open internet, no
       # trailing slash. Used to mint absolute webhook URLs for autopilot
       # webhook triggers. Leave unset behind a same-origin reverse proxy
@@ -93,10 +94,18 @@ services:
       BUILTIN_PLUGIN_API_BASE_URL: ${BUILTIN_PLUGIN_API_BASE_URL:-}
       CSC_PLUGIN_MARKETPLACE_NAME: ${CSC_PLUGIN_MARKETPLACE_NAME:-}
       CSC_PLUGIN_MARKETPLACE_REPO: ${CSC_PLUGIN_MARKETPLACE_REPO:-}
+      # Quota-manager service — personal quota overview + usage statistics.
+      # Empty -> the My Quota page proxy is disabled (routes return 503).
+      QUOTA_MANAGER_API_BASE_URL: ${QUOTA_MANAGER_API_BASE_URL:-}
+      # Efficiency-dashboard (kanban) backend — metrics/efficiency/cost/usage
+      # API. Empty -> the kanban proxy is disabled (routes return 503).
+      KANBAN_API_BASE_URL: ${KANBAN_API_BASE_URL:-}
+      KANBAN_API_USERNAME: ${KANBAN_API_USERNAME:-}
+      KANBAN_API_PASSWORD: ${KANBAN_API_PASSWORD:-}
     restart: unless-stopped
 
   frontend:
-    image: ${MULTICA_WEB_IMAGE:-ghcr.io/multica-ai/multica-web}:${MULTICA_IMAGE_TAG:-latest}
+    image: ${MULTICA_WEB_IMAGE:-ghcr.io/askhz/multica-web}:${MULTICA_IMAGE_TAG:-latest}
     depends_on:
       - backend
     ports:

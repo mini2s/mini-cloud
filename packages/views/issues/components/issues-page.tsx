@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ChevronRight, ListTodo } from "lucide-react";
 import type { UpdateIssueRequest } from "@multica/core/types";
@@ -24,6 +24,9 @@ import {
 import { agentTaskSnapshotOptions } from "@multica/core/agents";
 import { useUpdateIssue } from "@multica/core/issues/mutations";
 import { useIssueSelectionStore } from "@multica/core/issues/stores/selection-store";
+import { agentListOptions } from "@multica/core/workspace/queries";
+import { runtimeListOptions } from "@multica/core/runtimes/queries";
+import { workflowActiveListOptions } from "@multica/core/workflows/queries";
 import { PageHeader } from "../../layout/page-header";
 import { IssuesHeader } from "./issues-header";
 import { BoardView } from "./board-view";
@@ -31,6 +34,26 @@ import { ListView } from "./list-view";
 import { IssueGraphView } from "./issue-graph-view";
 import { BatchActionToolbar } from "./batch-action-toolbar";
 import { useT } from "../../i18n";
+import { RuntimeSelectDialog } from "../../agents/components/runtime-select-dialog";
+import {
+  WorkflowRuntimeStrategyDialog,
+  type WorkflowRuntimeStrategyValue,
+} from "../../workflows/components/workflow-runtime-strategy-dialog";
+import { useUsableWorkflowRuntimes } from "../../workflows/components/use-usable-workflow-runtimes";
+
+type PendingIssueMove = {
+  issueId: string;
+  updates: Pick<UpdateIssueRequest, "status" | "assignee_type" | "assignee_id" | "position">;
+};
+
+type PendingAgentStart = PendingIssueMove & {
+  agentName: string;
+};
+
+type PendingWorkflowStart = PendingIssueMove & {
+  workflowTitle: string;
+  initialValue: WorkflowRuntimeStrategyValue;
+};
 
 export function IssuesPage() {
   const { t } = useT("issues");
@@ -155,8 +178,17 @@ export function IssuesPage() {
   }, [visibleStatuses]);
 
   const updateIssueMutation = useUpdateIssue();
-  const handleMoveIssue = useCallback(
-    (issueId: string, updates: Pick<UpdateIssueRequest, "status" | "assignee_type" | "assignee_id" | "position">) => {
+  const [pendingAgentStart, setPendingAgentStart] = useState<PendingAgentStart | null>(null);
+  const [pendingWorkflowStart, setPendingWorkflowStart] = useState<PendingWorkflowStart | null>(null);
+  const { data: agents = [] } = useQuery(agentListOptions(wsId));
+  const { data: runtimes = [], isLoading: runtimesLoading } = useQuery(runtimeListOptions(wsId));
+  const usableWorkflowRuntimes = useUsableWorkflowRuntimes(runtimes);
+  const { data: workflows = [] } = useQuery(workflowActiveListOptions(wsId));
+  const commitIssueMove = useCallback(
+    (
+      issueId: string,
+      updates: Pick<UpdateIssueRequest, "status" | "assignee_type" | "assignee_id" | "position" | "runtime_id" | "runtime_selection_policy">,
+    ) => {
       updateIssueMutation.mutate(
         { id: issueId, ...updates },
         {
@@ -170,6 +202,55 @@ export function IssuesPage() {
       );
     },
     [updateIssueMutation, t],
+  );
+  const handleMoveIssue = useCallback(
+    (issueId: string, updates: Pick<UpdateIssueRequest, "status" | "assignee_type" | "assignee_id" | "position">) => {
+      const issue = (usesAssigneeBoard ? assigneeIssues : allIssues).find((item) => item.id === issueId);
+      if (
+        issue &&
+        issue.status === "backlog" &&
+        !issue.assignee_type &&
+        !issue.assignee_id &&
+        updates.status &&
+        updates.status !== "backlog"
+      ) {
+        toast.error(t(($) => $.page.assign_first));
+        return false;
+      }
+      const normalizedUpdates =
+        updates.status === "backlog"
+          ? { ...updates, assignee_type: null, assignee_id: null }
+          : updates;
+      if (issue && normalizedUpdates.status === "in_progress") {
+        if (issue.assignee_type === "workflow" && issue.assignee_id) {
+          const workflow = workflows.find((item) => item.id === issue.assignee_id);
+          setPendingWorkflowStart({
+            issueId,
+            updates: normalizedUpdates,
+            workflowTitle: workflow?.title ?? issue.title,
+            initialValue: {
+              policy: workflow?.default_runtime_selection_policy ?? "idle_first",
+              runtimeId: workflow?.default_runtime_id ?? null,
+            },
+          });
+          return false;
+        }
+        if (issue.assignee_type === "agent" && issue.assignee_id) {
+          const agent = agents.find((item) => item.id === issue.assignee_id);
+          if (agent?.is_builtin) {
+            setPendingAgentStart({
+              issueId,
+              updates: normalizedUpdates,
+              agentName: agent.name,
+            });
+            return false;
+          }
+        }
+      }
+      commitIssueMove(issueId, normalizedUpdates);
+      return true;
+    },
+    [agents, allIssues, assigneeIssues, commitIssueMove, usesAssigneeBoard, workflows],
   );
 
   if (loading) {
@@ -214,6 +295,41 @@ export function IssuesPage() {
 
   return (
     <div className="flex flex-1 min-h-0 flex-col">
+      {pendingAgentStart && (
+        <RuntimeSelectDialog
+          agentName={pendingAgentStart.agentName}
+          runtimes={runtimes.filter((runtime) => runtime.status === "online")}
+          loading={runtimesLoading}
+          allowAuto
+          onClose={() => setPendingAgentStart(null)}
+          onConfirm={(runtimeId) => {
+            commitIssueMove(pendingAgentStart.issueId, {
+              ...pendingAgentStart.updates,
+              runtime_id: runtimeId,
+            });
+            setPendingAgentStart(null);
+          }}
+        />
+      )}
+      {pendingWorkflowStart && (
+        <WorkflowRuntimeStrategyDialog
+          mode="run"
+          workflowTitle={pendingWorkflowStart.workflowTitle}
+          initialValue={pendingWorkflowStart.initialValue}
+          runtimes={usableWorkflowRuntimes.runtimes}
+          loading={runtimesLoading || usableWorkflowRuntimes.isLoading}
+          directRun
+          onClose={() => setPendingWorkflowStart(null)}
+          onConfirm={(value) => {
+            commitIssueMove(pendingWorkflowStart.issueId, {
+              ...pendingWorkflowStart.updates,
+              runtime_id: value.runtimeId,
+              runtime_selection_policy: value.policy,
+            });
+            setPendingWorkflowStart(null);
+          }}
+        />
+      )}
       {/* Header 1: Workspace breadcrumb */}
       <PageHeader className="gap-1.5">
         <WorkspaceAvatar name={workspace?.name ?? "W"} size="sm" />

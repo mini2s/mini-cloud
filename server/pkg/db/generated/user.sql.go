@@ -14,7 +14,7 @@ import (
 const createUser = `-- name: CreateUser :one
 INSERT INTO multica_user (name, email, avatar_url)
 VALUES ($1, $2, $3)
-RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, casdoor_universal_id, can_manage_workflows
+RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, can_manage_workflows
 `
 
 type CreateUserParams struct {
@@ -42,14 +42,13 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (Multica
 		&i.ProfileDescription,
 		&i.Timezone,
 		&i.SubjectID,
-		&i.CasdoorUniversalID,
 		&i.CanManageWorkflows,
 	)
 	return i, err
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, casdoor_universal_id, can_manage_workflows FROM multica_user
+SELECT id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, can_manage_workflows FROM multica_user
 WHERE id = $1
 `
 
@@ -72,45 +71,13 @@ func (q *Queries) GetUser(ctx context.Context, id pgtype.UUID) (MulticaUser, err
 		&i.ProfileDescription,
 		&i.Timezone,
 		&i.SubjectID,
-		&i.CasdoorUniversalID,
-		&i.CanManageWorkflows,
-	)
-	return i, err
-}
-
-const getUserByCasdoorUniversalID = `-- name: GetUserByCasdoorUniversalID :one
-SELECT id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, casdoor_universal_id, can_manage_workflows FROM multica_user
-WHERE casdoor_universal_id = $1
-LIMIT 1
-`
-
-func (q *Queries) GetUserByCasdoorUniversalID(ctx context.Context, casdoorUniversalID pgtype.Text) (MulticaUser, error) {
-	row := q.db.QueryRow(ctx, getUserByCasdoorUniversalID, casdoorUniversalID)
-	var i MulticaUser
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Email,
-		&i.AvatarUrl,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.OnboardedAt,
-		&i.OnboardingQuestionnaire,
-		&i.CloudWaitlistEmail,
-		&i.CloudWaitlistReason,
-		&i.StarterContentState,
-		&i.Language,
-		&i.ProfileDescription,
-		&i.Timezone,
-		&i.SubjectID,
-		&i.CasdoorUniversalID,
 		&i.CanManageWorkflows,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, casdoor_universal_id, can_manage_workflows FROM multica_user
+SELECT id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, can_manage_workflows FROM multica_user
 WHERE email = $1
 `
 
@@ -133,14 +100,13 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (MulticaUser
 		&i.ProfileDescription,
 		&i.Timezone,
 		&i.SubjectID,
-		&i.CasdoorUniversalID,
 		&i.CanManageWorkflows,
 	)
 	return i, err
 }
 
 const getUserBySubjectID = `-- name: GetUserBySubjectID :one
-SELECT id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, casdoor_universal_id, can_manage_workflows FROM multica_user
+SELECT id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, can_manage_workflows FROM multica_user
 WHERE subject_id = $1
 LIMIT 1
 `
@@ -164,7 +130,6 @@ func (q *Queries) GetUserBySubjectID(ctx context.Context, subjectID pgtype.Text)
 		&i.ProfileDescription,
 		&i.Timezone,
 		&i.SubjectID,
-		&i.CasdoorUniversalID,
 		&i.CanManageWorkflows,
 	)
 	return i, err
@@ -176,7 +141,7 @@ UPDATE multica_user SET
     cloud_waitlist_reason = $3,
     updated_at = now()
 WHERE id = $1
-RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, casdoor_universal_id, can_manage_workflows
+RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, can_manage_workflows
 `
 
 type JoinCloudWaitlistParams struct {
@@ -207,7 +172,6 @@ func (q *Queries) JoinCloudWaitlist(ctx context.Context, arg JoinCloudWaitlistPa
 		&i.ProfileDescription,
 		&i.Timezone,
 		&i.SubjectID,
-		&i.CasdoorUniversalID,
 		&i.CanManageWorkflows,
 	)
 	return i, err
@@ -218,7 +182,7 @@ UPDATE multica_user SET
     onboarded_at = COALESCE(onboarded_at, now()),
     updated_at = now()
 WHERE id = $1
-RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, casdoor_universal_id, can_manage_workflows
+RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, can_manage_workflows
 `
 
 func (q *Queries) MarkUserOnboarded(ctx context.Context, id pgtype.UUID) (MulticaUser, error) {
@@ -240,7 +204,6 @@ func (q *Queries) MarkUserOnboarded(ctx context.Context, id pgtype.UUID) (Multic
 		&i.ProfileDescription,
 		&i.Timezone,
 		&i.SubjectID,
-		&i.CasdoorUniversalID,
 		&i.CanManageWorkflows,
 	)
 	return i, err
@@ -251,7 +214,7 @@ UPDATE multica_user SET
     onboarding_questionnaire = COALESCE($1, onboarding_questionnaire),
     updated_at = now()
 WHERE id = $2
-RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, casdoor_universal_id, can_manage_workflows
+RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, can_manage_workflows
 `
 
 type PatchUserOnboardingParams struct {
@@ -282,7 +245,6 @@ func (q *Queries) PatchUserOnboarding(ctx context.Context, arg PatchUserOnboardi
 		&i.ProfileDescription,
 		&i.Timezone,
 		&i.SubjectID,
-		&i.CasdoorUniversalID,
 		&i.CanManageWorkflows,
 	)
 	return i, err
@@ -293,7 +255,7 @@ UPDATE multica_user SET
     starter_content_state = $2,
     updated_at = now()
 WHERE id = $1
-RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, casdoor_universal_id, can_manage_workflows
+RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, can_manage_workflows
 `
 
 type SetStarterContentStateParams struct {
@@ -325,25 +287,9 @@ func (q *Queries) SetStarterContentState(ctx context.Context, arg SetStarterCont
 		&i.ProfileDescription,
 		&i.Timezone,
 		&i.SubjectID,
-		&i.CasdoorUniversalID,
 		&i.CanManageWorkflows,
 	)
 	return i, err
-}
-
-const setUserCasdoorUniversalID = `-- name: SetUserCasdoorUniversalID :exec
-UPDATE multica_user SET casdoor_universal_id = $2, updated_at = now()
-WHERE id = $1
-`
-
-type SetUserCasdoorUniversalIDParams struct {
-	ID                 pgtype.UUID `json:"id"`
-	CasdoorUniversalID pgtype.Text `json:"casdoor_universal_id"`
-}
-
-func (q *Queries) SetUserCasdoorUniversalID(ctx context.Context, arg SetUserCasdoorUniversalIDParams) error {
-	_, err := q.db.Exec(ctx, setUserCasdoorUniversalID, arg.ID, arg.CasdoorUniversalID)
-	return err
 }
 
 const setUserName = `-- name: SetUserName :exec
@@ -392,7 +338,7 @@ UPDATE multica_user SET
     END,
     updated_at = now()
 WHERE id = $1
-RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, casdoor_universal_id, can_manage_workflows
+RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, can_manage_workflows
 `
 
 type UpdateUserParams struct {
@@ -442,7 +388,6 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (Multica
 		&i.ProfileDescription,
 		&i.Timezone,
 		&i.SubjectID,
-		&i.CasdoorUniversalID,
 		&i.CanManageWorkflows,
 	)
 	return i, err
@@ -454,7 +399,7 @@ UPDATE multica_user SET
     email = $3,
     updated_at = now()
 WHERE id = $1
-RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, casdoor_universal_id, can_manage_workflows
+RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone, subject_id, can_manage_workflows
 `
 
 type UpdateUserNameAndEmailParams struct {
@@ -485,7 +430,6 @@ func (q *Queries) UpdateUserNameAndEmail(ctx context.Context, arg UpdateUserName
 		&i.ProfileDescription,
 		&i.Timezone,
 		&i.SubjectID,
-		&i.CasdoorUniversalID,
 		&i.CanManageWorkflows,
 	)
 	return i, err

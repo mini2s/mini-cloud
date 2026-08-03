@@ -1,4 +1,13 @@
-import { parseNodeFormat, type WorkflowNode, type WorkflowEdge, type WorkflowStage } from "../types";
+import {
+  isBoundaryNode,
+  isEndNode,
+  isInvalidBoundaryConnection,
+  isStartNode,
+  parseNodeFormat,
+  type WorkflowNode,
+  type WorkflowEdge,
+  type WorkflowStage,
+} from "../types";
 
 // ── Types ──
 
@@ -9,19 +18,16 @@ export type PreflightCheckId =
   | "worker-missing"
   | "role-placeholder"
   | "split-planner-missing"
-  | "split-critic-missing"
-  | "split-critic-automated"
+  | "split-reviewer-invalid"
   | "invalid-critic-ref"
   | "stage-missing"
   | "gateway-fork-outgoing"
   | "gateway-join-incoming"
   | "gateway-kind-invalid"
   | "gateway-join-multiple-outgoing"
-  | "split-default-issue-workflow-missing"
-  | "split-default-issue-workflow-invalid"
-  | "split-default-issue-workflow-inactive"
-  | "split-default-issue-workflow-nested"
-  | "split-default-issue-workflow-self"
+  | "boundary-start-outgoing"
+  | "boundary-end-incoming"
+  | "boundary-edge-direction"
   | "split-max-concurrency-invalid";
 
 export type PreflightSeverity = "error" | "warning";
@@ -160,7 +166,7 @@ export function checkOrphanNodes(nodes: WorkflowNode[], edges: WorkflowEdge[]): 
   }
 
   return nodes
-    .filter((n) => !connected.has(n.id))
+    .filter((n) => !isBoundaryNode(n) && !connected.has(n.id))
     .map((n) => ({
       checkId: "orphan-node" as const,
       severity: "warning" as const,
@@ -195,6 +201,7 @@ export function checkUnreachableNodes(
 
   return nodes
     .filter((n) => {
+      if (isBoundaryNode(n)) return false;
       if (indegree.get(n.id) !== 0) return false; // has incoming edges
       // Check if this node belongs to a later stage (not the primary one or unassigned)
       const stageId = nodeStageMap.get(n.id);
@@ -220,7 +227,7 @@ export function checkUnreachableNodes(
 /** Detect nodes without an assigned worker. */
 export function checkWorkerMissing(nodes: WorkflowNode[]): PreflightIssue[] {
   return nodes
-    .filter((n) => !isAnnotation(n) && !isGateway(n) && (!n.worker_type || (!n.worker_id && !n.worker_role_id && !n.worker_role)))
+    .filter((n) => !isAnnotation(n) && !isGateway(n) && !isBoundaryNode(n) && (!n.worker_type || (!n.worker_id && !n.worker_role_id && !n.worker_role)))
     .map((n): PreflightIssue => ({
       checkId: isSplit(n) ? "split-planner-missing" : "worker-missing",
       severity: "error" as const,
@@ -234,7 +241,7 @@ export function checkWorkerMissing(nodes: WorkflowNode[]): PreflightIssue[] {
 /** Roles are resolved to active workspace members when the run starts. */
 export function checkRolePlaceholders(nodes: WorkflowNode[]): PreflightIssue[] {
   return nodes.flatMap((node) => {
-    if (isAnnotation(node) || isGateway(node)) return [];
+    if (isAnnotation(node) || isGateway(node) || isBoundaryNode(node)) return [];
     const issues: PreflightIssue[] = [];
     const workerRole = node.worker_role_id ?? node.worker_role;
     if (workerRole) {
@@ -265,7 +272,7 @@ export function checkRolePlaceholders(nodes: WorkflowNode[]): PreflightIssue[] {
 export function checkInvalidCriticRef(nodes: WorkflowNode[], agentIds: Set<string>): PreflightIssue[] {
   return nodes
     .filter((n) => {
-      if (isGateway(n)) return false;
+      if (isGateway(n) || isBoundaryNode(n)) return false;
       if (!n.critic_id) return false;
       if (n.critic_type !== "agent") return false;
       return !agentIds.has(n.critic_id);
@@ -280,40 +287,21 @@ export function checkInvalidCriticRef(nodes: WorkflowNode[], agentIds: Set<strin
     }));
 }
 
-/** Detect split nodes without an explicit critic/reviewer. */
-export function checkSplitCriticRequired(nodes: WorkflowNode[]): PreflightIssue[] {
+/** Require a split reviewer that resolves to one human workspace member. */
+export function checkSplitReviewer(nodes: WorkflowNode[]): PreflightIssue[] {
   return nodes
     .filter((n) => {
       if (!isSplit(n)) return false;
-      if (n.critic_type === "api") return !n.critic_api_url;
-      return !n.critic_id;
+      if (n.critic_type !== "human" || Boolean(n.critic_api_url)) return true;
+      return Boolean(n.critic_id) === Boolean(n.critic_role_id);
     })
     .map((n) => ({
-      checkId: "split-critic-missing" as const,
+      checkId: "split-reviewer-invalid" as const,
       severity: "error" as const,
       blocking: true,
       nodeId: n.id,
       nodeTitle: n.title,
-      message: "Assign a Critic to review split drafts",
-    }));
-}
-
-/** Warn when split draft review is configured for automatic approval. */
-export function checkSplitAutomatedCriticWarning(nodes: WorkflowNode[]): PreflightIssue[] {
-  return nodes
-    .filter((n) => {
-      if (!isSplit(n)) return false;
-      if (n.critic_type === "agent") return Boolean(n.critic_id);
-      if (n.critic_type === "api") return Boolean(n.critic_api_url);
-      return false;
-    })
-    .map((n) => ({
-      checkId: "split-critic-automated" as const,
-      severity: "warning" as const,
-      blocking: false,
-      nodeId: n.id,
-      nodeTitle: n.title,
-      message: "Automated split draft critics can approve risky task plans",
+      message: "Assign one member or member role to review split drafts",
     }));
 }
 
@@ -329,85 +317,6 @@ export function checkStageMissing(nodes: WorkflowNode[]): PreflightIssue[] {
       nodeTitle: n.title,
       message: "Assign this node to a stage",
     }));
-}
-
-export interface SplitIssueWorkflowPreflightContext {
-  id: string;
-  status: string;
-  nodes: WorkflowNode[];
-}
-
-export function checkSplitChildWorkflowConfig(
-  nodes: WorkflowNode[],
-  splitChildWorkflows: SplitIssueWorkflowPreflightContext[] = [],
-): PreflightIssue[] {
-  const workflowsByID = new Map(splitChildWorkflows.map((workflow) => [workflow.id, workflow]));
-  const issues: PreflightIssue[] = [];
-
-  for (const node of nodes) {
-    const format = parseNodeFormat(node.format_schema);
-    if (format.kind !== "split") continue;
-
-    const defaultIssueWorkflowID = format.split_config?.default_issue_workflow_id;
-    if (!defaultIssueWorkflowID) {
-      issues.push({
-        checkId: "split-default-issue-workflow-missing",
-        severity: "error",
-        blocking: true,
-        nodeId: node.id,
-        nodeTitle: node.title,
-        message: "Split node needs a default issue workflow",
-      });
-      continue;
-    }
-
-    const childWorkflow = workflowsByID.get(defaultIssueWorkflowID);
-    if (defaultIssueWorkflowID === node.workflow_id) {
-      issues.push({
-        checkId: "split-default-issue-workflow-self",
-        severity: "error",
-        blocking: true,
-        nodeId: node.id,
-        nodeTitle: node.title,
-        message: "Split default issue workflow cannot be the current workflow",
-      });
-    }
-
-    if (defaultIssueWorkflowID !== node.workflow_id && !childWorkflow) {
-      issues.push({
-        checkId: "split-default-issue-workflow-invalid",
-        severity: "error",
-        blocking: true,
-        nodeId: node.id,
-        nodeTitle: node.title,
-        message: "Split default issue workflow is unavailable",
-      });
-    }
-
-    if (childWorkflow && childWorkflow.status !== "active") {
-      issues.push({
-        checkId: "split-default-issue-workflow-inactive",
-        severity: "error",
-        blocking: true,
-        nodeId: node.id,
-        nodeTitle: node.title,
-        message: "Split default issue workflow must be active",
-      });
-    }
-
-    if (childWorkflow?.nodes.some((workflowNode) => parseNodeFormat(workflowNode.format_schema).kind === "split")) {
-      issues.push({
-        checkId: "split-default-issue-workflow-nested",
-        severity: "error",
-        blocking: true,
-        nodeId: node.id,
-        nodeTitle: node.title,
-        message: "Split default issue workflow cannot contain another split node",
-      });
-    }
-  }
-
-  return issues;
 }
 
 export function checkSplitMaxConcurrency(nodes: WorkflowNode[]): PreflightIssue[] {
@@ -497,6 +406,48 @@ export function checkGatewayTopology(nodes: WorkflowNode[], edges: WorkflowEdge[
   return issues;
 }
 
+function boundaryIssue(
+  checkId: "boundary-start-outgoing" | "boundary-end-incoming" | "boundary-edge-direction",
+  node: WorkflowNode,
+  message: string,
+): PreflightIssue {
+  return {
+    checkId,
+    severity: "error",
+    blocking: true,
+    nodeId: node.id,
+    nodeTitle: node.title,
+    message,
+  };
+}
+
+export function checkBoundaryNodes(nodes: WorkflowNode[], edges: WorkflowEdge[]): PreflightIssue[] {
+  const issues: PreflightIssue[] = [];
+  const start = nodes.find(isStartNode);
+  const end = nodes.find(isEndNode);
+
+  if (start && !edges.some((edge) => edge.source_node_id === start.id)) {
+    issues.push(boundaryIssue("boundary-start-outgoing", start, "Start node needs an outgoing connection"));
+  }
+  if (end && !edges.some((edge) => edge.target_node_id === end.id)) {
+    issues.push(boundaryIssue("boundary-end-incoming", end, "End node needs an incoming connection"));
+  }
+
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  for (const edge of edges) {
+    const source = byId.get(edge.source_node_id);
+    const target = byId.get(edge.target_node_id);
+    if (source && target && isInvalidBoundaryConnection(source, target)) {
+      issues.push(boundaryIssue(
+        "boundary-edge-direction",
+        isBoundaryNode(source) ? source : target,
+        "Boundary connection direction is invalid",
+      ));
+    }
+  }
+  return issues;
+}
+
 // ── Master aggregator ──
 
 export interface PreflightCheckInput {
@@ -504,7 +455,6 @@ export interface PreflightCheckInput {
   edges: WorkflowEdge[];
   stages: WorkflowStage[];
   agentIds: Set<string>;
-  splitChildWorkflows?: SplitIssueWorkflowPreflightContext[];
 }
 
 export function runAllPreflightChecks(input: PreflightCheckInput): PreflightResult {
@@ -520,12 +470,11 @@ export function runAllPreflightChecks(input: PreflightCheckInput): PreflightResu
     ...checkUnreachableNodes(nodes, edges, stages),
     ...checkWorkerMissing(nodes),
     ...checkRolePlaceholders(nodes),
-    ...checkSplitCriticRequired(nodes),
-    ...checkSplitAutomatedCriticWarning(nodes),
+    ...checkSplitReviewer(nodes),
     ...checkInvalidCriticRef(nodes, agentIds),
     ...checkStageMissing(nodes),
     ...checkGatewayTopology(nodes, edges),
-    ...checkSplitChildWorkflowConfig(nodes, input.splitChildWorkflows ?? []),
+    ...checkBoundaryNodes(nodes, edges),
     ...checkSplitMaxConcurrency(nodes),
   ];
 

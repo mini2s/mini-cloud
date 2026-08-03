@@ -7,22 +7,51 @@ import {
   type WorkflowNode,
   type WorkflowNodeRun,
   type WorkflowNodeRuntimeSummary,
+  type WorkflowDeliverableSubmissionStatus,
 } from "@multica/core/types";
+import { useSessionPermission } from "@multica/core/workflows/queries";
+import { isEmbeddedInCostrict } from "@multica/core/platform";
 import { cn } from "@multica/ui/lib/utils";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
-import { Bot, User, Building2, Check, ChevronDown, ChevronRight, GitBranch, GitFork, GitMerge } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, CircleAlert, Clock3, FileText, GitFork, GitMerge, MessageSquare } from "lucide-react";
 import { useT } from "@multica/views/i18n";
 import { Button } from "@multica/ui/components/ui/button";
-import { Badge } from "@multica/ui/components/ui/badge";
 import { Loader2 } from "lucide-react";
 import { workflowNodeInfoAreaClassName, workflowNodeShapeGlyphClassName } from "../../../common/workflow-node-shape";
+import {
+  WorkflowActorSlot,
+  type WorkflowActorIdentity,
+  type WorkflowActorState,
+} from "../../../common/workflow-actor-slots";
+import { WorkflowNodeTypeBadge } from "../../../common/workflow-node-type-badge";
 import {
   WorkflowCanvasNodeShell,
   type WorkflowCanvasNodeHandle,
 } from "../../../workflows/components/canvas/workflow-canvas-node-shell";
 import { WORKER_WIDTH } from "../../../workflows/components/overview/constants";
+import {
+  formatRuntimeDuration,
+  resolveRuntimeDurationSeconds,
+} from "./runtime-node-duration";
+import { resolveEnterSessionId } from "./runtime-session";
 
-export const RUNTIME_NODE_HEIGHT = 120;
+export const RUNTIME_NODE_HEIGHT = 176;
+export const RUNTIME_SPLIT_NODE_HEIGHT = 192;
+export const RUNTIME_CHILD_ISSUE_NODE_HEIGHT = 136;
+export const RUNTIME_CHILD_ISSUE_NODE_WIDTH = 264;
+
+export interface RuntimeNodeDeliverableSummary {
+  id: string;
+  title: string;
+  status: WorkflowDeliverableSubmissionStatus;
+  pullRequestUrl: string | null;
+}
+
+export interface RuntimeChildIssueSummary {
+  identifier: string;
+  assigneeName: string | null;
+  progressLabel: string;
+}
 
 export type NodeRunActionType =
   | "approve"
@@ -38,6 +67,8 @@ export interface RuntimeNodeCardProps {
   nodeRun: WorkflowNodeRun | null;
   workerName: string | null;
   criticName: string | null;
+  workerIdentity?: WorkflowActorIdentity | null;
+  criticIdentity?: WorkflowActorIdentity | null;
   onClick: (nodeId: string) => void;
   isSelected?: boolean;
   isRuntimeFocus?: boolean;
@@ -45,18 +76,15 @@ export interface RuntimeNodeCardProps {
   onAction?: (nodeRunId: string, action: NodeRunActionType) => void;
   isActionLoading?: Partial<Record<NodeRunActionType, boolean>>;
   runtimeSummary?: WorkflowNodeRuntimeSummary | null;
+  nowMs?: number;
   handles?: WorkflowCanvasNodeHandle[];
   lateralHandleTop?: number;
   isSplitExpanded?: boolean;
   splitChildCount?: number;
   onSplitNodeToggle?: (nodeId: string) => void;
-}
-
-/** Maps worker/critic type to its Lucide icon component. */
-function typeIcon(t: string) {
-  if (t === "agent") return Bot;
-  if (t === "squad") return Building2;
-  return User;
+  onOpenSession?: (nodeId: string) => Promise<boolean>;
+  deliverables?: RuntimeNodeDeliverableSummary[];
+  childIssueSummary?: RuntimeChildIssueSummary;
 }
 
 function gatewayLabel(t: IssueTranslator, kind: "fork" | "join" | null): string {
@@ -92,6 +120,8 @@ function runtimeDisplayStatusText(
       return t(($) => $.execution.display_status.reviewing);
     case "completed":
       return t(($) => $.execution.display_status.completed);
+    case "failed":
+      return t(($) => $.execution.display_status.failed);
     case "blocked":
       return t(($) => $.execution.display_status.blocked);
     case "cancelled":
@@ -124,6 +154,7 @@ function runtimeFocusSurfaceClassName(
 ): string {
   if (!isRuntimeFocus) return "";
   switch (status) {
+    case "failed":
     case "blocked":
       return "border-red-200/90 from-red-50/90 via-white to-red-100/70 ring-2 ring-red-300/80 shadow-[0_20px_48px_rgba(239,68,68,0.24)] group-hover:ring-red-400/80";
     case "reviewing":
@@ -164,8 +195,42 @@ function RuntimeStatusPill({
         gatewayKind={gatewayKind}
         className="h-3.5 w-3.5"
       />
-      <span className="truncate">{label}</span>
+      <span className="min-w-0 break-words leading-3 line-clamp-2">{label}</span>
     </span>
+  );
+}
+
+function RuntimeStatusSummary({
+  status,
+  gatewayKind,
+  statusLabel,
+  durationLabel,
+  durationAriaLabel,
+}: {
+  status: ReturnType<typeof toWorkflowRuntimeDisplayStatus>;
+  gatewayKind?: "fork" | "join" | null;
+  statusLabel: string;
+  durationLabel: string | null;
+  durationAriaLabel: string | null;
+}) {
+  return (
+    <div className="flex shrink-0 flex-col items-end gap-0.5">
+      <RuntimeStatusPill
+        status={status}
+        gatewayKind={gatewayKind}
+        label={statusLabel}
+      />
+      {durationLabel && durationAriaLabel ? (
+        <span
+          data-testid="runtime-node-duration"
+          aria-label={durationAriaLabel}
+          className="inline-flex items-center gap-1 text-[9px] font-medium leading-3 text-muted-foreground/80 tabular-nums"
+        >
+          <Clock3 aria-hidden="true" className="size-2.5 shrink-0" strokeWidth={1.8} />
+          {durationLabel}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -281,35 +346,22 @@ function ActionButtons({
   );
 }
 
-function ActorSlot({
-  icon: Icon,
-  label,
-  name,
-}: {
-  icon: ReturnType<typeof typeIcon>;
-  label: string;
-  name: string | null;
-}) {
-  return (
-    <div className="min-w-0 space-y-0.5">
-      <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
-      <div className="flex min-w-0 items-center gap-1.5 text-[11px]">
-        <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground ring-1 ring-border/60">
-          <Icon className="h-3 w-3" />
-        </span>
-        <span
-          className={cn(
-            "min-w-0 truncate font-medium text-foreground/85",
-            !name && "italic text-muted-foreground",
-          )}
-        >
-          {name ?? "--"}
-        </span>
-      </div>
-    </div>
-  );
+function actorState(name: string | null, configured: boolean, optional = false): WorkflowActorState {
+  if (name?.trim()) return "configured";
+  if (configured) return "pending";
+  return optional ? "optional" : "missing";
+}
+
+function deliverableStatusClassName(status: WorkflowDeliverableSubmissionStatus): string {
+  switch (status) {
+    case "rejected":
+      return "text-destructive/80";
+    case "approved":
+    case "submitted":
+    case "missing":
+    default:
+      return "text-muted-foreground";
+  }
 }
 
 function SplitProgressSummary({
@@ -324,18 +376,64 @@ function SplitProgressSummary({
       data-testid="runtime-node-split-progress"
       className="flex min-w-0 items-center gap-2 border-t border-border/45 py-1.5"
     >
-      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground ring-1 ring-border/60">
-        <GitBranch className="h-3.5 w-3.5" />
-      </span>
+      <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-muted-foreground/50" />
       <div className="min-w-0">
-        <p className="truncate text-[12px] font-semibold leading-4 text-foreground/90">
+        <p className="break-words text-[12px] font-semibold leading-4 text-foreground/90 line-clamp-2">
           {label}
         </p>
-        <p className="truncate text-[10px] font-medium leading-3 text-muted-foreground">
+        <p className="break-words text-[10px] font-medium leading-3 text-muted-foreground line-clamp-2">
           {summary}
         </p>
       </div>
     </div>
+  );
+}
+
+type OpenSessionState = "idle" | "opening" | "opened" | "failed";
+
+function NodeOpenSessionButton({
+  state,
+  onClick,
+  labelIdle,
+  labelOpening,
+  labelOpened,
+  labelFailed,
+}: {
+  state: OpenSessionState;
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  labelIdle: string;
+  labelOpening: string;
+  labelOpened: string;
+  labelFailed: string;
+}) {
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="ghost"
+      data-testid="runtime-node-open-session"
+      disabled={state !== "idle"}
+      aria-live="polite"
+      className="nodrag nopan h-6 w-[84px] shrink-0 cursor-pointer px-1.5 text-[10px] font-medium text-muted-foreground shadow-none transition-colors hover:bg-muted/50 hover:text-foreground"
+      onClick={onClick}
+    >
+      {state === "opening" ? (
+        <Loader2 className="size-3 animate-spin" />
+      ) : state === "opened" ? (
+        <Check className="size-3 text-emerald-500" />
+      ) : state === "failed" ? (
+        <CircleAlert className="size-3 text-destructive" />
+      ) : (
+        <MessageSquare className="size-3" />
+      )}
+      {state === "opening"
+        ? labelOpening
+        : state === "opened"
+          ? labelOpened
+          : state === "failed"
+            ? labelFailed
+            : labelIdle}
+    </Button>
   );
 }
 
@@ -344,6 +442,8 @@ export function RuntimeNodeCard({
   nodeRun,
   workerName,
   criticName,
+  workerIdentity,
+  criticIdentity,
   onClick,
   isSelected = false,
   isRuntimeFocus = false,
@@ -351,34 +451,71 @@ export function RuntimeNodeCard({
   onAction,
   isActionLoading,
   runtimeSummary,
+  nowMs,
   handles,
   lateralHandleTop,
   isSplitExpanded = false,
   splitChildCount = 0,
   onSplitNodeToggle,
+  onOpenSession,
+  deliverables = [],
+  childIssueSummary,
 }: RuntimeNodeCardProps) {
   const { t } = useT("issues");
+  const [openSessionState, setOpenSessionState] = useState<OpenSessionState>("idle");
   const nodeFormat = parseNodeFormat(node.format_schema);
   const isGateway = nodeFormat.kind === "gateway";
   const isSplit = nodeFormat.kind === "split";
+	const cardHeight = isSplit
+    ? RUNTIME_SPLIT_NODE_HEIGHT
+    : childIssueSummary
+      ? RUNTIME_CHILD_ISSUE_NODE_HEIGHT
+      : RUNTIME_NODE_HEIGHT;
 	const splitMode = nodeFormat.split_config?.mode ?? "barrier";
   const nodeShape = nodeFormat.shape;
-  const displayStatus = runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
+  const displayStatus = nodeRun?.status === "failed"
+    ? "failed"
+    : runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
   const displayStatusLabel = runtimeDisplayStatusText(t, displayStatus, isGateway ? nodeFormat.gateway_kind : null);
-  const hasCritic = !isGateway && !isSplit && (node.critic_type || node.critic_id);
+  const durationSeconds = resolveRuntimeDurationSeconds({
+    summarySeconds: runtimeSummary?.duration_seconds,
+    startedAt: nodeRun?.started_at,
+    completedAt: nodeRun?.completed_at,
+    nowMs: nowMs ?? Date.now(),
+  });
+  const durationLabel = durationSeconds == null
+    ? null
+    : formatRuntimeDuration(durationSeconds);
+  const durationAriaLabel = durationLabel
+    ? t(($) => $.execution.card.duration_label, { duration: durationLabel })
+    : null;
+  const hasCritic = !isGateway && !isSplit && Boolean(node.critic_type || node.critic_id || criticIdentity);
 
-  const WorkerIcon = typeIcon(node.worker_type);
-  const CriticIcon = node.critic_type === "agent" ? Bot : node.critic_type === "squad" ? Building2 : User;
   const GatewayIcon = nodeFormat.gateway_kind === "join" ? GitMerge : GitFork;
+  const workerConfigured = Boolean(workerIdentity || node.worker_id || node.worker_role_id || node.worker_role);
+  const criticConfigured = Boolean(criticIdentity || node.critic_id || node.critic_role_id || node.critic_role || node.critic_api_url);
   const splitProgress = runtimeSummary?.split_progress ?? null;
   const hasSplitProgress = isSplit && !!splitProgress && splitProgress.total > 0;
   const canToggleSplitChildren = isSplit && splitChildCount > 0 && !!onSplitNodeToggle;
+  const sessionId = resolveEnterSessionId(nodeRun, runtimeSummary);
+  const { data: sessionPerm } = useSessionPermission(sessionId);
+  const canEnterSession = !!sessionId && sessionPerm?.can_observe === true;
+  const canOpenSession =
+    isEmbeddedInCostrict() &&
+    !isGateway &&
+    !!sessionId &&
+    !!onOpenSession &&
+    canEnterSession;
+  const primaryDeliverable = !isGateway && !isSplit ? deliverables[0] : undefined;
+  const remainingDeliverableCount = Math.max(0, deliverables.length - 1);
+  const hasInlineAction = canToggleSplitChildren || canOpenSession || !!primaryDeliverable?.pullRequestUrl;
   const splitChildLabel = splitChildCountLabel(t, splitChildCount || (splitProgress?.total ?? 0));
   const splitChildSummaryParts = splitProgress ? splitProgressSummaryParts(t, splitProgress) : [];
   const splitChildSummaryLabel = splitChildSummaryParts.length > 0
     ? splitChildSummaryParts.join(" · ")
     : t(($) => $.execution.panorama.not_started);
   const handleShellKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     onClick(node.id);
@@ -388,6 +525,35 @@ export function RuntimeNodeCard({
     event.stopPropagation();
     onSplitNodeToggle?.(node.id);
   }, [node.id, onSplitNodeToggle]);
+  const handleOpenSessionClick = useCallback(async (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!onOpenSession || openSessionState !== "idle") return;
+    setOpenSessionState("opening");
+    try {
+      const opened = await onOpenSession(node.id);
+      setOpenSessionState(opened ? "opened" : "failed");
+    } catch {
+      setOpenSessionState("failed");
+    }
+  }, [node.id, onOpenSession, openSessionState]);
+
+  useEffect(() => {
+    if (openSessionState !== "opened" && openSessionState !== "failed") return undefined;
+    const timer = setTimeout(() => setOpenSessionState("idle"), 1200);
+    return () => clearTimeout(timer);
+  }, [openSessionState]);
+
+  const openSessionButton = canOpenSession ? (
+    <NodeOpenSessionButton
+      state={openSessionState}
+      onClick={handleOpenSessionClick}
+      labelIdle={t(($) => $.execution.detail_panel.open_session)}
+      labelOpening={t(($) => $.execution.card.session_opening)}
+      labelOpened={t(($) => $.execution.card.session_opened)}
+      labelFailed={t(($) => $.execution.card.session_open_failed)}
+    />
+  ) : null;
 
   const actionButtons: ActionButtonDef[] = nodeRun
     ? isGateway || isSplit
@@ -421,19 +587,19 @@ export function RuntimeNodeCard({
 
   return (
     <WorkflowCanvasNodeShell
-      as={canToggleSplitChildren ? "div" : "button"}
+      as={hasInlineAction ? "div" : "button"}
       testId={`runtime-node-card-${node.id}`}
       nodeShape={nodeShape}
       selected={isSelected}
-      width={WORKER_WIDTH}
-      height={RUNTIME_NODE_HEIGHT}
+      width={childIssueSummary ? RUNTIME_CHILD_ISSUE_NODE_WIDTH : WORKER_WIDTH}
+      height={cardHeight}
       title={node.title}
       dataRuntimeDisplayStatus={displayStatus}
       dataRuntimeFocus={isRuntimeFocus}
-      tabIndex={canToggleSplitChildren ? 0 : undefined}
+      tabIndex={hasInlineAction ? 0 : undefined}
       onClick={() => onClick(node.id)}
-      onKeyDown={canToggleSplitChildren ? handleShellKeyDown : undefined}
-      className="h-[120px]"
+      onKeyDown={hasInlineAction ? handleShellKeyDown : undefined}
+      className={isSplit ? "h-[192px]" : childIssueSummary ? "h-[136px]" : "h-[176px]"}
       surfaceClassName={runtimeFocusSurfaceClassName(isRuntimeFocus, displayStatus)}
       contentClassName={cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
       handles={handles}
@@ -442,19 +608,37 @@ export function RuntimeNodeCard({
     >
       {isSplit ? (
         <>
-          <div className="flex items-center justify-between gap-2">
+          <div
+            data-testid="runtime-node-split-header"
+            className="flex items-center justify-between gap-2"
+          >
             <div className="flex min-w-0 items-center gap-1.5">
-              <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="truncate text-sm font-medium">{node.title}</span>
+              <span className="min-w-0 break-words text-sm font-medium leading-4 line-clamp-2">{node.title}</span>
             </div>
-						<div className="flex h-5 shrink-0 items-center gap-1">
-							<Badge variant="outline" className="h-5 px-1.5 text-[10px]">
-								{splitMode === "pipeline"
-									? t(($) => $.execution.card.split_mode_pipeline)
-									: t(($) => $.execution.card.split_mode_barrier)}
-							</Badge>
-							<RuntimeStatusPill status={displayStatus} label={displayStatusLabel} />
-						</div>
+            <RuntimeStatusSummary
+              status={displayStatus}
+              statusLabel={displayStatusLabel}
+              durationLabel={durationLabel}
+              durationAriaLabel={durationAriaLabel}
+            />
+          </div>
+
+          <div
+            data-testid="runtime-node-split-context"
+            className="flex min-w-0 items-center justify-between gap-2 border-t border-border/45 pt-1.5"
+          >
+            <WorkflowNodeTypeBadge
+              testId={`runtime-node-type-badge-${node.id}`}
+              label={t(($) => $.execution.card.split_badge)}
+            />
+            <span
+              data-testid="runtime-node-split-mode"
+              className="min-w-0 truncate text-right text-[10px] font-medium leading-3 text-muted-foreground"
+            >
+              {splitMode === "pipeline"
+                ? t(($) => $.execution.card.split_mode_pipeline)
+                : t(($) => $.execution.card.split_mode_barrier)}
+            </span>
           </div>
 
           {canToggleSplitChildren ? (
@@ -462,7 +646,7 @@ export function RuntimeNodeCard({
               type="button"
               data-testid="runtime-node-split-child-toggle"
               className={cn(
-                "nodrag nopan flex min-h-10 w-full min-w-0 items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-left",
+                "nodrag nopan mt-1.5 flex min-h-10 w-full min-w-0 self-start items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-left",
                 "bg-background transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 isSplitExpanded
@@ -478,10 +662,10 @@ export function RuntimeNodeCard({
               onClick={handleSplitToggleClick}
             >
               <span className="min-w-0">
-                <span className="block truncate text-[12px] font-semibold leading-4 text-foreground">
+                <span className="block break-words text-[12px] font-semibold leading-4 text-foreground line-clamp-2">
                   {splitChildLabel}
                 </span>
-                <span className="block truncate text-[10px] font-medium leading-3 text-muted-foreground">
+                <span className="block break-words text-[10px] font-medium leading-3 text-muted-foreground line-clamp-2">
                   {splitChildSummaryLabel}
                 </span>
               </span>
@@ -510,30 +694,42 @@ export function RuntimeNodeCard({
             <div
               data-testid="runtime-node-content"
               className={cn(
-                "grid gap-1.5 border-t border-border/45 py-1.5",
+                "grid grid-rows-[12px_42px] gap-x-2 gap-y-1 border-t border-border/45 py-1.5",
                 node.critic_type || node.critic_id ? "grid-cols-2" : "grid-cols-1",
               )}
             >
-              <ActorSlot
-                icon={WorkerIcon}
+              <WorkflowActorSlot
+                slot="worker"
                 label={t(($) => $.execution.card.worker_label)}
-                name={workerName}
+                identity={workerIdentity}
+                fallback="--"
+                state={actorState(workerName, workerConfigured)}
               />
               {node.critic_type || node.critic_id ? (
-                <ActorSlot
-                  icon={CriticIcon}
+                <WorkflowActorSlot
+                  slot="critic"
                   label={t(($) => $.execution.card.critic_label)}
-                  name={criticName}
+                  identity={criticIdentity}
+                  fallback="--"
+                  state={actorState(criticName, criticConfigured, true)}
                 />
               ) : null}
             </div>
           )}
+          {canOpenSession ? (
+            <div
+              data-testid="runtime-node-utility-rail"
+              className="flex min-w-0 items-center gap-1 border-t border-border/30 pt-1"
+            >
+              {openSessionButton}
+            </div>
+          ) : null}
         </>
       ) : (
         <>
-      {/* Row 1: node title + status icon */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 min-w-0">
+      {/* Row 1: node title + status */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 pt-0.5">
           {nodeShape !== "rectangle" ? (
             <span
               aria-hidden="true"
@@ -544,16 +740,42 @@ export function RuntimeNodeCard({
               )}
             />
           ) : null}
-          <span className="text-sm font-medium truncate">{node.title}</span>
+          <span className="min-w-0 flex-1 break-words text-sm font-medium leading-4 line-clamp-2">
+            {node.title}
+          </span>
         </div>
-        <RuntimeStatusPill
+        <RuntimeStatusSummary
           status={displayStatus}
           gatewayKind={isGateway ? nodeFormat.gateway_kind : null}
-          label={displayStatusLabel}
+          statusLabel={displayStatusLabel}
+          durationLabel={durationLabel}
+          durationAriaLabel={durationAriaLabel}
         />
       </div>
 
-      {isGateway ? (
+      {childIssueSummary ? (
+        <div
+          data-testid="runtime-node-content"
+          className="flex min-w-0 flex-col gap-2 border-t border-border/45 py-2"
+        >
+          <div
+            data-testid="runtime-node-child-issue-context"
+            className="flex min-w-0 items-center gap-1 text-[10px] font-medium leading-3 text-muted-foreground"
+            title={`${childIssueSummary.identifier} · ${childIssueSummary.assigneeName ?? "--"}`}
+          >
+            <span className="shrink-0">{childIssueSummary.identifier}</span>
+            <span aria-hidden className="text-muted-foreground/50">{" · "}</span>
+            <span className="min-w-0 truncate">{childIssueSummary.assigneeName ?? "--"}</span>
+          </div>
+          <div
+            data-testid="runtime-node-child-issue-progress"
+            className="min-w-0 text-[11px] font-medium leading-4 text-foreground/85 line-clamp-2"
+            title={childIssueSummary.progressLabel}
+          >
+            {childIssueSummary.progressLabel}
+          </div>
+        </div>
+      ) : isGateway ? (
         <div className="border-t border-border/45 py-2" data-testid="runtime-node-content">
           <div className="flex min-w-0 items-center gap-2 text-[12px]">
             <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted/55 text-muted-foreground ring-1 ring-border/60">
@@ -573,24 +795,87 @@ export function RuntimeNodeCard({
         <div
           data-testid="runtime-node-content"
           className={cn(
-            "grid gap-1.5 border-t border-border/45 py-1.5",
+            "grid grid-rows-[12px_42px] gap-x-2 gap-y-1 border-t border-border/45 py-1.5",
             hasCritic ? "grid-cols-2" : "grid-cols-1",
           )}
         >
-          <ActorSlot
-            icon={WorkerIcon}
+          <WorkflowActorSlot
+            slot="worker"
             label={t(($) => $.execution.card.worker_label)}
-            name={workerName}
+            identity={workerIdentity}
+            fallback="--"
+            state={actorState(workerName, workerConfigured)}
           />
           {hasCritic ? (
-            <ActorSlot
-              icon={CriticIcon}
+            <WorkflowActorSlot
+              slot="critic"
               label={t(($) => $.execution.card.critic_label)}
-              name={criticName}
+              identity={criticIdentity}
+              fallback="--"
+              state={actorState(criticName, criticConfigured, true)}
             />
           ) : null}
         </div>
       )}
+
+      {!isGateway && (primaryDeliverable || canOpenSession) ? (
+        <div
+          data-testid="runtime-node-utility-rail"
+          className="flex min-w-0 items-center gap-1 border-t border-border/30 pt-1"
+        >
+          {primaryDeliverable ? (
+            primaryDeliverable.pullRequestUrl ? (
+              <a
+                href={primaryDeliverable.pullRequestUrl}
+                target="_blank"
+                rel="noreferrer"
+                title={primaryDeliverable.title}
+                className="nodrag nopan flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <FileText className="size-3.5 shrink-0 text-muted-foreground/70" />
+                <span className="flex min-w-0 items-center gap-1">
+                  <span className="min-w-0 truncate font-medium text-foreground/75">
+                    {primaryDeliverable.title}
+                  </span>
+                  <span aria-hidden="true" className="shrink-0 text-muted-foreground/50">·</span>
+                  <span className={cn("shrink-0 rounded-sm bg-muted/50 px-1 font-medium", deliverableStatusClassName(primaryDeliverable.status))}>
+                    {t(($) => $.execution.card.deliverable_status[primaryDeliverable.status])}
+                  </span>
+                </span>
+                {remainingDeliverableCount > 0 ? (
+                  <span className="shrink-0 text-muted-foreground">
+                    {t(($) => $.execution.card.deliverable_more, { count: remainingDeliverableCount })}
+                  </span>
+                ) : null}
+              </a>
+            ) : (
+              <div
+                title={primaryDeliverable.title}
+                className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1 text-[10px] text-muted-foreground"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <FileText className="size-3.5 shrink-0 text-muted-foreground/70" />
+                <span className="flex min-w-0 items-center gap-1">
+                  <span className="min-w-0 truncate font-medium text-foreground/75">
+                    {primaryDeliverable.title}
+                  </span>
+                  <span aria-hidden="true" className="shrink-0 text-muted-foreground/50">·</span>
+                  <span className={cn("shrink-0 rounded-sm bg-muted/50 px-1 font-medium", deliverableStatusClassName(primaryDeliverable.status))}>
+                    {t(($) => $.execution.card.deliverable_status[primaryDeliverable.status])}
+                  </span>
+                </span>
+                {remainingDeliverableCount > 0 ? (
+                  <span className="shrink-0 text-muted-foreground">
+                    {t(($) => $.execution.card.deliverable_more, { count: remainingDeliverableCount })}
+                  </span>
+                ) : null}
+              </div>
+            )
+          ) : null}
+          {openSessionButton}
+        </div>
+      ) : null}
 
       {/* Action buttons */}
       {onAction && actionButtons.length > 0 && (

@@ -27,6 +27,7 @@ import {
   UserSchema,
   WorkflowRoleResolutionsResponseSchema,
   WorkflowRolesResponseSchema,
+  WorkflowSchema,
   WorkflowRunSchema,
   WorkflowRunCanvasSummaryResponseSchema,
   WorkflowNodeRunSchema,
@@ -100,6 +101,26 @@ describe("IssueSchema (via ListIssuesResponseSchema)", () => {
 });
 
 describe("split API response schemas", () => {
+	it("parses split task assignees and tolerates older responses", () => {
+		const current = SplitTasksResponseSchema.parse({
+			tasks: [{
+				id: "task-1",
+				node_run_id: "nr-1",
+				assignee_type: "squad",
+				assignee_id: "squad-1",
+				workflow_id: null,
+			}],
+		});
+		expect(current.tasks[0]).toMatchObject({ assignee_type: "squad", assignee_id: "squad-1" });
+
+		const old = SplitTasksResponseSchema.parse({ tasks: [{ id: "task-2", node_run_id: "nr-1" }] });
+		expect(old.tasks[0]).toMatchObject({ assignee_type: null, assignee_id: null, workflow_id: null });
+	});
+
+	it("falls back when split tasks is null", () => {
+		expect(SplitTasksResponseSchema.parse({ tasks: null }).tasks).toEqual([]);
+	});
+
   it("parses split config versions and draft provenance", () => {
     const nodeRun = WorkflowNodeRunSchema.parse({
       id: "nr-1",
@@ -168,8 +189,8 @@ describe("split API response schemas", () => {
   };
 
   it.each([
-    ["workflow_id", { ...validTask, workflow_id: null }],
-    ["draft_key", { ...validTask, draft_key: 42 }],
+		["assignee_type", { ...validTask, assignee_type: "future-assignee" }],
+		["draft_key", { ...validTask, draft_key: 42 }],
   ])("falls back when split task %s is malformed", (_field, task) => {
     const parsed = parseWithFallback(
       { tasks: [task] },
@@ -205,7 +226,9 @@ describe("split API response schemas", () => {
   it("defaults missing additive split task fields", () => {
     const { workflow_id: _a, issue_id: _b, run_id: _c, depends_on: _d, last_error: _e, version: _f, ...partial } = validTask;
     const parsed = SplitTasksResponseSchema.parse({ tasks: [partial] });
-    expect(parsed.tasks[0]?.workflow_id).toBe("");
+		expect(parsed.tasks[0]?.workflow_id).toBeNull();
+		expect(parsed.tasks[0]?.assignee_type).toBeNull();
+		expect(parsed.tasks[0]?.assignee_id).toBeNull();
     expect(parsed.tasks[0]?.draft_key).toBeNull();
     expect(parsed.tasks[0]?.draft_source).toBe("agent");
     expect(parsed.tasks[0]?.issue_id).toBeNull();
@@ -313,6 +336,28 @@ describe("split API response schemas", () => {
     });
   });
 
+  it("keeps failed runtime status when error details are missing or extended", () => {
+    const parsed = WorkflowRunCanvasSummaryResponseSchema.parse({
+      run: { id: "run-1", workflow_id: "wf-1", workspace_id: "ws-1" },
+      node_runs: [],
+      node_runtime_summaries: [
+        {
+          workflow_node_id: "node-1",
+          node_run_id: "node-run-1",
+          display_status: "failed",
+          has_error: true,
+          provider_error_code: "future_error_code",
+        },
+      ],
+    });
+
+    expect(parsed.node_runtime_summaries[0]).toMatchObject({
+      display_status: "failed",
+      has_error: true,
+      error_message: "",
+    });
+  });
+
   it("falls back when canvas summary split progress has the wrong shape", () => {
     const parsed = parseWithFallback(
       {
@@ -352,6 +397,92 @@ describe("split API response schemas", () => {
     });
 
     expect(parsed.split_review_chat_session_id).toBeNull();
+  });
+});
+
+describe("workflow runtime isolation schemas", () => {
+  const oldWorkflowRun = {
+    id: "run-1",
+    workflow_id: "workflow-1",
+    workspace_id: "workspace-1",
+  };
+
+  it("keeps the legacy node id and accepts a new source id", () => {
+    const parsed = WorkflowNodeRunSchema.parse({
+      id: "nr",
+      workflow_run_id: "run",
+      workflow_node_id: "node-old",
+      source_workflow_node_id: "node-new",
+    });
+    expect(parsed.workflow_node_id).toBe("node-old");
+    expect(parsed.source_workflow_node_id).toBe("node-new");
+  });
+
+  it("accepts an old response without snapshot fields", () => {
+    expect(WorkflowRunSchema.safeParse(oldWorkflowRun).success).toBe(true);
+  });
+
+  it("parses a complete schema version 1 snapshot", () => {
+    const parsed = WorkflowRunSchema.parse({
+      ...oldWorkflowRun,
+      definition_schema_version: 1,
+      definition_snapshot: {
+        schema_version: 1,
+        snapshot_origin: "native",
+        workflow: {
+          id: "workflow-1",
+          workspace_id: "workspace-1",
+          title: "Snapshot workflow",
+          description: "",
+          is_default: false,
+          max_retries: 3,
+          runtime_selection_policy: "idle_first",
+          config_revision: 4,
+        },
+        nodes: [{
+          id: "node-1",
+          title: "Snapshot node",
+          description: "",
+          position_x: 0,
+          position_y: 0,
+          sort_order: 0,
+          kind: "task",
+          worker_type: "human",
+          critic_type: "human",
+        }],
+        edges: [],
+        stages: [],
+        roles: [],
+        deliverables: [],
+      },
+    });
+    expect(parsed.definition_snapshot?.nodes[0]?.title).toBe("Snapshot node");
+  });
+
+  it("falls back for an unknown snapshot schema without rejecting the run", () => {
+    const parsed = WorkflowRunSchema.parse({
+      ...oldWorkflowRun,
+      definition_schema_version: 99,
+      definition_snapshot: { schema_version: 99, snapshot_origin: "native", nodes: "invalid" },
+    });
+    expect(parsed.definition_snapshot).toBeNull();
+  });
+
+  it("falls back for a malformed known snapshot without rejecting the run", () => {
+    const parsed = WorkflowRunSchema.parse({
+      ...oldWorkflowRun,
+      definition_schema_version: 1,
+      definition_snapshot: { schema_version: 1, snapshot_origin: "native", nodes: "invalid" },
+    });
+    expect(parsed.definition_snapshot).toBeNull();
+  });
+
+  it("rejects a non-string workflow_node_id", () => {
+    expect(WorkflowNodeRunSchema.safeParse({
+      id: "nr",
+      workflow_run_id: "run",
+      workflow_node_id: 7,
+    }).success).toBe(false);
   });
 });
 
@@ -694,5 +825,17 @@ describe("workflow role response schemas", () => {
       status: "future_run_state",
     });
     expect(run.status).toBe("future_run_state");
+    expect(run.runtime_selection_policy).toBe("idle_first");
+  });
+
+  it("defaults legacy workflows to the idle-first runtime strategy", () => {
+    const workflow = WorkflowSchema.parse({
+      id: "workflow-1",
+      workspace_id: "ws-1",
+      title: "Legacy workflow",
+    });
+
+    expect(workflow.default_runtime_selection_policy).toBe("idle_first");
+    expect(workflow.default_runtime_id).toBeNull();
   });
 });

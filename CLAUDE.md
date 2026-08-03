@@ -105,8 +105,11 @@ pnpm --filter @multica/views exec vitest run auth/login-page.test.tsx
 pnpm --filter @multica/core exec vitest run runtimes/version.test.ts
 pnpm --filter @multica/web exec vitest run app/\(auth\)/login/page.test.tsx
 
-# Run a single Go test
+# Run a single Go test without database fixtures
 cd server && go test ./internal/handler/ -run TestName
+
+# Database-backed targeted Go tests require the isolated Docker test DB.
+# See "Database-backed Go tests" below; direct go test does not load .env.
 
 # Run a single E2E test (requires backend + frontend running)
 pnpm exec playwright test e2e/tests/specific-test.spec.ts
@@ -308,6 +311,39 @@ All test deps are in the pnpm catalog for unified versioning.
 
 Standard `go test`. Tests should create their own fixture data in a test database.
 
+#### Database-backed Go tests
+
+PostgreSQL runs in Docker and the active repository env file (`.env` for the main checkout, `.env.worktree` for a worktree) is the source of truth for its credentials, port, and database name.
+
+`make test` is the canonical full Go test command. It starts/checks PostgreSQL, creates `${POSTGRES_DB}_test` when needed, migrates it, and exports that isolated database as `DATABASE_URL` before running tests. The development database is not touched.
+
+Direct `go test` does **not** load the repository env file. Database-backed tests may otherwise fall back to hard-coded defaults, fail authentication, or skip with messages such as `database not reachable` or `testPool not initialized`. A skipped integration test is not behavior verification even when `go test` exits successfully.
+
+For a targeted database-backed test in PowerShell, run from the repository root:
+
+```powershell
+# Load simple KEY=VALUE entries from the active env file.
+$multicaEnvFile = if (Test-Path .env.worktree) { ".env.worktree" } else { ".env" }
+Get-Content $multicaEnvFile | ForEach-Object {
+  if ($_ -match '^(?<key>[^#=]+)=(?<value>.*)$') {
+    Set-Item -Path "env:$($Matches.key.Trim())" -Value $Matches.value.Trim()
+  }
+}
+
+$multicaTestDb = if ($env:TEST_DB) { $env:TEST_DB } else { "$($env:POSTGRES_DB)_test" }
+$env:DATABASE_URL = if ($env:TEST_DATABASE_URL) {
+  $env:TEST_DATABASE_URL
+} else {
+  "postgres://$($env:POSTGRES_USER):$($env:POSTGRES_PASSWORD)@localhost:$($env:POSTGRES_PORT)/${multicaTestDb}?sslmode=disable"
+}
+
+Set-Location server
+go run ./cmd/migrate up
+go test ./internal/handler -run 'TestName'
+```
+
+Before trusting the result, inspect verbose output when necessary (`go test -v ...`) and confirm the intended tests actually ran rather than skipped. Never set `DATABASE_URL` to the development database when running handler or service fixtures.
+
 ### E2E tests
 
 E2E tests should be self-contained. Use the `TestApiClient` fixture for data setup/teardown:
@@ -337,6 +373,29 @@ test("example", async ({ page }) => {
 
 - Use atomic commits grouped by logical intent.
 - Conventional format: `feat(scope)`, `fix(scope)`, `refactor(scope)`, `docs`, `test(scope)`, `chore(scope)`.
+
+## Git Branch and Push Safety (hard rules)
+
+- Only the local `main` branch may track `origin/main`. Only the local `master` branch may track `origin/master`.
+- Feature, fix, docs, spec, and integration branches MUST NOT track `origin/main` or `origin/master`.
+- When creating a branch from a remote base, always disable inherited tracking:
+
+  ```bash
+  git switch --create <branch-name> --no-track origin/main
+  ```
+
+- The shorthand `git switch -c <branch-name> origin/main` is prohibited because it automatically configures the new branch to push to `origin/main`.
+- Immediately after creating or switching to a working branch, run `git branch -vv`. If a non-main branch shows `[origin/main]` or `[origin/master]`, stop and remove the upstream with `git branch --unset-upstream` before committing or pushing.
+- Never use an implicit `git push` to publish a new working branch. Push with an explicit same-name destination:
+
+  ```bash
+  git push --set-upstream origin HEAD:refs/heads/<branch-name>
+  ```
+
+- Before every push, verify `git branch --show-current`, `git status --short --branch`, and the exact destination ref. The destination branch name MUST match the current local working branch name.
+- Before the first push of a branch, or after any upstream change, run `git push --dry-run origin HEAD:refs/heads/<branch-name>` and inspect the reported destination before performing the real push.
+- Any push whose destination is `main` or `master` is prohibited unless the user explicitly requests that exact remote push in the current conversation. Requests such as "commit", "merge", "finish", or "integrate" do not authorize pushing to a protected branch.
+- Prefer a pull request for integration. Never rewrite, force-push, reset, or directly repair a shared protected branch without explicit user authorization.
 
 ## Minimum Pre-Push Checks
 
@@ -377,7 +436,7 @@ make check
 
 1. Create a tag on the `main` branch: `git tag v0.x.x`
 2. Push the tag: `git push origin v0.x.x`
-3. GitHub Actions automatically triggers `release.yml`: runs Go tests → GoReleaser builds multi-platform binaries → publishes to GitHub Releases + Homebrew tap
+3. GitHub Actions automatically triggers `release.yml`: runs Go tests → GoReleaser builds multi-platform binaries → publishes to GitHub Releases
 
 By default, bump the patch version each release (e.g. `v0.1.12` → `v0.1.13`), unless the user specifies a specific version.
 

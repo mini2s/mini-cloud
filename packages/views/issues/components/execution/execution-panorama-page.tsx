@@ -18,16 +18,27 @@ import {
   workflowEdgesOptions,
   workflowNodeRunsOptions,
   workflowRunCanvasSummaryOptions,
+  workflowRunCanvasDefinition,
   workflowRolesOptions,
   workflowRoleResolutionsOptions,
+  nodeRunDeliverableSubmissionsOptions,
   splitTasksOptions,
   splitIssueWorkflowOptions,
   workflowKeys,
 } from "@multica/core/workflows/queries";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { api } from "@multica/core/api";
+import { useAuthStore } from "@multica/core/auth";
+import { useChatStore } from "@multica/core/chat";
+import { canSubmitNodeRunReview } from "@multica/core/permissions";
+import {
+  isEmbeddedInCostrict,
+  postCostrictNavigateToSession,
+} from "@multica/core/platform";
 import { agentListOptions, memberListOptions, squadListOptions } from "@multica/core/workspace/queries";
-import { workerTypeToActorType } from "@multica/core/types";
+import { isActiveWorkspaceMember } from "@multica/core/workspace/members";
+import { childIssuesOptions } from "@multica/core/issues/queries";
+import { useWorkspacePresenceMap, type AgentAvailability } from "@multica/core/agents";
 import type {
   WorkflowNode,
   WorkflowNodeRun,
@@ -41,11 +52,13 @@ import type {
   Workflow,
   WorkflowRuntimeDisplayStatus,
   WorkerType,
+  CriticType,
 } from "@multica/core/types";
 import { useT } from "../../../i18n";
 import { parseNodeFormat } from "@multica/core/types";
 import { WorkflowCanvasCore } from "../../../workflows/components/canvas/workflow-canvas-core";
 import {
+  workflowCanvasStages,
   workflowEdgesToReactFlowEdges,
   workflowNodesToReactFlowNodes,
 } from "../../../workflows/components/canvas/workflow-canvas-model";
@@ -68,19 +81,33 @@ import {
   runtimeCanvasNodeTypes,
   type RuntimeSplitSubflowChildIssue,
 } from "./runtime-canvas-node";
-import { RUNTIME_NODE_HEIGHT } from "./runtime-node-card";
-import { Loader2 } from "lucide-react";
+import {
+  RUNTIME_NODE_HEIGHT,
+  RUNTIME_SPLIT_NODE_HEIGHT,
+  type RuntimeNodeDeliverableSummary,
+} from "./runtime-node-card";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { Button } from "@multica/ui/components/ui/button";
 import { cn } from "@multica/ui/lib/utils";
 import { SplitReviewPanel } from "../../../workflows/components/split/split-review-panel";
 import { useNavigation } from "../../../navigation";
+import type {
+  WorkflowActorEntityType,
+  WorkflowActorIdentity,
+} from "../../../common/workflow-actor-slots";
+import { useRuntimeDurationClock } from "./runtime-duration-clock";
+import { resolveEnterSessionId } from "./runtime-session";
 
 export interface ExecutionPanoramaPageProps {
   workflowId: string;
   runId: string | null;
   wsId: string;
   issueId?: string;
+  issueCreatorType?: string | null;
+  issueCreatorId?: string | null;
   fillAvailableHeight?: boolean;
+  showRoleAssignmentEntry?: boolean;
 }
 
 const RUNTIME_CANVAS_FIT_VIEW = {
@@ -122,6 +149,12 @@ interface SplitViewportRestoreRequest {
   viewport: Viewport;
 }
 
+function snapshotRoleName(value: unknown): string | null {
+  if (!value || typeof value !== "object" || !("name" in value)) return null;
+  const name = (value as { name?: unknown }).name;
+  return typeof name === "string" && name.trim() ? name.trim() : null;
+}
+
 function splitTaskDisplayStatus(status: SplitTask["status"]): WorkflowRuntimeDisplayStatus {
   switch (status) {
     case "running":
@@ -145,6 +178,38 @@ function splitTaskDisplayStatus(status: SplitTask["status"]): WorkflowRuntimeDis
 
 type IssueTranslator = ReturnType<typeof useT<"issues">>["t"];
 
+function splitTaskProgressLabel(
+  t: IssueTranslator,
+  task: SplitTask,
+  taskById: Map<string, SplitTask>,
+): string {
+  switch (task.status) {
+    case "running":
+      return t(($) => $.execution.card.child_running);
+    case "done":
+      return t(($) => $.execution.card.child_completed);
+    case "cancelled":
+    case "discarded":
+      return t(($) => $.execution.card.child_cancelled);
+    case "failed":
+      return task.last_error?.message || t(($) => $.execution.card.child_failed);
+    case "skipped":
+      return t(($) => $.execution.card.child_skipped);
+    case "created":
+    case "approved": {
+      const hasUnfinishedDependency = task.depends_on.some(
+        (dependencyId) => taskById.get(dependencyId)?.status !== "done",
+      );
+      return hasUnfinishedDependency
+        ? t(($) => $.execution.card.child_waiting_dependencies)
+        : t(($) => $.execution.card.child_waiting_start);
+    }
+    case "draft":
+    default:
+      return t(($) => $.execution.card.child_waiting_start);
+  }
+}
+
 function runtimeDisplayStatusText(t: IssueTranslator, status: WorkflowRuntimeDisplayStatus): string {
   switch (status) {
     case "pending":
@@ -157,6 +222,8 @@ function runtimeDisplayStatusText(t: IssueTranslator, status: WorkflowRuntimeDis
       return t(($) => $.execution.display_status.reviewing);
     case "completed":
       return t(($) => $.execution.display_status.completed);
+    case "failed":
+      return t(($) => $.execution.display_status.failed);
     case "blocked":
       return t(($) => $.execution.display_status.blocked);
     case "cancelled":
@@ -164,8 +231,10 @@ function runtimeDisplayStatusText(t: IssueTranslator, status: WorkflowRuntimeDis
   }
 }
 
-function splitTaskWorkerType(task: SplitTask): WorkerType {
-  return task.workflow_id ? "agent" : "human";
+function splitTaskWorkerType(assigneeType: string | null): WorkerType {
+  if (assigneeType === "agent" || assigneeType === "squad") return assigneeType;
+  if (assigneeType === "workflow") return "agent";
+  return "human";
 }
 
 function createSplitChildNodeId(parentNodeId: string, taskId: string): string {
@@ -582,64 +651,116 @@ export function ExecutionPanoramaPage({
   runId,
   wsId,
   issueId,
+  issueCreatorType,
+  issueCreatorId,
   fillAvailableHeight = false,
+  showRoleAssignmentEntry = true,
 }: ExecutionPanoramaPageProps) {
   const queryClient = useQueryClient();
+  const currentUserId = useAuthStore((state) => state.user?.id ?? null);
+  const setChatFabHidden = useChatStore((state) => state.setFabHidden);
   const paths = useWorkspacePaths();
   const navigation = useNavigation();
   const { t } = useT("issues");
+  const { t: tWf } = useT("workflows");
   // ---- Data queries ----
-  const { isLoading: wfLoading } = useQuery(
-    workflowDetailOptions(wsId, workflowId),
+  const { data: canvasSummary, isLoading: canvasSummaryLoading } = useQuery({
+    ...workflowRunCanvasSummaryOptions(wsId, workflowId, runId ?? ""),
+    enabled: !!runId,
+  });
+  const run = runId ? canvasSummary?.run : undefined;
+  const shouldLoadCurrentDefinition = !runId || Boolean(
+    run?.id &&
+    (run.definition_schema_version ?? 0) <= 0 &&
+    !run.definition_snapshot,
   );
+  const { isLoading: wfLoading } = useQuery({
+    ...workflowDetailOptions(wsId, workflowId),
+    enabled: shouldLoadCurrentDefinition,
+  });
   const { data: stages, isLoading: stLoading } = useQuery(
-    workflowStagesOptions(wsId, workflowId),
+    { ...workflowStagesOptions(wsId, workflowId), enabled: shouldLoadCurrentDefinition },
   );
   const { data: nodes, isLoading: ndLoading } = useQuery(
-    workflowNodesOptions(wsId, workflowId),
+    { ...workflowNodesOptions(wsId, workflowId), enabled: shouldLoadCurrentDefinition },
   );
   const { data: nodeRuns = [] } = useQuery({
     ...workflowNodeRunsOptions(wsId, workflowId, runId ?? ""),
     enabled: !!runId,
   });
-  const { data: canvasSummary } = useQuery({
-    ...workflowRunCanvasSummaryOptions(wsId, workflowId, runId ?? ""),
-    enabled: !!runId,
+  const { data: edges } = useQuery({
+    ...workflowEdgesOptions(wsId, workflowId),
+    enabled: shouldLoadCurrentDefinition,
   });
-  const { data: edges } = useQuery(workflowEdgesOptions(wsId, workflowId));
   const { data: agents } = useQuery(agentListOptions(wsId));
   const { data: workflowRoles = [] } = useQuery(workflowRolesOptions(wsId));
   const { data: members = [] } = useQuery(memberListOptions(wsId));
+  const currentMember = members.find((member) => member.user_id === currentUserId) ?? null;
   const { data: roleResolutions = [] } = useQuery({
     ...workflowRoleResolutionsOptions(wsId, workflowId, runId ?? ""),
     enabled: !!runId,
   });
-  const { t: tWf } = useT("workflows");
   const { data: squads } = useQuery(squadListOptions(wsId));
+  const { byAgent: presenceByAgent } = useWorkspacePresenceMap(wsId);
+  const actorTypeLabels = useMemo<Record<WorkflowActorEntityType, string>>(() => ({
+    agent: tWf(($) => $.panorama.card.actor_type_agent),
+    member: tWf(($) => $.panorama.card.actor_type_member),
+    squad: tWf(($) => $.panorama.card.actor_type_squad),
+    role: tWf(($) => $.panorama.card.actor_type_role),
+    api: tWf(($) => $.panorama.card.actor_type_api),
+  }), [tWf]);
+  const actorAvailabilityLabels = useMemo(() => ({
+    online: tWf(($) => $.panorama.card.actor_online),
+    offline: tWf(($) => $.panorama.card.actor_offline),
+  }), [tWf]);
   const { data: splitWorkflowOptions = [] } = useQuery(splitIssueWorkflowOptions(wsId, workflowId));
-
+  const { data: childIssues = [] } = useQuery({
+    ...childIssuesOptions(wsId, issueId ?? ""),
+    enabled: !!issueId,
+  });
   // ---- Local state ----
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 24, zoom: 0.95 });
   const [retryingNodeRunId, setRetryingNodeRunId] = useState<string | null>(null);
+  const [splitDraftSelectionsByNodeRunId, setSplitDraftSelectionsByNodeRunId] = useState<Record<string, string[]>>({});
   const [expandedSplitNodeIds, setExpandedSplitNodeIds] = useState<Set<string>>(() => new Set());
   const [focusSplitNodeId, setFocusSplitNodeId] = useState<string | null>(null);
   const splitViewportByNodeIdRef = useRef<Map<string, Viewport>>(new Map());
   const restoreViewportRequestIdRef = useRef(0);
   const [restoreViewportRequest, setRestoreViewportRequest] = useState<SplitViewportRestoreRequest | null>(null);
 
-  const allStages: WorkflowStage[] = stages ?? [];
-  const allNodes: WorkflowNode[] = nodes ?? [];
+  useEffect(() => {
+    setChatFabHidden(selectedNodeId !== null);
+    return () => setChatFabHidden(false);
+  }, [selectedNodeId, setChatFabHidden]);
+
+  const canvasNodeRuns = canvasSummary?.node_runs.length
+    ? canvasSummary.node_runs
+    : nodeRuns;
+  const snapshotCanvas = useMemo(
+    () => run && !shouldLoadCurrentDefinition
+      ? workflowRunCanvasDefinition(run, canvasNodeRuns, tWf(($) => $.run.roles.unknown_node))
+      : null,
+    [canvasNodeRuns, run, shouldLoadCurrentDefinition, tWf],
+  );
+  const allStages = useMemo<WorkflowStage[]>(
+    () => snapshotCanvas?.stages ?? stages ?? [],
+    [snapshotCanvas?.stages, stages],
+  );
+  const allNodes = useMemo<WorkflowNode[]>(
+    () => snapshotCanvas?.nodes ?? nodes ?? [],
+    [nodes, snapshotCanvas?.nodes],
+  );
+  const allEdges = snapshotCanvas?.edges ?? edges ?? [];
 
   // ---- Lookup maps ----
   const nodeRunMap = useMemo(() => {
     const map = new Map<string, WorkflowNodeRun>();
-    const runs = canvasSummary?.node_runs ?? nodeRuns;
-    for (const nr of runs) {
-      map.set(nr.workflow_node_id, nr);
+    for (const nr of canvasNodeRuns) {
+      map.set(nr.source_workflow_node_id ?? nr.workflow_node_id, nr);
     }
     return map;
-  }, [canvasSummary?.node_runs, nodeRuns]);
+  }, [canvasNodeRuns]);
 
   const runtimeSummaryMap = useMemo(() => {
     const map = new Map<string, WorkflowNodeRuntimeSummary>();
@@ -648,6 +769,26 @@ export function ExecutionPanoramaPage({
     }
     return map;
   }, [canvasSummary?.node_runtime_summaries]);
+
+  const hasRunningDuration = useMemo(
+    () => Array.from(nodeRunMap.values()).some((nodeRun) => (
+      nodeRun.started_at != null &&
+      Number.isFinite(Date.parse(nodeRun.started_at)) &&
+      nodeRun.completed_at == null
+    )),
+    [nodeRunMap],
+  );
+  const runtimeNowMs = useRuntimeDurationClock(hasRunningDuration);
+
+  const handleOpenNodeSession = useCallback(async (nodeId: string): Promise<boolean> => {
+    const sessionId = resolveEnterSessionId(
+      nodeRunMap.get(nodeId) ?? null,
+      runtimeSummaryMap.get(nodeId) ?? null,
+    );
+    if (!sessionId) return false;
+    if (!isEmbeddedInCostrict()) return false;
+    return postCostrictNavigateToSession({ sessionId, newTab: true });
+  }, [nodeRunMap, runtimeSummaryMap]);
 
   const splitNodeEntries = useMemo(
     () =>
@@ -674,6 +815,44 @@ export function ExecutionPanoramaPage({
     });
     return map;
   }, [splitNodeEntries, splitTaskQueries]);
+
+  const deliverableNodeEntries = useMemo(
+    () => allNodes.filter((node) => {
+      const kind = parseNodeFormat(node.format_schema).kind;
+      return kind !== "gateway" && kind !== "split" && nodeRunMap.has(node.id);
+    }),
+    [allNodes, nodeRunMap],
+  );
+  const deliverableSubmissionQueries = useQueries({
+    queries: deliverableNodeEntries.map((node) => {
+      const nodeRunId = nodeRunMap.get(node.id)?.id ?? "";
+      return {
+        ...nodeRunDeliverableSubmissionsOptions(wsId, nodeRunId),
+        enabled: !!nodeRunId,
+      };
+    }),
+  });
+  const deliverablesByNodeId = useMemo(() => {
+    const result = new Map<string, RuntimeNodeDeliverableSummary[]>();
+    deliverableNodeEntries.forEach((node, index) => {
+      const definitions = [...(deliverableSubmissionQueries[index]?.data?.deliverables ?? [])]
+        .sort((left, right) => left.sort_order - right.sort_order);
+      const submissions = deliverableSubmissionQueries[index]?.data?.submissions ?? [];
+      const submissionByDeliverableId = new Map(
+        submissions.map((submission) => [submission.deliverable_id, submission]),
+      );
+      result.set(node.id, definitions.map((definition) => {
+        const submission = submissionByDeliverableId.get(definition.id);
+        return {
+          id: definition.id,
+          title: definition.title,
+          status: submission?.status ?? "missing",
+          pullRequestUrl: submission?.pull_request_url || null,
+        };
+      }));
+    });
+    return result;
+  }, [deliverableNodeEntries, deliverableSubmissionQueries]);
 
   const handleToggleSplitNode = useCallback((nodeId: string) => {
     const isExpanded = expandedSplitNodeIds.has(nodeId);
@@ -724,17 +903,18 @@ export function ExecutionPanoramaPage({
     [members],
   );
 
-  // Resolved user per node-run + slot, so role-based worker/critic names can
-  // surface the actual member once role resolution completes. Falls back to
-  // the role name when no resolution exists yet (manual assignment pending or
-  // auto-resolution disabled).
-  const resolvedUserNameByNodeRunSlot = useMemo(() => {
-    const map = new Map<string, string>();
+  // Keep both sides of a resolved role mapping. The runtime card still renders
+  // the concrete member as the actor, while sourceRoleName preserves why that
+  // member was selected instead of making the role disappear from the UI.
+  const resolvedRoleByNodeRunSlot = useMemo(() => {
+    const map = new Map<string, { userId: string; roleName: string }>();
     for (const resolution of roleResolutions) {
       if (resolution.status !== "resolved" || !resolution.resolved_user_id) continue;
-      const memberName = memberNameById.get(resolution.resolved_user_id);
-      if (!memberName) continue;
-      map.set(`${resolution.workflow_node_run_id}:${resolution.slot_type}`, memberName);
+      if (!memberNameById.has(resolution.resolved_user_id)) continue;
+      map.set(`${resolution.workflow_node_run_id}:${resolution.slot_type}`, {
+        userId: resolution.resolved_user_id,
+        roleName: resolution.role_name,
+      });
     }
     return map;
   }, [roleResolutions, memberNameById]);
@@ -763,6 +943,11 @@ export function ExecutionPanoramaPage({
     return map;
   }, [splitWorkflowOptions]);
 
+  const childIssueById = useMemo(
+    () => new Map(childIssues.map((childIssue) => [childIssue.id, childIssue])),
+    [childIssues],
+  );
+
   const getActorName = useCallback((type: string, id: string): string | null => {
     if (type === "agent") {
       return agentLookup.get(id)?.name ?? null;
@@ -773,8 +958,50 @@ export function ExecutionPanoramaPage({
     if (type === "squad") {
       return squadLookup.get(id)?.name ?? null;
     }
+    if (type === "workflow") {
+      return splitWorkflowLookup.get(id)?.title ?? null;
+    }
     return null;
-  }, [agentLookup, memberLookup, squadLookup]);
+  }, [agentLookup, memberLookup, splitWorkflowLookup, squadLookup]);
+
+  const buildConcreteActorIdentity = useCallback((
+    type: WorkerType | CriticType | string | null | undefined,
+    id: string | null | undefined,
+    nameOverride?: string | null,
+  ): WorkflowActorIdentity | null => {
+    if (!id) return null;
+    const actorType = type === "human" || type === "member"
+      ? "member"
+      : type === "agent" || type === "squad"
+        ? type
+        : null;
+    if (!actorType) return null;
+    const name = nameOverride?.trim() || getActorName(actorType, id);
+    if (!name) return null;
+    const avatarUrl = actorType === "agent"
+      ? agentLookup.get(id)?.avatar_url ?? null
+      : actorType === "member"
+        ? memberLookup.get(id)?.avatar_url ?? null
+        : squadLookup.get(id)?.avatar_url ?? null;
+    const identity: WorkflowActorIdentity = {
+      type: actorType,
+      id,
+      name,
+      typeLabel: actorTypeLabels[actorType],
+      initials: name.split(" ").map((part) => part[0]).join("").toUpperCase().slice(0, 2),
+      avatarUrl,
+    };
+    if (actorType === "agent") {
+      const availability: AgentAvailability | undefined = presenceByAgent.get(id)?.availability;
+      if (availability) {
+        identity.availability = availability;
+        identity.availabilityLabel = availability === "online"
+          ? actorAvailabilityLabels.online
+          : actorAvailabilityLabels.offline;
+      }
+    }
+    return identity;
+  }, [actorAvailabilityLabels, actorTypeLabels, agentLookup, getActorName, memberLookup, presenceByAgent, squadLookup]);
 
   // Built-in role names are seeded in English (developer/qa/tech_lead); render
   // localized labels so the canvas matches the rest of the UI. Custom roles
@@ -799,51 +1026,66 @@ export function ExecutionPanoramaPage({
     [tWf],
   );
 
-  // Precedence for runtime display: explicit agent/member → resolved user from
-  // role resolution → role name (localized for built-ins). Returns null when
-  // nothing applies so callers can render their placeholder.
+  const resolveRuntimeActorIdentity = useCallback((
+    slot: "worker" | "critic",
+    node: WorkflowNode,
+  ): WorkflowActorIdentity | null => {
+    const nodeRun = nodeRunMap.get(node.id);
+    const resolvedRole = nodeRun
+      ? resolvedRoleByNodeRunSlot.get(`${nodeRun.id}:${slot}`)
+      : undefined;
+    const sourceRoleName = resolvedRole
+      ? renderRoleName(undefined, resolvedRole.roleName) ?? resolvedRole.roleName
+      : undefined;
+    const runType = slot === "worker" ? nodeRun?.worker_type : nodeRun?.critic_type;
+    const runId = slot === "worker" ? nodeRun?.worker_id : nodeRun?.critic_id;
+    const actorNameSnapshot = slot === "worker"
+      ? nodeRun?.worker_name_snapshot
+      : nodeRun?.critic_name_snapshot;
+    const runtimeIdentity = buildConcreteActorIdentity(runType, runId, actorNameSnapshot);
+    if (runtimeIdentity) {
+      return resolvedRole && runtimeIdentity.type === "member" && runtimeIdentity.id === resolvedRole.userId
+        ? { ...runtimeIdentity, sourceRoleName }
+        : runtimeIdentity;
+    }
+
+    const nodeType = slot === "worker" ? node.worker_type : node.critic_type;
+    const nodeActorId = slot === "worker" ? node.worker_id : node.critic_id;
+    const configuredIdentity = buildConcreteActorIdentity(nodeType, nodeActorId);
+    if (configuredIdentity) return configuredIdentity;
+
+    const roleId = slot === "worker" ? node.worker_role_id : node.critic_role_id;
+    const roleKey = slot === "worker" ? node.worker_role : node.critic_role;
+    const roleNameSnapshot = snapshotRoleName(
+      slot === "worker" ? nodeRun?.worker_role_snapshot : nodeRun?.critic_role_snapshot,
+    );
+    if (roleId || roleKey || roleNameSnapshot) {
+      if (nodeRun) {
+        const resolvedIdentity = buildConcreteActorIdentity("member", resolvedRole?.userId);
+        if (resolvedIdentity) return { ...resolvedIdentity, sourceRoleName };
+      }
+      const roleName = roleNameSnapshot
+        ? renderRoleName(undefined, roleNameSnapshot)
+        : renderRoleName(roleId ? roleById.get(roleId) : undefined, roleId ?? roleKey);
+      if (roleName) {
+        return { type: "role", id: null, name: roleName, typeLabel: actorTypeLabels.role };
+      }
+    }
+
+    if (slot === "critic" && (node.critic_type === "api" || node.critic_api_url?.trim())) {
+      return { type: "api", id: null, name: "API review", typeLabel: actorTypeLabels.api };
+    }
+    return null;
+  }, [actorTypeLabels, buildConcreteActorIdentity, nodeRunMap, renderRoleName, resolvedRoleByNodeRunSlot, roleById]);
+
   const resolveWorkerName = useCallback(
-    (node: WorkflowNode): string | null => {
-      if (node.worker_id) {
-        return getActorName(workerTypeToActorType(node.worker_type), node.worker_id);
-      }
-      if (node.worker_role_id || node.worker_role) {
-        const nodeRun = nodeRunMap.get(node.id);
-        if (nodeRun) {
-          const resolved = resolvedUserNameByNodeRunSlot.get(`${nodeRun.id}:worker`);
-          if (resolved) return resolved;
-        }
-        const rendered = renderRoleName(
-          node.worker_role_id ? roleById.get(node.worker_role_id) : undefined,
-          node.worker_role_id ?? node.worker_role,
-        );
-        return rendered ?? null;
-      }
-      return null;
-    },
-    [getActorName, nodeRunMap, renderRoleName, resolvedUserNameByNodeRunSlot, roleById],
+    (node: WorkflowNode): string | null => resolveRuntimeActorIdentity("worker", node)?.name ?? null,
+    [resolveRuntimeActorIdentity],
   );
 
   const resolveCriticName = useCallback(
-    (node: WorkflowNode): string | null => {
-      if (node.critic_id) {
-        return getActorName(node.critic_type ?? "agent", node.critic_id);
-      }
-      if (node.critic_role_id || node.critic_role) {
-        const nodeRun = nodeRunMap.get(node.id);
-        if (nodeRun) {
-          const resolved = resolvedUserNameByNodeRunSlot.get(`${nodeRun.id}:critic`);
-          if (resolved) return resolved;
-        }
-        const rendered = renderRoleName(
-          node.critic_role_id ? roleById.get(node.critic_role_id) : undefined,
-          node.critic_role_id ?? node.critic_role,
-        );
-        return rendered ?? null;
-      }
-      return null;
-    },
-    [getActorName, nodeRunMap, renderRoleName, resolvedUserNameByNodeRunSlot, roleById],
+    (node: WorkflowNode): string | null => resolveRuntimeActorIdentity("critic", node)?.name ?? null,
+    [resolveRuntimeActorIdentity],
   );
 
   const handleRetryNodeRun = useCallback(async (nodeRun: WorkflowNodeRun) => {
@@ -868,7 +1110,9 @@ export function ExecutionPanoramaPage({
   }, [queryClient, runId, workflowId, wsId]);
 
   // ---- Derived ----
-  const isLoading = wfLoading || stLoading || ndLoading;
+  const isLoading = runId
+    ? canvasSummaryLoading || (shouldLoadCurrentDefinition && (wfLoading || stLoading || ndLoading))
+    : wfLoading || stLoading || ndLoading;
 
   if (isLoading) {
     return (
@@ -881,45 +1125,56 @@ export function ExecutionPanoramaPage({
     );
   }
 
-  const unassignedCount = allNodes.filter((node) => !node.stage_id).length;
-  const canvasStages = unassignedCount > 0 || allStages.length === 0
-    ? [
-        ...allStages,
-        {
-          id: "unassigned",
-          workflow_id: workflowId,
-          name: "Unassigned",
-          description: "",
-          sort_order: allStages.length,
-          node_count: unassignedCount,
-          created_at: "",
-          updated_at: "",
-        },
-      ]
-    : allStages;
+  const canvasStages = workflowCanvasStages(allStages, allNodes, workflowId);
   const runtimeFocusNodeId = pickRuntimeFocusNodeId(allNodes, nodeRunMap);
+  const splitNodeIds = new Set(
+    allNodes
+      .filter((node) => parseNodeFormat(node.format_schema).kind === "split")
+      .map((node) => node.id),
+  );
   const baseRfNodesRaw = workflowNodesToReactFlowNodes({
     nodes: allNodes,
     stages: sortStagesForDisplay(allStages),
     nodeType: "runtimeNode",
     nodeHeight: RUNTIME_NODE_HEIGHT,
     includeCriticBadges: false,
-    makeNodeData: (node) => ({
-      node,
-      nodeRun: nodeRunMap.get(node.id) ?? null,
-      runtimeSummary: runtimeSummaryMap.get(node.id) ?? null,
-      workerName: resolveWorkerName(node),
-      criticName: resolveCriticName(node),
-      onOpen: setSelectedNodeId,
-      isRuntimeFocus: node.id === runtimeFocusNodeId,
-      isSplitExpanded: expandedSplitNodeIds.has(node.id),
-      splitChildCount: (splitTasksByNodeId.get(node.id) ?? []).filter((task) => task.issue_id).length,
-      onSplitNodeToggle: handleToggleSplitNode,
-    }),
+    makeNodeData: (node) => {
+      const workerIdentity = resolveRuntimeActorIdentity("worker", node);
+      const criticIdentity = resolveRuntimeActorIdentity("critic", node);
+      return {
+        node,
+        nodeRun: nodeRunMap.get(node.id) ?? null,
+        runtimeSummary: runtimeSummaryMap.get(node.id) ?? null,
+        nowMs: runtimeNowMs,
+        workerName: workerIdentity?.name ?? null,
+        criticName: criticIdentity?.name ?? null,
+        workerIdentity,
+        criticIdentity,
+        onOpen: setSelectedNodeId,
+        onOpenSession: handleOpenNodeSession,
+        deliverables: deliverablesByNodeId.get(node.id) ?? [],
+        isRuntimeFocus: node.id === runtimeFocusNodeId,
+        isSplitExpanded: expandedSplitNodeIds.has(node.id),
+        splitChildCount: (splitTasksByNodeId.get(node.id) ?? []).filter((task) => task.issue_id).length,
+        onSplitNodeToggle: handleToggleSplitNode,
+      };
+    },
     makeCriticName: (node) => resolveCriticName(node) ?? undefined,
+  }).map((node) => {
+    if (!splitNodeIds.has(node.id)) return node;
+    const previousHeight = typeof node.height === "number" ? node.height : RUNTIME_NODE_HEIGHT;
+    const heightDelta = RUNTIME_SPLIT_NODE_HEIGHT - previousHeight;
+    return {
+      ...node,
+      height: RUNTIME_SPLIT_NODE_HEIGHT,
+      position: {
+        ...node.position,
+        y: node.position.y - heightDelta / 2,
+      },
+    };
   });
   const baseRfEdges = workflowEdgesToReactFlowEdges({
-    edges: edges ?? [],
+    edges: allEdges,
     nodes: allNodes,
     stages: sortStagesForDisplay(allStages),
     includeCriticEdges: false,
@@ -970,14 +1225,17 @@ export function ExecutionPanoramaPage({
 
     const parentX = parentRfNode.position.x + (nodeShiftById.get(parentRfNode.id) ?? 0);
     const parentY = parentRfNode.position.y;
+    const parentHeight = typeof parentRfNode.height === "number"
+      ? parentRfNode.height
+      : RUNTIME_SPLIT_NODE_HEIGHT;
     const childClusterStartX = parentX + WORKER_WIDTH + SPLIT_CHILD_X_GAP;
     const subflowHeight = splitSubflowHeight(layout.levelGroups);
     const subflowWidth = splitSubflowWidth(layout.levelGroups);
     const bounds = {
       left: childClusterStartX,
       right: childClusterStartX + subflowWidth,
-      top: parentY - (subflowHeight - RUNTIME_NODE_HEIGHT) / 2,
-      bottom: parentY - (subflowHeight - RUNTIME_NODE_HEIGHT) / 2 + subflowHeight,
+      top: parentY - (subflowHeight - parentHeight) / 2,
+      bottom: parentY - (subflowHeight - parentHeight) / 2 + subflowHeight,
     };
 
     clusterBoundsBySplitNodeId.set(layout.splitNode.id, bounds);
@@ -1033,6 +1291,13 @@ export function ExecutionPanoramaPage({
       group.forEach((task, index) => {
         const childNodeId = createSplitChildNodeId(splitNode.id, task.id);
         const issueId = task.issue_id!;
+        const linkedIssue = childIssueById.get(issueId);
+        const assigneeType = linkedIssue?.assignee_type !== undefined
+          ? linkedIssue.assignee_type
+          : task.assignee_type ?? (task.workflow_id ? "workflow" : null);
+        const assigneeId = linkedIssue?.assignee_id !== undefined
+          ? linkedIssue.assignee_id
+          : task.assignee_id ?? task.workflow_id;
         const displayStatus = splitTaskDisplayStatus(task.status);
         const childWorkflowNode = {
           id: childNodeId,
@@ -1042,8 +1307,8 @@ export function ExecutionPanoramaPage({
           position_x: 0,
           position_y: 0,
           format_schema: null,
-          worker_type: splitTaskWorkerType(task),
-          worker_id: task.workflow_id,
+          worker_type: splitTaskWorkerType(assigneeType),
+          worker_id: assigneeId,
           critic_type: "human",
           critic_id: null,
           critic_api_url: null,
@@ -1056,8 +1321,8 @@ export function ExecutionPanoramaPage({
           workflow_node_id: childNodeId,
           node_run_id: task.run_id ?? task.id,
           display_status: displayStatus,
-          active_actor_type: "workflow",
-          active_actor_id: task.workflow_id,
+          active_actor_type: assigneeType ?? "",
+          active_actor_id: assigneeId,
           duration_seconds: null,
           session_id: null,
           runtime_id: null,
@@ -1066,9 +1331,12 @@ export function ExecutionPanoramaPage({
           error_message: "",
           split_progress: null,
         } satisfies WorkflowNodeRuntimeSummary;
-        const childWorkerName = task.workflow_id
-          ? splitWorkflowLookup.get(task.workflow_id)?.title ?? task.workflow_id
+        const childWorkerName = assigneeType && assigneeId
+          ? getActorName(assigneeType, assigneeId) ?? assigneeId
           : null;
+        const issueIdentifier = linkedIssue?.identifier
+          ?? t(($) => $.execution.card.child_issue_fallback);
+        const progressLabel = splitTaskProgressLabel(t, task, taskMap);
 
         splitChildDetailByNodeId.set(childNodeId, {
           issueId,
@@ -1086,6 +1354,8 @@ export function ExecutionPanoramaPage({
           displayStatus,
           displayStatusLabel: runtimeDisplayStatusText(t, displayStatus),
           workerName: childWorkerName,
+          issueIdentifier,
+          progressLabel,
           level,
           rowIndex: index,
           dependencyNodeIds: validDependencies.map((depId) => createSplitChildNodeId(splitNode.id, depId)),
@@ -1106,12 +1376,15 @@ export function ExecutionPanoramaPage({
     const subflowNodeId = createSplitSubflowNodeId(splitNode.id);
     const subflowHeight = splitSubflowHeight(layout.levelGroups);
     const subflowWidth = splitSubflowWidth(layout.levelGroups);
+    const parentHeight = typeof parentRfNode.height === "number"
+      ? parentRfNode.height
+      : RUNTIME_SPLIT_NODE_HEIGHT;
     splitSubflowNodes.push({
       id: subflowNodeId,
       type: "runtimeSplitSubflow",
       position: {
         x: childClusterStartX,
-        y: parentRfNode.position.y - (subflowHeight - RUNTIME_NODE_HEIGHT) / 2,
+        y: parentRfNode.position.y - (subflowHeight - parentHeight) / 2,
       },
       width: subflowWidth,
       height: subflowHeight,
@@ -1183,6 +1456,30 @@ export function ExecutionPanoramaPage({
     : null;
   const selectedNodeFormat = selectedNode ? parseNodeFormat(selectedNode.format_schema) : null;
   const isSplitSelectedNode = selectedNodeFormat?.kind === "split";
+  const currentMemberRole =
+    members.find((member) => member.user_id === currentUserId)?.role ?? null;
+  const requiresManualRoleAssignment = Boolean(
+    runId && (
+      run?.status === "waiting_role_assignment" ||
+      roleResolutions.some((resolution) =>
+        resolution.status === "needs_human" || resolution.status === "invalidated"
+      )
+    ),
+  );
+  const canManageRoleAssignments = Boolean(
+    currentUserId && run && (!currentMember || isActiveWorkspaceMember(currentMember)),
+  );
+  const mayReviewSelectedRun = canSubmitNodeRunReview(
+    {
+      issueCreatorType: issueCreatorType ?? null,
+      issueCreatorId: issueCreatorId ?? null,
+      criticUserId:
+        selectedRun?.critic_type === "human"
+          ? selectedRun.critic_id
+          : null,
+    },
+    { userId: currentUserId, role: currentMemberRole },
+  ).allowed;
   const isRetryableSelectedRun =
     selectedRun?.status === "failed" ||
     selectedRun?.status === "format_failed" ||
@@ -1205,6 +1502,35 @@ export function ExecutionPanoramaPage({
       )}
       data-testid="execution-panorama"
     >
+      {showRoleAssignmentEntry && requiresManualRoleAssignment ? (
+        <div
+          className="flex shrink-0 items-center gap-3 border-b border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
+          data-testid="manual-role-assignment-entry"
+        >
+          <AlertTriangle className="size-4 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">
+              {t(($) => $.execution.panorama.role_assignment_required)}
+            </p>
+            <p className="text-xs text-amber-800 dark:text-amber-200">
+              {canManageRoleAssignments
+                ? t(($) => $.execution.panorama.role_assignment_manage_hint)
+                : t(($) => $.execution.panorama.role_assignment_wait_hint)}
+            </p>
+          </div>
+          {canManageRoleAssignments && runId ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="shrink-0 border-amber-300 bg-background/80 hover:bg-background dark:border-amber-800"
+              onClick={() => navigation.push(paths.workflowRunDetail(workflowId, runId))}
+            >
+              {t(($) => $.execution.panorama.assign_roles_manually)}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       <ReactFlowProvider>
         <ExecutionPanoramaCanvas
           rfNodes={rfNodes}
@@ -1234,8 +1560,15 @@ export function ExecutionPanoramaPage({
             wsId={wsId}
             workflowId={workflowId}
             runId={runId ?? undefined}
-						plannerName={selectedWorkerName ?? undefined}
+            plannerName={selectedWorkerName ?? undefined}
             parentIssueId={issueId}
+            selectedDraftTaskIds={selectedRun ? splitDraftSelectionsByNodeRunId[selectedRun.id] : undefined}
+            onSelectedDraftTaskIdsChange={selectedRun ? (taskIds) => {
+              setSplitDraftSelectionsByNodeRunId((current) => ({
+                ...current,
+                [selectedRun.id]: taskIds,
+              }));
+            } : undefined}
             onClose={() => setSelectedNodeId(null)}
           />
         ) : (
@@ -1246,6 +1579,14 @@ export function ExecutionPanoramaPage({
             criticName={selectedCriticName}
             onClose={() => setSelectedNodeId(null)}
             wsId={wsId}
+            issueId={issueId}
+            workflowId={workflowId}
+            runId={runId}
+            currentUserId={currentUserId}
+            currentMember={currentMember
+              ? { role: currentMember.role, status: currentMember.status }
+              : null}
+            mayReview={mayReviewSelectedRun}
             runtimeSummary={selectedRuntimeSummary}
             onOpenIssue={
               selectedChildDetail
@@ -1261,7 +1602,7 @@ export function ExecutionPanoramaPage({
             }
             isChildIssue={Boolean(selectedChildDetail)}
             parentSplitTitle={selectedChildParentTitle}
-            childWorkflowName={selectedChildDetail?.workerName ?? null}
+            childAssigneeName={selectedChildDetail?.workerName ?? null}
             onRetry={
               selectedRun && isRetryableSelectedRun && retryingNodeRunId !== selectedRun.id
                 ? () => void handleRetryNodeRun(selectedRun)

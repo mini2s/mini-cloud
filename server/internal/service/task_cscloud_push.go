@@ -1,23 +1,33 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/cloudruntime"
+	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 const (
+	// csCloudProvider identifies a cs-cloud device runtime for task dispatch
+	// (dispatchTaskToCSCloud / maybeAbortOnDevice gate on runtime.Provider ==
+	// this value). It MUST stay equal to csCloudRuntimeProvider in
+	// internal/handler/issue_conversation.go and to the provider value cs-cloud
+	// registers (internal/workflowrunner/driver.go, const providerCSCloud, in
+	// the cs-cloud repo). "csc" is the agent CLI name, NOT this provider value.
 	csCloudProvider             = "cs-cloud"
 	failureReasonDispatchFailed = "dispatch_failed"
 	csCloudPushTimeout          = 25 * time.Second
@@ -30,6 +40,73 @@ const (
 	// promptItemMaxRunes caps a single source (issue description, comment).
 	promptItemMaxRunes = 32 * 1024
 )
+
+// csCloudRepoSpec describes one repository the agent may work in.
+type csCloudRepoSpec struct {
+	URL        string `json:"url"`
+	Provider   string `json:"provider"`            // "gitlab" | "gitea"
+	Role       string `json:"role"`                // "code" | "delivery"
+	BaseBranch string `json:"base_branch"`         // code=remote default; delivery=inst branch
+	Alias      string `json:"alias,omitempty"`     // semantic label for the agent
+	BotToken   string `json:"bot_token,omitempty"` // delivery only (Gitea team bot); code omits (CLI reads live)
+}
+
+// csCloudDeliverableSpec is one deliverable contract for the node.
+type csCloudDeliverableSpec struct {
+	ID        string            `json:"id"`
+	RepoAlias string            `json:"repo_alias,omitempty"` // maps to repos[].alias
+	Report    csCloudReportSpec `json:"report"`
+}
+
+// csCloudReportSpec describes the HTTP endpoint where a deliverable result is posted.
+type csCloudReportSpec struct {
+	Endpoint  string `json:"endpoint"`
+	Method    string `json:"method"`
+	BodyField string `json:"body_field"`
+}
+
+// csCloudAgentPlugin mirrors cs-cloud's workflow.PluginSpec: the plugin bound
+// to an agent, installed by cs-cloud into the task workdir before the csc
+// session runs. Nil/empty in the payload means no plugin.
+type csCloudAgentPlugin struct {
+	ID      string                `json:"id"`
+	Name    string                `json:"name"`
+	Install *csCloudPluginInstall `json:"install,omitempty"`
+}
+
+// csCloudPluginInstall describes how to install a plugin from a marketplace.
+// Mirrors cs-cloud's workflow.PluginInstallSpec / multica's plugincatalog.PluginInstall.
+type csCloudPluginInstall struct {
+	Method              string `json:"method"`
+	Marketplace         string `json:"marketplace"`
+	PluginName          string `json:"plugin_name"`
+	MarketplaceName     string `json:"marketplace_name"`
+	MarketplaceRepo     string `json:"marketplace_repo"`
+	MarketplaceVerified bool   `json:"marketplace_verified"`
+}
+
+// csCloudCloudSkillInstall mirrors cs-cloud's workflow.CloudSkillInstall: a
+// cloud catalog skill binding cs-cloud installs via `csc skill install`.
+type csCloudCloudSkillInstall struct {
+	ID          string                        `json:"id"`
+	Slug        string                        `json:"slug,omitempty"`
+	Name        string                        `json:"name"`
+	Description string                        `json:"description"`
+	Install     *csCloudCloudSkillInstallSpec `json:"install"`
+	Position    int32                         `json:"position"`
+}
+
+// csCloudCloudSkillInstallSpec is the executable subset of cloud skill install
+// metadata. Mirrors cs-cloud's workflow.CloudSkillInstallSpec. Only the
+// allowlisted keys {method, spec, skill_id, source_url, verified} are kept
+// (matching handler.allowlistedCatalogSkillInstall).
+type csCloudCloudSkillInstallSpec struct {
+	Method    string `json:"method,omitempty"`
+	Spec      string `json:"spec,omitempty"`
+	SkillID   string `json:"skill_id,omitempty"`
+	SourceURL string `json:"source_url,omitempty"`
+	Verified  bool   `json:"verified,omitempty"`
+}
 
 // csCloudTaskRunPayload is the JSON body posted to a cs-cloud device when a
 // task is pushed. Fields are named to match cs-cloud's
@@ -44,15 +121,54 @@ type csCloudTaskRunPayload struct {
 	Agent       string            `json:"agent"`
 	Prompt      string            `json:"prompt"`
 	Env         map[string]string `json:"env,omitempty"`
-	Kind        string            `json:"kind,omitempty"`
+	// RepoURL is the workspace/project code repo the agent clones into its
+	// worktree and develops in. Empty when the workspace has no code repo.
+	// deprecated: Task 3 uses Repos instead.
+	RepoURL string `json:"repo_url,omitempty"`
+	Kind    string `json:"kind,omitempty"`
+	// PriorSessionID is the csc session id of the last task on the same
+	// (agent, issue), so cs-cloud resumes the conversation context. Empty on
+	// first round, manual rerun, or runtime mismatch (session is device-scoped).
+	PriorSessionID string `json:"prior_session_id,omitempty"`
+	// PriorWorkDir is the workdir of the last task on the same (agent, issue),
+	// so cs-cloud reuses (resets) the same checkout. Empty on first round.
+	PriorWorkDir string                   `json:"prior_work_dir,omitempty"`
+	Repos        []csCloudRepoSpec        `json:"repos,omitempty"`
+	Deliverables []csCloudDeliverableSpec `json:"deliverables,omitempty"`
+	// Plugin is the agent's bound plugin for cs-cloud to install before the
+	// session runs. Nil when the agent has no plugin.
+	Plugin *csCloudAgentPlugin `json:"plugin,omitempty"`
+	// CloudSkills are the agent's cloud catalog skill bindings for cs-cloud to
+	// install before the session runs. Empty when the agent has none.
+	CloudSkills []csCloudCloudSkillInstall `json:"cloud_skills,omitempty"`
+}
+
+// shouldSkipPriorTaskState reports whether the task should start a fresh
+// session/workdir instead of resuming the prior (agent, issue) conversation.
+// Mirrors handler.shouldSkipPriorTaskState but lives in the service package
+// (cross-package import is not allowed). The handler's split_chat check is
+// omitted here because split tasks are daemon-only and never dispatched to
+// cs-cloud, so only the manual-rerun (ForceFreshSession) gate remains.
+func shouldSkipPriorTaskState(t db.MulticaAgentTaskQueue) bool {
+	return t.ForceFreshSession
 }
 
 // maybePushToCSCloud is called synchronously from notifyTaskAvailable. It
 // spawns the actual push in a detached goroutine so the enqueueing HTTP
 // request is not blocked by network IO.
 func (s *TaskService) maybePushToCSCloud(task db.MulticaAgentTaskQueue) {
-	if s.CSCloudPush == nil || !s.CSCloudPush.Enabled() {
+	if s.CSCloudPush == nil {
+		// A nil client is a wiring bug, not a configuration choice — every
+		// TaskService instance is expected to have one wired. Log loudly:
+		// without this the task silently sits in 'queued' until the TTL
+		// sweeper expires it (seen in production, took hours to diagnose).
+		slog.Warn("cs-cloud push skipped: push client not wired",
+			"task_id", util.UUIDToString(task.ID),
+		)
 		return
+	}
+	if !s.CSCloudPush.Enabled() {
+		return // fleet URL not configured; cs-cloud push intentionally off
 	}
 	if !task.RuntimeID.Valid {
 		return
@@ -149,26 +265,755 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		return csCloudTaskRunPayload{}, err
 	}
 
+	// Hoist phase + deliverables so the Task-2 safety net can fire BEFORE
+	// env/repos[] assembly — that way the just-provisioned settings are visible
+	// to repositoryDeliverableEnv (CS_CLOUD_REPO_* env) and resolveDeliveryRepo
+	// (repos[] role=delivery) on the CURRENT dispatch, not just the next one.
+	// Deliverables stays empty for non-worker (critic) phases: critic tasks
+	// review, they don't submit, so they must not emit a Deliverables slice.
+	phase := workflowPhaseFromTask(task)
+	deliverables := []csCloudDeliverableSpec{}
+	if phase == "worker" {
+		deliverables = s.deliverableSpecsForTask(ctx, task)
+	}
+	// Any deliverable (document OR pull_request): ensure Gitea wf repo + inst
+	// branch exist (safety net if run-start ScaffoldRunDeliverables
+	// failed/skipped). M5 decision ① widens this from document-only to any
+	// deliverable — code-only runs get a Gitea repo too, so Task 3's
+	// ArchiveCodeDeliverable has a place to write. Idempotent — re-running
+	// initWorkflowNamespace on an already-provisioned workspace is a no-op.
+	// Best-effort: errors are logged, never block dispatch (the payload still
+	// goes out; a later re-run or member upload recovers).
+	if phase == "worker" && hasAnyDeliverableSpec(deliverables) && s.teamNamespaceConfigured() && s.settingsLackGiteaData(ctx, runtime.WorkspaceID) {
+		if err := s.ensureDeliveryRepo(ctx, task); err != nil {
+			slog.Warn("cs-cloud dispatch: ensure delivery repo",
+				"task_id", util.UUIDToString(task.ID), "error", err)
+		}
+	}
+
 	env := map[string]string{}
+	var agentPluginName pgtype.Text
 	if task.AgentID.Valid {
 		agent, err := s.Queries.GetAgent(ctx, task.AgentID)
-		if err == nil && len(agent.CustomEnv) > 0 {
-			_ = json.Unmarshal(agent.CustomEnv, &env)
+		if err == nil {
+			agentPluginName = agent.PluginName
+			if len(agent.CustomEnv) > 0 {
+				_ = json.Unmarshal(agent.CustomEnv, &env)
+			}
+		}
+	}
+	// Gitea document-deliverable context (CS_CLOUD_REPO_*) + node-run/issue ids,
+	// so the cs-cloud agent can run `cs-cloud workflow deliverable submit` /
+	// `gitea fetch` inside the task. Dormant (no env injected) when Gitea isn't
+	// configured or the node has no deliverables — matches the
+	// claim-time context. Runs AFTER the safety net so it picks up freshly
+	// provisioned settings on the triggering dispatch.
+	repoEnv := s.repositoryDeliverableEnv(ctx, task)
+	for k, v := range repoEnv {
+		env[k] = v
+	}
+	if task.IssueID.Valid {
+		env["CS_CLOUD_ISSUE_ID"] = util.UUIDToString(task.IssueID)
+	}
+	if phase == "critic" {
+		prompt = appendCriticReviewPrompt(prompt)
+	} else {
+		if phase == "worker" {
+			prompt = appendWorkerTaskPrompt(prompt)
+		}
+		if raw, ok := repoEnv["CS_CLOUD_REPO_DELIVERABLES"]; ok {
+			var refs []repositoryDeliverableRefJSON
+			if json.Unmarshal([]byte(raw), &refs) == nil && len(refs) > 0 {
+				prompt = appendDeliverablePrompt(prompt, refs)
+			}
+		}
+		// Rework feedback: if this worker task is a retry (retry_count > 0),
+		// surface the previous critic's rejection so the worker knows what to fix.
+		if phase == "worker" && task.WorkflowNodeRunID.Valid {
+			if nr, err := s.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID); err == nil && nr.RetryCount > 0 && nr.CriticComment.Valid {
+				if fb := strings.TrimSpace(nr.CriticComment.String); fb != "" {
+					prompt += fmt.Sprintf("\n\n---\n## 上一轮评审驳回意见（第 %d 轮）\n\n%s\n\n请针对以上评审意见修改后重新提交。\n", nr.RetryCount, fb)
+				}
+			}
+		}
+	}
+
+	// Repos: code repos (workspace/project, role=code) + the Gitea delivery
+	// repo (role=delivery). Worker phase only — the critic/review phase doesn't
+	// code or submit documents.
+	repos := []csCloudRepoSpec{}
+	projectID := ""
+	var gitlabToken string
+	if phase == "worker" {
+		repos, gitlabToken, projectID = s.resolveCodeRepoAndProject(ctx, task, runtime.WorkspaceID)
+		if len(repos) > 0 {
+			if gitlabToken != "" {
+				env["CS_CLOUD_GITLAB_TOKEN"] = gitlabToken
+			}
+			prompt = appendCodeRepoPrompt(prompt, repos)
+		}
+		// Append the Gitea wf delivery repo (inst base branch + bot PAT) when
+		// the workspace has been provisioned. The agent checks it out via
+		// `cs-cloud repo checkout <url>` (Task 7's prompt) and uses it for
+		// document deliverables. Separate from code repos — has its own alias
+		// ("delivery") so appendCodeRepoPrompt's listing is unaffected.
+		if dr, ok := s.resolveDeliveryRepo(ctx, runtime.WorkspaceID); ok {
+			repos = append(repos, dr)
+		}
+	}
+
+	// Plugin + CloudSkills: resolve the agent's bound plugin (catalog fetch +
+	// server-owned marketplace identity) and snapshot its cloud skills, so
+	// cs-cloud installs them in the task workdir before the csc session runs.
+	// Agent-bound add-ons are independent from workflow phase: worker and critic
+	// nodes can both run as a cloud agent and may require the same plugin/skills.
+	// Best-effort plugin resolution: a catalog hiccup leaves Plugin nil and
+	// dispatch proceeds.
+	var plugin *csCloudAgentPlugin
+	var cloudSkills []csCloudCloudSkillInstall
+	if task.AgentID.Valid {
+		plugin, cloudSkills = s.resolveCSCloudAddons(ctx, task.AgentID, agentPluginName)
+	}
+
+	// Diagnostic: plugin resolution now keys on the agent's stored plugin_name
+	// (the install slug). A nil plugin reaches cs-cloud silently when the agent
+	// has no plugin_name, so surface the input + outcome here for root-cause.
+	// Info, not Warn: a legitimately plugin-less agent is normal.
+	agentPluginNameStr := ""
+	if agentPluginName.Valid {
+		agentPluginNameStr = agentPluginName.String
+	}
+	slog.Info("cs-cloud dispatch: plugin/skill resolution",
+		"task_id", util.UUIDToString(task.ID),
+		"agent_id", util.UUIDToString(task.AgentID),
+		"phase", phase,
+		"agent_plugin_name", agentPluginNameStr,
+		"plugin_resolved", plugin != nil,
+		"cloud_skills", len(cloudSkills),
+	)
+
+	// Prior (agent, issue) session/workdir so cs-cloud resumes the conversation
+	// and reuses the checkout. Ported from the pull path (handler/daemon.go).
+	// PriorSessionID is device-scoped: a csc session on device A cannot be
+	// resumed on device B, so forward it only when the prior task ran on the
+	// same runtime. PriorWorkDir is forwarded regardless — a missing dir on a
+	// different device just makes cs-cloud fall back to a fresh Prepare.
+	priorSessionID, priorWorkDir := "", ""
+	if !shouldSkipPriorTaskState(task) && task.AgentID.Valid && task.IssueID.Valid {
+		if prior, err := s.Queries.GetLastTaskSession(ctx, db.GetLastTaskSessionParams{
+			AgentID: task.AgentID,
+			IssueID: task.IssueID,
+		}); err == nil && prior.SessionID.Valid {
+			if prior.RuntimeID == task.RuntimeID {
+				priorSessionID = prior.SessionID.String
+			}
+			if prior.WorkDir.Valid {
+				priorWorkDir = prior.WorkDir.String
+			}
+		}
+	}
+
+	// Workflow node-run handback: if GetLastTaskSession missed (no issue, or no
+	// matching prior), fall back to the node-run's bound CSC session. Lets
+	// workflow tasks (issue_id NULL) continue via the node-run session binding.
+	// Runtime must match — a session can only resume on the runtime that owns it.
+	// Ported from handler/daemon.go (pull path).
+	if !shouldSkipPriorTaskState(task) && priorSessionID == "" && task.WorkflowNodeRunID.Valid {
+		if nr, err := s.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID); err == nil {
+			if nr.SessionID.Valid && nr.RuntimeID.Valid && nr.RuntimeID == task.RuntimeID {
+				priorSessionID = nr.SessionID.String
+			}
 		}
 	}
 
 	return csCloudTaskRunPayload{
-		TaskID:      util.UUIDToString(task.ID),
-		WorkspaceID: util.UUIDToString(runtime.WorkspaceID),
-		IssueID:     util.UUIDToString(task.IssueID),
-		ProjectID:   "",
-		NodeRunID:   util.UUIDToString(task.WorkflowNodeRunID),
-		AgentID:     util.UUIDToString(task.AgentID),
-		Agent:       "csc",
-		Prompt:      prompt,
-		Env:         env,
-		Kind:        kind,
+		TaskID:         util.UUIDToString(task.ID),
+		WorkspaceID:    util.UUIDToString(runtime.WorkspaceID),
+		IssueID:        util.UUIDToString(task.IssueID),
+		ProjectID:      projectID,
+		NodeRunID:      util.UUIDToString(task.WorkflowNodeRunID),
+		AgentID:        util.UUIDToString(task.AgentID),
+		Agent:          "csc",
+		Prompt:         prompt,
+		Env:            env,
+		Repos:          repos,
+		Deliverables:   deliverables,
+		Plugin:         plugin,
+		CloudSkills:    cloudSkills,
+		Kind:           kind,
+		PriorSessionID: priorSessionID,
+		PriorWorkDir:   priorWorkDir,
 	}, nil
+}
+
+// resolveCodeRepoAndProject returns all code repos for the task's issue,
+// the workspace's GitLab PAT, and the issue's project ID.
+//
+// Project-bound github_repo resources take priority (all collected). If the
+// issue's project has no github_repo resources, falls back to all non-empty
+// workspace repos. Best-effort: errors are logged and yield empty results so a
+// lookup hiccup never blocks dispatch.
+func (s *TaskService) resolveCodeRepoAndProject(ctx context.Context, task db.MulticaAgentTaskQueue, workspaceID pgtype.UUID) (repos []csCloudRepoSpec, gitlabToken, projectID string) {
+	// 1. Try project github_repo resources (override workspace repos).
+	if task.IssueID.Valid {
+		if issue, err := s.Queries.GetIssue(ctx, task.IssueID); err == nil && issue.ProjectID.Valid {
+			projectID = util.UUIDToString(issue.ProjectID)
+			rows, err := s.Queries.ListProjectResources(ctx, issue.ProjectID)
+			if err == nil {
+				for _, row := range rows {
+					if row.ResourceType != "github_repo" {
+						continue
+					}
+					var ref struct {
+						URL string `json:"url"`
+					}
+					if json.Unmarshal(row.ResourceRef, &ref) == nil && strings.TrimSpace(ref.URL) != "" {
+						repos = append(repos, csCloudRepoSpec{
+							URL:      strings.TrimSpace(ref.URL),
+							Provider: "gitlab",
+							Role:     "code",
+						})
+					}
+				}
+			}
+		}
+	}
+
+	// 2. Read workspace settings (gitlab token needed regardless of repo path).
+	if ws, err := s.Queries.GetWorkspace(ctx, workspaceID); err == nil {
+		var settings struct {
+			GitlabAccessToken string `json:"gitlab_access_token"`
+		}
+		if json.Unmarshal(ws.Settings, &settings) == nil {
+			gitlabToken = strings.TrimSpace(settings.GitlabAccessToken)
+		}
+
+		// 3. Fallback: if project had no github_repo resources, use all workspace repos.
+		if len(repos) == 0 {
+			var wsRepos []struct {
+				URL string `json:"url"`
+			}
+			if json.Unmarshal(ws.Repos, &wsRepos) == nil {
+				for _, r := range wsRepos {
+					if u := strings.TrimSpace(r.URL); u != "" {
+						repos = append(repos, csCloudRepoSpec{
+							URL:      u,
+							Provider: "gitlab",
+							Role:     "code",
+						})
+					}
+				}
+			}
+		}
+	} else {
+		slog.Warn("cs-cloud code repo: get workspace", "error", err)
+	}
+	return repos, gitlabToken, projectID
+}
+
+// resolveDeliveryRepo reads the Gitea delivery repo bundle from workspace.settings
+// (gitea_clone_url + last_instance_branch + gitea_pat), written by the
+// team-namespace interface-8 InitWorkflow path, and assembles a csCloudRepoSpec
+// with role="delivery" + alias="delivery". Returns ok=false when the workspace
+// lacks a complete bundle (any of the three fields missing/empty); completeness
+// is judged by giteaProvisioningBundle.complete, shared with settingsLackGiteaData
+// so the two helpers can never disagree on "Gitea data present".
+//
+// The agent authenticates via the CS_CLOUD_REPO_TOKEN env (already injected by
+// repositoryDeliverableEnv from the same settings), so the URL stays plain
+// (no embedded creds) and gitea_bot_username is not needed here. BotToken is
+// populated in the spec for forward-compat — cs-cloud's RepoSpec currently
+// consumes URL/Provider/Role/BaseBranch/Alias only, but a future change may
+// read bot_token for checkout auth.
+func (s *TaskService) resolveDeliveryRepo(ctx context.Context, workspaceID pgtype.UUID) (csCloudRepoSpec, bool) {
+	ws, err := s.Queries.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return csCloudRepoSpec{}, false
+	}
+	if len(ws.Settings) == 0 {
+		return csCloudRepoSpec{}, false
+	}
+	var bundle giteaProvisioningBundle
+	if err := json.Unmarshal(ws.Settings, &bundle); err != nil {
+		return csCloudRepoSpec{}, false
+	}
+	if !bundle.complete() {
+		return csCloudRepoSpec{}, false
+	}
+	return csCloudRepoSpec{
+		URL:        RewriteGiteaHostToPublic(bundle.GiteaCloneURL),
+		Provider:   "gitea",
+		Role:       "delivery",
+		BaseBranch: strings.TrimSpace(bundle.InstBranch),
+		Alias:      "delivery",
+		BotToken:   strings.TrimSpace(bundle.GiteaPAT),
+	}, true
+}
+
+// resolveCSCloudAddons resolves an agent's bound plugin and cloud-skill bindings
+// into the cs-cloud payload shape, so cs-cloud can install them in the task
+// workdir before the csc session runs. This is the server-side (backend)
+// equivalent of the daemon claim path's plugin/skill resolution — the daemon is
+// not involved.
+//
+// Plugin resolution is by NAME, not catalog id: cs-cloud installs via
+// `csc plugin install <pluginName>@<marketplace>`, and pluginName is the stable
+// install slug stored on the agent (set at bind time). This intentionally does
+// NOT call plugincatalog.Fetch(plugin_id) — the catalog UUID is unstable (it
+// changes whenever the plugin catalog is rebuilt), and a stale id silently
+// returned a nil plugin. An agent without plugin_name simply has no plugin.
+// The marketplace identity is server-owned (CSCPluginMarketplaceName/Repo).
+//
+// Cloud skills are snapshotted in multica_agent_cloud_skill (written by the
+// agent-cloud-skill handler); the stored install JSONB is already allowlisted
+// to {method, spec, skill_id, source_url, verified}, matching cs-cloud's
+// CloudSkillInstallSpec field names, so it is passed through verbatim.
+func (s *TaskService) resolveCSCloudAddons(ctx context.Context, agentID pgtype.UUID, pluginName pgtype.Text) (*csCloudAgentPlugin, []csCloudCloudSkillInstall) {
+	var plugin *csCloudAgentPlugin
+	if name := strings.TrimSpace(pluginName.String); pluginName.Valid && name != "" {
+		// cs-cloud's setupCSCPlugins only consumes PluginName + the marketplace
+		// identity; the other catalog-derived fields (Method/Marketplace/ID/...)
+		// are not read on the install path, so they stay zero here.
+		install := csCloudPluginInstall{
+			Method:          "plugin_marketplace",
+			PluginName:      name,
+			MarketplaceName: s.CSCPluginMarketplaceName,
+			MarketplaceRepo: s.CSCPluginMarketplaceRepo,
+		}
+		plugin = &csCloudAgentPlugin{Name: name, Install: &install}
+	}
+
+	var cloudSkills []csCloudCloudSkillInstall
+	if rows, err := s.Queries.ListAgentCloudSkills(ctx, agentID); err == nil {
+		for _, r := range rows {
+			cloudSkills = append(cloudSkills, csCloudCloudSkillInstall{
+				ID:          r.CloudSkillID,
+				Slug:        r.Slug,
+				Name:        r.Name,
+				Description: r.Description,
+				Install:     cloudSkillInstallFromDB(r.Install),
+				Position:    r.Position,
+			})
+		}
+	} else {
+		slog.Warn("cs-cloud dispatch: list agent cloud skills", "error", err)
+	}
+	return plugin, cloudSkills
+}
+
+// cloudSkillInstallFromDB decodes a stored cloud-skill install JSONB snapshot
+// into the cs-cloud payload shape. The stored object is already allowlisted to
+// {method, spec, skill_id, source_url, verified} by the agent-cloud-skill
+// handler, matching cs-cloud's CloudSkillInstallSpec json tags. Returns nil
+// when the snapshot is missing/empty or fails to parse (best-effort).
+func cloudSkillInstallFromDB(raw []byte) *csCloudCloudSkillInstallSpec {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil
+	}
+	var spec csCloudCloudSkillInstallSpec
+	if err := json.Unmarshal(raw, &spec); err != nil {
+		slog.Warn("cs-cloud dispatch: parse cloud skill install metadata", "error", err)
+		return nil
+	}
+	return &spec
+}
+
+// deliverableSpecsForTask builds the deliverable contract list for the task's
+// workflow node run. Every deliverable reports its result to the same unified
+// submit endpoint; the dispatch payload no longer carries a kind-based routing
+// distinction.
+func (s *TaskService) deliverableSpecsForTask(ctx context.Context, task db.MulticaAgentTaskQueue) []csCloudDeliverableSpec {
+	if !task.WorkflowNodeRunID.Valid {
+		return nil
+	}
+	nr, err := s.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID)
+	if err != nil {
+		return nil
+	}
+	rows, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
+	if err != nil {
+		return nil
+	}
+	nid := util.UUIDToString(nr.ID)
+	var out []csCloudDeliverableSpec
+	for _, d := range rows {
+		out = append(out, csCloudDeliverableSpec{
+			ID: util.UUIDToString(d.ID),
+			Report: csCloudReportSpec{
+				Endpoint:  fmt.Sprintf("/api/node-runs/%s/deliverables/%s/submit", nid, util.UUIDToString(d.ID)),
+				Method:    "POST",
+				BodyField: "pull_request_url",
+			},
+		})
+	}
+	return out
+}
+
+// appendCodeRepoPrompt tells the worker agent which code repos are available
+// and instructs it to open MRs via CLI (not via platform auto-MR).
+func appendCodeRepoPrompt(prompt string, repos []csCloudRepoSpec) string {
+	var b strings.Builder
+	b.WriteString(prompt)
+	if prompt != "" && !strings.HasSuffix(prompt, "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n---\n## 代码仓库开发\n\n")
+	b.WriteString("你的任务根目录是 $CS_CLOUD_WORKTREE。用原生 git clone 把要改的代码仓库拉到任务根目录下：clone 时把仓库 URL 的 `https://` 换成 `https://oauth2:${CS_CLOUD_GITLAB_TOKEN}@` 来鉴权（token 在环境变量里），然后 cd 进去建分支开发。例如：`git clone https://oauth2:${CS_CLOUD_GITLAB_TOKEN}@<host>/<group>/<repo>.git $CS_CLOUD_WORKTREE/<repo> && cd $CS_CLOUD_WORKTREE/<repo>`。\n")
+	b.WriteString("可选的代码仓库：\n")
+	for _, r := range repos {
+		label := r.Alias
+		if label == "" {
+			label = r.URL
+		}
+		fmt.Fprintf(&b, "- %s (`%s`)\n", label, r.URL)
+	}
+	b.WriteString("\n完成编码后，在仓库目录内 `git add/commit`，然后运行 `cs-cloud workflow deliverable submit --repo <url> --deliverable <id> --mr` 开 Merge Request 并自动上报 MR 链接（务必在仓库目录内运行该命令）。\n")
+	b.WriteString("Token 从环境变量 `$CS_CLOUD_GITLAB_TOKEN` 读取，无需自己找。**不要**等平台自动开 MR——你自己用 CLI 开。\n")
+	b.WriteString("\n---\n\n")
+	return b.String()
+}
+
+func appendWorkerTaskPrompt(prompt string) string {
+	var b strings.Builder
+	b.WriteString(prompt)
+	if prompt != "" && !strings.HasSuffix(prompt, "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n---\n## Workflow Worker Task\n\n")
+	b.WriteString("You are the worker for this workflow node. Complete the assigned work and submit every required deliverable before finishing.\n")
+	b.WriteString("Do NOT perform critic review. Do NOT approve or reject the work. If the issue text mentions a critic/reviewer, treat that as context for the later review phase, not your current task.\n")
+	b.WriteString("Your task context (task id, this device's local server URL, workspace id, Gitea credentials) is in `.cs-cloud.env` in your work directory. The `cs-cloud workflow` commands read it automatically — run them from your work directory, no need to pass anything.\n")
+	b.WriteString("\n### Finishing\n\n")
+	b.WriteString("When your work is complete, you MUST signal it explicitly by running `cs-cloud workflow task complete --summary \"<one-line summary of what you delivered>\"` as your LAST action. The task does NOT complete when you stop working — until you call this command, the task stays open, idle is treated as incomplete, and it will eventually time out and fail.\n")
+	b.WriteString("\n---\n\n")
+	return b.String()
+}
+
+// appendDeliverablePrompt adds a "Document Deliverables" section to the prompt.
+// The delivery repository is accessed via a managed worktree created by
+// `cs-cloud repo checkout` (NOT a plain git clone): cs-cloud matches the
+// passed URL against payload.Repos[] to pick the role, injects the auth token
+// from $CS_CLOUD_REPO_TOKEN, and places the worktree on this node's branch.
+// The agent then writes each document into the worktree and finalizes via
+// `cs-cloud workflow deliverable submit`, which pushes the node branch, opens
+// the node->inst review PR, and registers the review URL back here.
+func appendDeliverablePrompt(prompt string, refs []repositoryDeliverableRefJSON) string {
+	var b strings.Builder
+	b.WriteString(prompt)
+	if prompt != "" && !strings.HasSuffix(prompt, "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n---\n## Document Deliverables\n\n")
+	b.WriteString("This node has document deliverables stored in the platform Gitea repository. Clone it into your task root and switch to this node's branch: `git clone $CS_CLOUD_REPO_CLONE_URL_AUTHED $CS_CLOUD_WORKTREE/delivery && cd $CS_CLOUD_WORKTREE/delivery && git checkout $CS_CLOUD_REPO_NODE_BRANCH`. ($CS_CLOUD_REPO_CLONE_URL_AUTHED already embeds the auth token, so use it verbatim.)\n\n")
+	b.WriteString("For EACH deliverable below: write the document to a local file, then run the submit command FROM INSIDE the cloned repo. The CLI writes your file into the repo at the right path, pushes this node's branch, opens a review request (node -> inst), and registers the review URL back here. Do NOT use inline content upload for these; document deliverables go through git.\n\n")
+	for _, d := range refs {
+		fmt.Fprintf(&b, "- **%s** (id=%s): run `cs-cloud workflow deliverable submit --deliverable %s --file <local-path-to-your-document>`\n", d.Title, d.ID, d.ID)
+	}
+	b.WriteString("\nA deliverable is not considered submitted until its PR is registered. Complete every listed deliverable before finishing.\n\n")
+	b.WriteString("### Reading the deliverable repository\n\n")
+	b.WriteString("You already cloned the repo (on this node's branch). To READ files from the inst branch (e.g. another node's documents), fetch and show them inside the repo: `git fetch origin && git show origin/$CS_CLOUD_REPO_INST_BRANCH:<path>`. For a different issue's repo, `git clone` its authed URL into another directory under $CS_CLOUD_WORKTREE.\n\n")
+	b.WriteString("To inspect the rest of the workflow chain — other issues' progress and their deliverable repositories — use the read commands instead of guessing URLs:\n")
+	b.WriteString("- `cs-workflow issue workflow <issue-id> --descendants` — workflow run + node run status for this issue and its children.\n")
+	b.WriteString("- `cs-workflow issue deliverables <issue-id> --descendants` — the Gitea repository address and deliverable list for this issue and its children; use it to find another issue's repo URL before checking it out.\n")
+	b.WriteString("\n---\n\n")
+	return b.String()
+}
+
+func appendCriticReviewPrompt(prompt string) string {
+	var b strings.Builder
+	b.WriteString(prompt)
+	if prompt != "" && !strings.HasSuffix(prompt, "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n---\n## Workflow Critic Review\n\n")
+	b.WriteString("You are reviewing the worker's submitted deliverables for this workflow node. Inspect the issue context and deliverable PRs, then signal your decision as your LAST action:\n\n")
+	b.WriteString("Your task context (task id, this device's local server URL) is in `.cs-cloud.env` in your work directory. The `cs-cloud workflow` commands read it automatically — run them from your work directory, no need to pass anything.\n\n")
+	b.WriteString("- Approve (work is acceptable): `cs-cloud workflow task approve --reason \"<short review opinion>\"`\n")
+	b.WriteString("- Request rework (work needs changes): `cs-cloud workflow task reject --reason \"<actionable rejection reason>\"`\n\n")
+	b.WriteString("The review does NOT complete when you stop working — until you call one of these commands, the task stays open, idle is treated as incomplete, and it will eventually time out and fail.\n")
+	b.WriteString("---\n\n")
+	return b.String()
+}
+
+func workflowPhaseFromTask(task db.MulticaAgentTaskQueue) string {
+	if len(task.Context) == 0 {
+		return ""
+	}
+	var payload struct {
+		Phase string `json:"phase"`
+	}
+	if err := json.Unmarshal(task.Context, &payload); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.Phase)
+}
+
+// repositoryDeliverableRefJSON is the per-deliverable shape cs-cloud's
+// `repo submit` reads from CS_CLOUD_REPO_DELIVERABLES.
+type repositoryDeliverableRefJSON struct {
+	ID    string `json:"deliverable_id"`
+	Title string `json:"title"`
+	Path  string `json:"path"`
+}
+
+type giteaDeliverableRefJSON = repositoryDeliverableRefJSON
+
+// giteaDeliverableEnv builds the CS_CLOUD_GITEA_* env vars for a task's
+// node-run, mirroring handler.giteaContextForNodeRun but in the service layer
+// (the cs-cloud push path lives here, separate from claim). Returns nil when
+// Gitea is dormant or the node has no deliverables — the caller then
+// injects nothing and the cs-cloud `gitea submit` command is simply unusable
+// for this task (by design).
+func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.MulticaAgentTaskQueue) map[string]string {
+	base := strings.TrimSpace(os.Getenv("GITEA_BASE_URL"))
+	if base == "" || !task.WorkflowNodeRunID.Valid {
+		return nil
+	}
+	nr, err := s.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID)
+	if err != nil {
+		return nil
+	}
+	run, err := s.Queries.GetWorkflowRun(ctx, nr.WorkflowRunID)
+	if err != nil {
+		return nil
+	}
+	deliverables, err := s.Queries.ListNodeRunDeliverableRequirements(ctx, nr.ID)
+	if err != nil {
+		return nil
+	}
+	// Use the node's topological position (not raw sort_order) so the <NN>
+	// prefix reflects execution order even when sort_order wasn't set.
+	topo, err := RunNodeTopoOrder(ctx, s.Queries, run.ID)
+	if err != nil {
+		return nil
+	}
+	nodeSeq := topo[util.UUIDToString(nr.ID)]
+	nodeRunIDStr := util.UUIDToString(nr.ID)
+	var refs []repositoryDeliverableRefJSON
+	for _, d := range deliverables {
+		refs = append(refs, giteaDeliverableRefJSON{
+			ID:    util.UUIDToString(d.ID),
+			Title: d.Title,
+			Path:  gitea.DeliverablePath(nodeSeq, nr.NodeTitle, nodeRunIDStr, d.Title),
+		})
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+	publicBase := strings.TrimSpace(os.Getenv("GITEA_PUBLIC_BASE_URL"))
+	if publicBase == "" {
+		publicBase = base
+	}
+	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
+	snapshot, err := (WorkflowRuntimeRepository{Queries: s.Queries}).GetRunDefinitionSnapshot(ctx, run.ID)
+	if err != nil {
+		return nil
+	}
+	repo := DeliverableRepoName(run.WorkflowID, snapshot.Workflow.IsDefault)
+	refsJSON, _ := json.Marshal(refs)
+	// Bot PAT + Gitea base URL are pushed down so cs-cloud's `deliverable submit`
+	// can push the document + open a PR against Gitea directly, without relaying
+	// back through multica to fetch credentials. The PAT must come from this
+	// workspace's settings (minted by the team-namespace provisioning flow).
+	// We ALSO read gitea_clone_url / last_instance_branch / gitea_web_url from
+	// the SAME settings bundle and prefer them over the GITEA_PUBLIC_BASE_URL
+	// self-assembly below. This is a cross-repo contract: cs-cloud's lookupRepoRole
+	// matches the checkout URL against payload.Repos[].URL by EXACT equality, and
+	// resolveDeliveryRepo puts settings.gitea_clone_url into repos[].URL. If the
+	// env's CS_CLOUD_REPO_CLONE_URL diverges (e.g. GITEA_PUBLIC_BASE_URL points at
+	// a different host than the tenant-scoped Gitea), cs-cloud silently downgrades
+	// delivery → code → wrong token (GitLab PAT) → Gitea clone 401. Reading both
+	// URLs from the same settings field guarantees they stay identical.
+	pat := ""
+	botUser := ""
+	settingsCloneURL := ""
+	settingsInstBranch := ""
+	settingsWebURL := ""
+	if ws, err := s.Queries.GetWorkspace(ctx, run.WorkspaceID); err == nil && len(ws.Settings) > 0 {
+		settingsMap := map[string]any{}
+		if json.Unmarshal(ws.Settings, &settingsMap) == nil {
+			if v, ok := settingsMap["gitea_pat"].(string); ok {
+				pat = strings.TrimSpace(v)
+			}
+			if v, ok := settingsMap["gitea_bot_username"].(string); ok {
+				botUser = v
+			}
+			if v, ok := settingsMap["gitea_clone_url"].(string); ok {
+				settingsCloneURL = v
+			}
+			if v, ok := settingsMap["last_instance_branch"].(string); ok {
+				settingsInstBranch = v
+			}
+			if v, ok := settingsMap["gitea_web_url"].(string); ok {
+				settingsWebURL = v
+			}
+		}
+	}
+	if pat == "" {
+		return nil
+	}
+	// Clone URL: prefer settings value (== repos[].URL) so cs-cloud's role lookup
+	// matches; fall back to self-assembly only when pre-provisioning.
+	var cloneURL string
+	if strings.TrimSpace(settingsCloneURL) != "" {
+		cloneURL = RewriteGiteaHostToPublic(settingsCloneURL)
+	} else {
+		cloneURL = strings.TrimRight(publicBase, "/") + "/" + owner + "/" + repo + ".git"
+	}
+	// Base URL: prefer settings gitea_web_url, normalized to the Gitea server
+	// root (cs-cloud's PR API targets .../api/v1/repos/{owner}/{repo}/pulls, and
+	// gitea_web_url carries the repo web URL, not the server root); fall back to
+	// GITEA_PUBLIC_BASE_URL.
+	var baseURL string
+	if strings.TrimSpace(settingsWebURL) != "" {
+		baseURL = giteaServerRoot(RewriteGiteaHostToPublic(settingsWebURL), cloneURL)
+	} else {
+		baseURL = strings.TrimRight(publicBase, "/")
+	}
+	authedCloneURL := injectGiteaToken(cloneURL, botUser, pat)
+	// Inst branch: prefer settings last_instance_branch (matches repos[].BaseBranch);
+	// fall back to the deterministic run-ID derivation.
+	var instBranch string
+	if strings.TrimSpace(settingsInstBranch) != "" {
+		instBranch = strings.TrimSpace(settingsInstBranch)
+	} else {
+		instBranch = gitea.InstBranch(util.UUIDToString(run.ID))
+	}
+	nodeBranch := gitea.NodeBranch(nodeSeq, nodeRunIDStr)
+	out := map[string]string{
+		"CS_CLOUD_NODE_RUN_ID":           nodeRunIDStr,
+		"CS_CLOUD_REPO_PROVIDER":         "gitea",
+		"CS_CLOUD_REPO_OWNER":            owner,
+		"CS_CLOUD_REPO_NAME":             repo,
+		"CS_CLOUD_REPO_BASE_URL":         baseURL,
+		"CS_CLOUD_REPO_TOKEN":            pat,
+		"CS_CLOUD_REPO_CLONE_URL":        cloneURL,
+		"CS_CLOUD_REPO_CLONE_URL_AUTHED": authedCloneURL,
+		"CS_CLOUD_REPO_INST_BRANCH":      instBranch,
+		"CS_CLOUD_REPO_NODE_BRANCH":      nodeBranch,
+		"CS_CLOUD_REPO_DELIVERABLES":     string(refsJSON),
+	}
+	// CROSS-REPO CONTRACT: cs-cloud's deliverable-submit CLI (internal/cli/gitea.go
+	// readGiteaContext) reads ONLY the legacy CS_CLOUD_GITEA_* names; the aliasing
+	// below is the sole bridge between the renamed CS_CLOUD_REPO_* env and that
+	// legacy reader. Do NOT remove this aliasing without migrating cs-cloud to
+	// read CS_CLOUD_REPO_* directly.
+	for oldKey, newKey := range map[string]string{
+		"CS_CLOUD_GITEA_OWNER":            "CS_CLOUD_REPO_OWNER",
+		"CS_CLOUD_GITEA_REPO":             "CS_CLOUD_REPO_NAME",
+		"CS_CLOUD_GITEA_BASE_URL":         "CS_CLOUD_REPO_BASE_URL",
+		"CS_CLOUD_GITEA_TOKEN":            "CS_CLOUD_REPO_TOKEN",
+		"CS_CLOUD_GITEA_CLONE_URL":        "CS_CLOUD_REPO_CLONE_URL",
+		"CS_CLOUD_GITEA_CLONE_URL_AUTHED": "CS_CLOUD_REPO_CLONE_URL_AUTHED",
+		"CS_CLOUD_GITEA_INST_BRANCH":      "CS_CLOUD_REPO_INST_BRANCH",
+		"CS_CLOUD_GITEA_NODE_BRANCH":      "CS_CLOUD_REPO_NODE_BRANCH",
+		"CS_CLOUD_GITEA_DELIVERABLES":     "CS_CLOUD_REPO_DELIVERABLES",
+	} {
+		out[oldKey] = out[newKey]
+	}
+	return out
+}
+
+func (s *TaskService) giteaDeliverableEnv(ctx context.Context, task db.MulticaAgentTaskQueue) map[string]string {
+	return s.repositoryDeliverableEnv(ctx, task)
+}
+
+// injectGiteaToken embeds the bot credential into a Gitea clone URL so the
+// agent can git clone/push without a separate credential step. It uses the bot
+// username when known, falling back to the "oauth2" pseudo-user that Gitea
+// accepts for any PAT. Returns the URL unchanged when the token is empty.
+func injectGiteaToken(cloneURL, botUser, token string) string {
+	if strings.TrimSpace(token) == "" {
+		return cloneURL
+	}
+	u, err := url.Parse(strings.TrimSpace(cloneURL))
+	if err != nil || u.Host == "" {
+		return cloneURL
+	}
+	user := strings.TrimSpace(botUser)
+	if user == "" {
+		user = "oauth2"
+	}
+	u.User = url.UserPassword(user, token)
+	return u.String()
+}
+
+// giteaServerRoot strips the trailing "/{owner}/{repo}" repo path from a Gitea
+// web URL so it can serve as the PR API root. Workspace settings store
+// gitea_web_url as the repository web URL (costrict-web's team-namespace
+// service returns wf_web_url pointing at the repo, not the server root), but
+// cs-cloud's deliverable-submit POSTs to "{base}/api/v1/repos/{owner}/{repo}/pulls".
+// Feeding it the repo web URL yields ".../{owner}/{repo}/api/v1/repos/{owner}/{repo}/pulls"
+// and Gitea 404s — exactly the zgsmtest incident. The "/{owner}/{repo}" suffix
+// is derived from the companion clone URL (which always ends in
+// "/{owner}/{repo}.git") rather than from separately-computed owner/repo, so
+// the strip matches the URL's actual segments even when formatting diverges,
+// and a server path prefix (e.g. "/gitea") is preserved. This is the
+// producer-side counterpart to cs-cloud's consumer-side normalizeGiteaBase;
+// both ends normalize because the value crosses a cross-repo env boundary.
+func giteaServerRoot(webURL, cloneURL string) string {
+	b := strings.TrimRight(strings.TrimSpace(webURL), "/")
+	u, err := url.Parse(strings.TrimSpace(cloneURL))
+	if err != nil || u.Path == "" {
+		return b
+	}
+	// cloneURL path is ".../{owner}/{repo}.git"; drop .git and take the last
+	// two segments as the "/{owner}/{repo}" suffix to strip from the web URL.
+	segs := strings.Split(strings.TrimSuffix(strings.TrimRight(u.Path, "/"), ".git"), "/")
+	if len(segs) < 3 { // ["", owner, repo] minimum
+		return b
+	}
+	suffix := "/" + segs[len(segs)-2] + "/" + segs[len(segs)-1]
+	if strings.HasSuffix(b, suffix) {
+		return strings.TrimSuffix(b, suffix)
+	}
+	return b
+}
+
+// RewriteGiteaHostToPublic swaps a Gitea URL's scheme+host+port from the
+// container-internal GITEA_BASE_URL to the caller-reachable
+// GITEA_PUBLIC_BASE_URL, preserving the path. costrict-web's team-namespace
+// service emits wf_clone_url using its single (internal) tenant git-server
+// endpoint, and cs-cloud runs where that internal host is unreachable, so
+// multica rewrites the host at the dispatch boundary. This mirrors
+// handler.giteaPublicBaseURL (the daemon credential endpoint's split) on the
+// cs-cloud path.
+//
+// Only URLs that actually point at the internal Gitea host (matching
+// scheme+host) are rewritten; an unknown host is left untouched. Returns the
+// input unchanged when GITEA_PUBLIC_BASE_URL is unset (single-host deploy),
+// when GITEA_BASE_URL is unset (nothing to match), or on any parse failure.
+// Both resolveDeliveryRepo (repos[].URL) and repositoryDeliverableEnv
+// (CS_CLOUD_REPO_CLONE_URL) run settings.gitea_clone_url through this helper,
+// so the cross-repo EXACT-equality contract (cs-cloud lookupRepoRole) is
+// preserved: both sides get the SAME rewritten public URL.
+func RewriteGiteaHostToPublic(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	publicBase := strings.TrimSpace(os.Getenv("GITEA_PUBLIC_BASE_URL"))
+	internalBase := strings.TrimSpace(os.Getenv("GITEA_BASE_URL"))
+	if rawURL == "" || publicBase == "" || internalBase == "" {
+		return rawURL
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return rawURL
+	}
+	in, err := url.Parse(internalBase)
+	if err != nil || in.Scheme == "" || in.Host == "" {
+		return rawURL
+	}
+	// Only rewrite URLs that point at the internal Gitea. url.Host includes the
+	// port, so the comparison is exact — :33000 can't prefix-match :330000.
+	if u.Scheme != in.Scheme || u.Host != in.Host {
+		return rawURL
+	}
+	pub, err := url.Parse(publicBase)
+	if err != nil || pub.Scheme == "" || pub.Host == "" {
+		return rawURL
+	}
+	u.Scheme = pub.Scheme
+	u.Host = pub.Host
+	return u.String()
 }
 
 func computeCSCloudTaskKind(task db.MulticaAgentTaskQueue) string {
@@ -177,6 +1022,13 @@ func computeCSCloudTaskKind(task db.MulticaAgentTaskQueue) string {
 	}
 	if util.UUIDToString(task.AutopilotRunID) != "" {
 		return "autopilot"
+	}
+	// A workflow task (default-workflow runs create no sub-issue, so IssueID is
+	// empty) must classify as "direct" so buildIssuePrompt reaches the
+	// run.SourceIssueID fallback and injects the issue title/body. Without this
+	// it falls through to "quick_create" and the prompt is empty.
+	if util.UUIDToString(task.WorkflowNodeRunID) != "" {
+		return "direct"
 	}
 	if util.UUIDToString(task.IssueID) == "" {
 		return "quick_create"
@@ -207,21 +1059,47 @@ func (s *TaskService) buildCSCloudPrompt(ctx context.Context, task db.MulticaAge
 }
 
 func (s *TaskService) buildIssuePrompt(ctx context.Context, task db.MulticaAgentTaskQueue) (string, error) {
-	if !task.IssueID.Valid {
+	if task.IssueID.Valid {
+		issue, err := s.Queries.GetIssue(ctx, task.IssueID)
+		if err != nil {
+			return "", fmt.Errorf("get issue: %w", err)
+		}
+		return buildIssuePromptText(issue), nil
+	}
+	if task.WorkflowNodeRunID.Valid {
+		return s.buildWorkflowSourceIssuePrompt(ctx, task.WorkflowNodeRunID)
+	}
+	return "", nil
+}
+
+func (s *TaskService) buildWorkflowSourceIssuePrompt(ctx context.Context, nodeRunID pgtype.UUID) (string, error) {
+	nodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRunID)
+	if err != nil {
+		return "", fmt.Errorf("get workflow node run: %w", err)
+	}
+	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		return "", fmt.Errorf("get workflow run: %w", err)
+	}
+	if !run.SourceIssueID.Valid {
 		return "", nil
 	}
-	issue, err := s.Queries.GetIssue(ctx, task.IssueID)
+	issue, err := s.Queries.GetIssue(ctx, run.SourceIssueID)
 	if err != nil {
-		return "", fmt.Errorf("get issue: %w", err)
+		return "", fmt.Errorf("get workflow source issue: %w", err)
 	}
+	return buildIssuePromptText(issue), nil
+}
+
+func buildIssuePromptText(issue db.MulticaIssue) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Issue: %s\n", issue.Title)
 	if issue.Description.Valid {
 		b.WriteString("\n")
-		b.WriteString(truncatePromptItem(issue.Description.String))
+		b.WriteString(issue.Description.String)
 		b.WriteString("\n")
 	}
-	return truncatePrompt(b.String()), nil
+	return truncatePrompt(b.String())
 }
 
 func (s *TaskService) buildIssueCommentPrompt(ctx context.Context, task db.MulticaAgentTaskQueue) (string, error) {
@@ -378,3 +1256,113 @@ func (s *TaskService) maybeAbortOnDevice(task db.MulticaAgentTaskQueue) {
 	}()
 }
 
+// --- Document-deliverable dispatch-time safety net (M2.5 Task 2) ---
+//
+// The run-start ScaffoldRunDeliverables path occasionally fails or is skipped
+// (transient DB error, team-namespace hiccup, goroutine panic). Without a
+// safety net, the cs-cloud device gets a task whose workspace has no Gitea wf
+// repo + inst branch and no bot credentials in settings — so the agent's first
+// `gitea submit` / clone 404s and the run fails for a fixable reason. This
+// safety net runs at dispatch time, inside buildCSCloudPayload: if the task is
+// a document-deliverable worker AND the workspace lacks Gitea data, re-fire
+// the interface-8 InitWorkflow (idempotent) before the payload goes out. See
+// docs/superpowers/cs-cloud-delivery-m2.5-plan.md §Task 2.
+
+// teamNamespaceConfigured mirrors WorkflowService.teamNamespaceConfigured:
+// TeamNamespace client wired (post-router) and Configured() (base URL + token
+// present). Read by buildCSCloudPayload to gate the safety net.
+func (s *TaskService) teamNamespaceConfigured() bool {
+	return s.TeamNamespace != nil && s.TeamNamespace.Configured()
+}
+
+// hasAnyDeliverableSpec reports whether the deliverable slice has ANY entry
+// (document OR pull_request). M5 decision ①: the dispatch safety net fires for
+// any deliverable-bearing worker task, so code-only runs also get a Gitea repo
+// provisioned (for code-MR archiving).
+func hasAnyDeliverableSpec(deliverables []csCloudDeliverableSpec) bool {
+	return len(deliverables) > 0
+}
+
+// giteaProvisioningBundle is the subset of workspace.settings written by
+// initWorkflowNamespace (interface-8): the wf repo clone URL, the run's inst
+// branch, and the bot PAT. All three fields are written atomically, so in
+// practice they're all-present or all-absent; the complete() method below is
+// the single source of truth for "Gitea data present" shared by the dispatch
+// safety net (settingsLackGiteaData) and the delivery-repo resolver
+// (resolveDeliveryRepo). Keeping the two helpers aligned avoids a partial-state
+// gap where the safety net skips but resolveDeliveryRepo returns false (or vice
+// versa) and the agent silently loses the repos[] role=delivery entry.
+type giteaProvisioningBundle struct {
+	GiteaCloneURL string `json:"gitea_clone_url"`
+	InstBranch    string `json:"last_instance_branch"`
+	GiteaPAT      string `json:"gitea_pat"`
+}
+
+// complete reports whether the bundle carries all three fields needed to act.
+// A delivery repo without a PAT is useless — the agent authenticates via
+// CS_CLOUD_REPO_TOKEN=pat — so PAT presence is required even though the spec's
+// URL/BaseBranch/Alias don't directly carry it.
+func (b giteaProvisioningBundle) complete() bool {
+	return strings.TrimSpace(b.GiteaCloneURL) != "" &&
+		strings.TrimSpace(b.GiteaPAT) != "" &&
+		strings.TrimSpace(b.InstBranch) != ""
+}
+
+// settingsLackGiteaData reports whether workspace.settings are missing the
+// Gitea provisioning bundle. Returns true (fire safety net) on any read/parse
+// error or when the bundle is incomplete — partial state also triggers
+// re-provisioning (initWorkflowNamespace is idempotent). Completeness is
+// judged by giteaProvisioningBundle.complete, shared with resolveDeliveryRepo.
+func (s *TaskService) settingsLackGiteaData(ctx context.Context, workspaceID pgtype.UUID) bool {
+	ws, err := s.Queries.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return true
+	}
+	if len(ws.Settings) == 0 {
+		return true
+	}
+	var bundle giteaProvisioningBundle
+	if err := json.Unmarshal(ws.Settings, &bundle); err != nil {
+		return true
+	}
+	return !bundle.complete()
+}
+
+// ensureDeliveryRepo walks task → node run → run → workflow and fires the
+// team-namespace interface-8 InitWorkflow via the free initWorkflowNamespace
+// helper (which itself runs ensureTeamNamespace → CreateTeam first, then
+// InitWorkflow, then persists bot_credentials + wf repo metadata into
+// workspace.settings). Idempotent; safe to call on every dispatch.
+//
+// Returns an error only when a hard provisioning step fails; the caller
+// (buildCSCloudPayload) logs and continues — the payload still goes out and
+// the run is not failed for a fixable provisioning gap (a later re-run or
+// member upload path can also recover).
+//
+// Timing: buildCSCloudPayload runs the safety net BEFORE env/repos[] assembly,
+// so when provisioning succeeds here, the current dispatch's repositoryDeliverableEnv
+// (CS_CLOUD_REPO_* env) and resolveDeliveryRepo (repos[] role=delivery) read the
+// just-persisted settings on the SAME dispatch — no stale-credentials gap. The
+// idempotent re-run on retry / next round is a harmless no-op.
+func (s *TaskService) ensureDeliveryRepo(ctx context.Context, task db.MulticaAgentTaskQueue) error {
+	if !task.WorkflowNodeRunID.Valid {
+		return nil
+	}
+	nr, err := s.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID)
+	if err != nil {
+		return fmt.Errorf("get node run: %w", err)
+	}
+	run, err := s.Queries.GetWorkflowRun(ctx, nr.WorkflowRunID)
+	if err != nil {
+		return fmt.Errorf("get workflow run: %w", err)
+	}
+	// Read IsDefault from the run snapshot, not the workflow definition table —
+	// runtime paths must survive definition mutation (TestRuntimeFilesDoNotRead-
+	// WorkflowDefinitionTables). initWorkflowNamespace only needs ID (= run.
+	// WorkflowID) + IsDefault.
+	workflow, err := workflowFromRunSnapshotWithQueries(ctx, s.Queries, run)
+	if err != nil {
+		return fmt.Errorf("get run snapshot: %w", err)
+	}
+	return initWorkflowNamespace(ctx, s.Queries, s.TeamNamespace, run, workflow)
+}

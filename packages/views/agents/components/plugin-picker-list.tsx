@@ -10,7 +10,10 @@ interface PluginPickerListProps {
   plugins: BuiltinPlugin[];
   catalogPlugins?: BuiltinPlugin[];
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  /** Called with the plugin id + its install slug (e.g.
+   * "cospowers-integration-verification"). The slug is carried alongside so the
+   * backend can install by name without a catalog lookup. */
+  onSelect: (id: string, slug: string) => void;
   loading?: boolean;
   catalogLoading?: boolean;
   searchQuery?: string;
@@ -51,7 +54,8 @@ export function PluginPickerList({
   const [localQuery, setLocalQuery] = useState("");
   const query = searchQuery ?? localQuery;
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const filteredBuiltinPlugins = normalizedQuery
+  const usesServerSearch = searchQuery !== undefined && !!onSearchChange;
+  const filteredBuiltinPlugins = normalizedQuery && !usesServerSearch
     ? plugins.filter((plugin) =>
         [plugin.name, plugin.description, plugin.slug, plugin.category].some(
           (value) => value.toLocaleLowerCase().includes(normalizedQuery),
@@ -180,7 +184,7 @@ function PluginGroup({
 }: {
   plugins: readonly BuiltinPlugin[];
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, slug: string) => void;
 }) {
   return (
     <div>
@@ -190,7 +194,7 @@ function PluginGroup({
           <button
             key={plugin.id}
             type="button"
-            onClick={() => onSelect(plugin.id)}
+            onClick={() => onSelect(plugin.id, plugin.slug)}
             aria-pressed={isSelected}
             className={`flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent/50 ${
               isSelected ? "bg-accent" : ""

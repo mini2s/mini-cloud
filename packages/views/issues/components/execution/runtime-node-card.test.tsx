@@ -1,10 +1,38 @@
-import { render, screen } from "@testing-library/react";
-import { describe, it, expect, vi } from "vitest";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { ReactFlowProvider } from "@xyflow/react";
-import { RuntimeNodeCard, RUNTIME_NODE_HEIGHT } from "./runtime-node-card";
+import {
+  RuntimeNodeCard,
+  RUNTIME_NODE_HEIGHT,
+  RUNTIME_SPLIT_NODE_HEIGHT,
+} from "./runtime-node-card";
 import type { NodeRunActionType } from "./runtime-node-card";
 import type { WorkflowNode, WorkflowNodeRun, WorkflowNodeRuntimeSummary } from "@multica/core/types";
+import type { WorkflowActorIdentity } from "../../../common/workflow-actor-slots";
+
+const sessionPermissionMocks = vi.hoisted(() => ({
+  canObserve: true as boolean | undefined,
+  embedded: true,
+}));
+
+vi.mock("@multica/core/workflows/queries", async () => {
+  const actual = await vi.importActual<typeof import("@multica/core/workflows/queries")>(
+    "@multica/core/workflows/queries",
+  );
+  return {
+    ...actual,
+    useSessionPermission: (sessionId: string | null | undefined) => ({
+      data: sessionId
+        ? { can_observe: sessionPermissionMocks.canObserve === true, can_control: false, role: "" }
+        : undefined,
+    }),
+  };
+});
+
+vi.mock("@multica/core/platform", () => ({
+  isEmbeddedInCostrict: () => sessionPermissionMocks.embedded,
+}));
 
 // Mock @multica/views/i18n for useT hook — handles function selector form
 vi.mock("@multica/views/i18n", () => {
@@ -19,6 +47,7 @@ vi.mock("@multica/views/i18n", () => {
         in_progress: "In progress",
         reviewing: "Reviewing",
         completed: "Completed",
+        failed: "Failed",
         blocked: "Blocked",
         cancelled: "Cancelled",
         dispatched: "Dispatched",
@@ -26,12 +55,24 @@ vi.mock("@multica/views/i18n", () => {
         waiting_upstream: "Waiting for upstream",
       },
       card: {
-        worker_label: "Worker",
-        critic_label: "Critic",
+        duration_label: "Duration {{duration}}",
+        worker_label: "Executor",
+        critic_label: "Reviewer",
         artifacts_label: "Artifacts",
-        gateway_label_fork: "Fork gateway",
-        gateway_label_join: "Join gateway",
-        gateway_label: "Gateway",
+        deliverable_more: "+{{count}}",
+        deliverable_status: {
+          missing: "Not submitted",
+          submitted: "Submitted",
+          approved: "Approved",
+          rejected: "Rejected",
+        },
+        session_opening: "Opening...",
+        session_opened: "Opened",
+        session_open_failed: "Unable to open",
+        gateway_label_fork: "Branch start",
+        gateway_label_join: "Join point",
+        gateway_label: "Branch node",
+        split_badge: "Split",
         split_child_count: "{{count}} child issues",
         split_child_count_one: "{{count}} child issue",
         split_child_count_other: "{{count}} child issues",
@@ -43,8 +84,8 @@ vi.mock("@multica/views/i18n", () => {
         split_child_cancelled: "{{count}} cancelled",
         split_child_expand: "Expand child issues",
         split_child_collapse: "Collapse child issues",
-			split_mode_barrier: "Barrier",
-			split_mode_pipeline: "Pipeline",
+        split_mode_barrier: "Wait for child issues",
+        split_mode_pipeline: "Continue after creation",
         actions: {
           approve: "Approve",
           reject: "Reject",
@@ -58,6 +99,7 @@ vi.mock("@multica/views/i18n", () => {
       detail_panel: {
         worker_output: "Worker Output",
         critic_output: "Critic Output",
+        open_session: "Open session",
       },
     },
   };
@@ -129,6 +171,8 @@ const completedRun: WorkflowNodeRun = {
   agent_task_id: null,
   session_id: null,
   runtime_id: null,
+  runtime_selection_reason: null,
+  failure_reason: null,
   device_id: null,
   split_review_chat_session_id: null,
   split_config_version: 1,
@@ -153,7 +197,103 @@ const runtimeSummary: WorkflowNodeRuntimeSummary = {
   split_progress: null,
 };
 
+function actorIdentity(
+  name: string,
+  type: WorkflowActorIdentity["type"] = "member",
+): WorkflowActorIdentity {
+  return {
+    type,
+    id: `${type}-1`,
+    name,
+    typeLabel: type === "agent" ? "Digital human" : "Member",
+    initials: name.slice(0, 2),
+    avatarUrl: null,
+  };
+}
+
 describe("RuntimeNodeCard", () => {
+  beforeEach(() => {
+    sessionPermissionMocks.canObserve = true;
+    sessionPermissionMocks.embedded = true;
+  });
+
+  it("renders resolved actor identity and agent availability", () => {
+    const workerIdentity: WorkflowActorIdentity = {
+      type: "agent",
+      id: "agent-1",
+      name: "Runtime Agent",
+      typeLabel: "Digital human",
+      initials: "RA",
+      avatarUrl: null,
+      availability: "offline",
+      availabilityLabel: "Offline",
+    };
+    const criticIdentity: WorkflowActorIdentity = {
+      type: "member",
+      id: "member-1",
+      name: "Runtime Reviewer",
+      typeLabel: "Member",
+      initials: "RR",
+      avatarUrl: null,
+    };
+
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={completedRun}
+        workerName="Runtime Agent"
+        criticName="Runtime Reviewer"
+        workerIdentity={workerIdentity}
+        criticIdentity={criticIdentity}
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Runtime Agent")).toBeInTheDocument();
+    expect(screen.getByText("Digital human")).toBeInTheDocument();
+    expect(screen.queryByText("Offline")).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId("runtime-node-card-node-1")
+        .querySelector('[data-workflow-actor-presence="offline"]'),
+    ).toHaveClass("bg-muted-foreground/55");
+    expect(screen.getByText("Runtime Reviewer")).toBeInTheDocument();
+    expect(screen.getByText("Member")).toBeInTheDocument();
+    expect(screen.getByTestId("runtime-node-card-node-1").querySelector("[data-workflow-actor-state]")).not.toBeInTheDocument();
+  });
+
+  it("renders child issue progress context instead of executor and reviewer slots", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={null}
+        workerName="Implementation workflow"
+        criticName={null}
+        childIssueSummary={{
+          identifier: "MUL-580",
+          assigneeName: "Implementation workflow",
+          progressLabel: "Waiting for MUL-579 to complete",
+        }}
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("runtime-node-child-issue-context")).toHaveTextContent(
+      "MUL-580 · Implementation workflow",
+    );
+    expect(screen.getByTestId("runtime-node-child-issue-progress")).toHaveTextContent(
+      "Waiting for MUL-579 to complete",
+    );
+    expect(screen.getByTestId("runtime-node-card-node-1")).toHaveStyle({
+      width: "264px",
+      height: "136px",
+    });
+    expect(screen.getByTestId("runtime-node-card-node-1").querySelectorAll(
+      '[data-testid="runtime-display-status-icon"]',
+    )).toHaveLength(1);
+    expect(screen.queryByText("Executor")).not.toBeInTheDocument();
+    expect(screen.queryByText("Reviewer")).not.toBeInTheDocument();
+  });
+
   it("renders with completed status", () => {
     render(
       <RuntimeNodeCard
@@ -161,6 +301,8 @@ describe("RuntimeNodeCard", () => {
         nodeRun={completedRun}
         workerName="小助手"
         criticName="审核员"
+        workerIdentity={actorIdentity("小助手", "agent")}
+        criticIdentity={actorIdentity("审核员")}
         onClick={vi.fn()}
       />,
     );
@@ -216,6 +358,325 @@ describe("RuntimeNodeCard", () => {
     expect(onClick).toHaveBeenCalledWith("node-1");
   });
 
+  it("opens the node session without opening the detail panel", async () => {
+    const onClick = vi.fn();
+    let resolveOpenSession: ((opened: boolean) => void) | undefined;
+    const onOpenSession = vi.fn(() => new Promise<boolean>((resolve) => {
+      resolveOpenSession = resolve;
+    }));
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{ ...completedRun, session_id: "session-1" }}
+        workerName="小助手"
+        criticName="审核员"
+        onClick={onClick}
+        onOpenSession={onOpenSession}
+      />,
+    );
+
+    const sessionButton = screen.getByRole("button", { name: "Open session" });
+    expect(sessionButton.querySelector("svg")).not.toBeNull();
+    expect(sessionButton).toHaveClass("text-muted-foreground", "hover:bg-muted/50");
+    expect(sessionButton).not.toHaveClass("border-primary/30", "shadow-xs", "hover:-translate-y-px");
+    await userEvent.click(sessionButton);
+
+    expect(onOpenSession).toHaveBeenCalledWith("node-1");
+    expect(onClick).not.toHaveBeenCalled();
+    expect(sessionButton).toBeDisabled();
+    expect(sessionButton).toHaveTextContent("Opening...");
+
+    await act(async () => resolveOpenSession?.(true));
+    await waitFor(() => expect(sessionButton).toHaveTextContent("Opened"));
+  });
+
+  it("shows a failed state when the session cannot be opened", async () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{ ...completedRun, session_id: "session-1" }}
+        workerName="Requirements analyst"
+        criticName="Product owner"
+        onClick={vi.fn()}
+        onOpenSession={vi.fn().mockResolvedValue(false)}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Open session" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Unable to open" })).toBeDisabled());
+  });
+
+  it("hides the session action when the node has no session", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={completedRun}
+        workerName="小助手"
+        criticName="审核员"
+        onClick={vi.fn()}
+        onOpenSession={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Open session" })).not.toBeInTheDocument();
+  });
+
+  it("hides the session action when can_observe is false", () => {
+    sessionPermissionMocks.canObserve = false;
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{ ...completedRun, session_id: "session-1" }}
+        workerName="小助手"
+        criticName="审核员"
+        onClick={vi.fn()}
+        onOpenSession={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Open session" })).not.toBeInTheDocument();
+  });
+
+  it("shows open-session on split cards when a CSC session exists and observe is allowed", () => {
+    const onOpenSession = vi.fn().mockResolvedValue(true);
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-1",
+          title: "Task split",
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            template_category: "logic",
+            shape: "rectangle",
+            split_config: {
+              default_issue_workflow_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{
+          ...completedRun,
+          workflow_node_id: "split-1",
+          status: "split_active",
+          session_id: "split-csc-session-1",
+          split_review_chat_session_id: "split-chat-1",
+        }}
+        workerName="Planner"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+        onOpenSession={onOpenSession}
+      />,
+    );
+
+    expect(RUNTIME_SPLIT_NODE_HEIGHT).toBe(192);
+    expect(screen.getByTestId("runtime-node-card-split-1")).toHaveStyle({
+      height: `${RUNTIME_SPLIT_NODE_HEIGHT}px`,
+    });
+    expect(screen.getByTestId("runtime-node-open-session")).toBeInTheDocument();
+  });
+
+  it("hides open-session on split cards when the CSC session is missing", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-1",
+          title: "Task split",
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            template_category: "logic",
+            shape: "rectangle",
+            split_config: {
+              default_issue_workflow_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{
+          ...completedRun,
+          workflow_node_id: "split-1",
+          status: "awaiting_split_review",
+          session_id: null,
+          split_review_chat_session_id: null,
+        }}
+        workerName="Planner"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+        onOpenSession={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("runtime-node-open-session")).not.toBeInTheDocument();
+  });
+
+  it("does not use the split review chat id as a CSC session id", () => {
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-1",
+          title: "Task split",
+          format_schema: { type: "split", shape: "rectangle" },
+        }}
+        nodeRun={{
+          ...completedRun,
+          workflow_node_id: "split-1",
+          status: "completed",
+          session_id: null,
+          split_review_chat_session_id: "split-chat-1",
+        }}
+        workerName="Planner"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+        onOpenSession={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("runtime-node-open-session")).not.toBeInTheDocument();
+  });
+
+  it("hides open-session on split cards when can_observe is false", () => {
+    sessionPermissionMocks.canObserve = false;
+    render(
+      <RuntimeNodeCard
+        node={{
+          ...baseNode,
+          id: "split-1",
+          title: "Task split",
+          format_schema: {
+            type: "split",
+            template_id: "task-splitter",
+            template_category: "logic",
+            shape: "rectangle",
+            split_config: {
+              default_issue_workflow_id: "child-wf-1",
+              mode: "barrier",
+              max_concurrency: 5,
+              max_failures: 0,
+            },
+          },
+        }}
+        nodeRun={{
+          ...completedRun,
+          workflow_node_id: "split-1",
+          status: "completed",
+          session_id: "split-csc-session-1",
+          split_review_chat_session_id: "split-chat-1",
+        }}
+        workerName="Planner"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+        onOpenSession={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("runtime-node-open-session")).not.toBeInTheDocument();
+  });
+
+  it("hides the CSC session action outside the CoStrict embed", () => {
+    sessionPermissionMocks.embedded = false;
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{ ...completedRun, session_id: "session-1" }}
+        workerName="Planner"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+        onOpenSession={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("runtime-node-open-session")).not.toBeInTheDocument();
+  });
+
+  it("shows deliverable summary and keeps PR and session actions independent from the card", async () => {
+    const onClick = vi.fn();
+    const onOpenSession = vi.fn();
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{ ...completedRun, session_id: "session-1" }}
+        workerName="Requirements analyst"
+        criticName="Product owner"
+        onClick={onClick}
+        onOpenSession={onOpenSession}
+        deliverables={[
+          {
+            id: "deliverable-1",
+            title: "Requirements specification",
+            status: "approved",
+            pullRequestUrl: "https://gitea.test/workflow/pulls/7",
+          },
+          {
+            id: "deliverable-2",
+            title: "Acceptance checklist",
+            status: "submitted",
+            pullRequestUrl: null,
+          },
+          {
+            id: "deliverable-3",
+            title: "Data dictionary",
+            status: "missing",
+            pullRequestUrl: null,
+          },
+        ]}
+      />,
+    );
+
+    const deliverableLink = screen.getByRole("link", { name: /Requirements specification.*Approved/i });
+    expect(deliverableLink).toHaveAttribute("href", "https://gitea.test/workflow/pulls/7");
+    expect(deliverableLink).toHaveClass("text-muted-foreground");
+    expect(deliverableLink).not.toHaveClass("border", "bg-muted/35");
+    const deliverableStatus = screen.getByText("Approved");
+    expect(deliverableStatus.parentElement).toHaveClass("gap-1");
+    expect(deliverableStatus.parentElement).toContainElement(screen.getByText("Requirements specification"));
+    expect(deliverableStatus.previousElementSibling).toHaveTextContent("·");
+    expect(deliverableStatus).toHaveClass("rounded-sm", "bg-muted/50", "px-1");
+    expect(screen.getByText("+2")).toBeInTheDocument();
+
+    await userEvent.click(deliverableLink);
+    expect(onClick).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Open session" }));
+    expect(onOpenSession).toHaveBeenCalledWith("node-1");
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("keeps a non-link deliverable from opening the detail panel", async () => {
+    const onClick = vi.fn();
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={completedRun}
+        workerName="Requirements analyst"
+        criticName="Product owner"
+        onClick={onClick}
+        deliverables={[
+          {
+            id: "deliverable-1",
+            title: "Requirements specification",
+            status: "missing",
+            pullRequestUrl: null,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Requirements specification")).toBeInTheDocument();
+    expect(screen.getByText("Not submitted")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Requirements specification/i })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Requirements specification"));
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
   it("does not expose raw output names as panorama-card artifacts", () => {
     const runWithOutputs: WorkflowNodeRun = {
       ...completedRun,
@@ -236,52 +697,22 @@ describe("RuntimeNodeCard", () => {
     expect(screen.queryByText(/Critic Output/)).not.toBeInTheDocument();
   });
 
-  it("renders Bot icon for agent worker_type", () => {
+  it.each([
+    ["agent", ".lucide-bot"],
+    ["squad", ".lucide-building-2"],
+    ["human", ".lucide-user"],
+  ] as const)("does not render actor type icon for %s worker slots", (workerType, iconSelector) => {
     const { container } = render(
       <RuntimeNodeCard
-        node={baseNode}
+        node={{ ...baseNode, worker_type: workerType }}
         nodeRun={completedRun}
         workerName="小助手"
         criticName={null}
         onClick={vi.fn()}
       />,
     );
-    // lucide-bot class on the svg
-    expect(container.querySelector(".lucide-bot")).toBeInTheDocument();
-  });
 
-  it("renders Building2 icon for squad worker_type", () => {
-    const squadNode: WorkflowNode = {
-      ...baseNode,
-      worker_type: "squad",
-    };
-    const { container } = render(
-      <RuntimeNodeCard
-        node={squadNode}
-        nodeRun={completedRun}
-        workerName="全栈小队"
-        criticName={null}
-        onClick={vi.fn()}
-      />,
-    );
-    expect(container.querySelector(".lucide-building-2")).toBeInTheDocument();
-  });
-
-  it("renders User icon for human worker_type", () => {
-    const humanNode: WorkflowNode = {
-      ...baseNode,
-      worker_type: "human",
-    };
-    const { container } = render(
-      <RuntimeNodeCard
-        node={humanNode}
-        nodeRun={completedRun}
-        workerName="张伟"
-        criticName={null}
-        onClick={vi.fn()}
-      />,
-    );
-    expect(container.querySelector(".lucide-user")).toBeInTheDocument();
+    expect(container.querySelector(iconSelector)).not.toBeInTheDocument();
   });
 
   it("renders status icon in title row when nodeRun exists", () => {
@@ -307,6 +738,8 @@ describe("RuntimeNodeCard", () => {
         runtimeSummary={runtimeSummary}
         workerName="Tester"
         criticName="Reviewer"
+        workerIdentity={actorIdentity("Tester", "agent")}
+        criticIdentity={actorIdentity("Reviewer")}
         onClick={vi.fn()}
       />,
     );
@@ -314,7 +747,7 @@ describe("RuntimeNodeCard", () => {
     const card = screen.getByTestId("runtime-node-card-node-1");
     expect(card).toHaveAttribute("data-workflow-canvas-node-shell", "true");
     expect(card.className).not.toContain("min-w-[240px]");
-    expect(card).toHaveStyle({ width: "240px", height: "120px" });
+    expect(card).toHaveStyle({ width: "296px", height: `${RUNTIME_NODE_HEIGHT}px` });
     const surface = card.querySelector('[data-node-shape-surface="true"]');
     expect(surface?.className).toContain("bg-gradient-to-br");
     expect(surface?.className).toContain("border-white/80");
@@ -328,6 +761,83 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByTestId("runtime-node-content")).toHaveClass("border-t", "border-border/45");
     expect(screen.getByTestId("runtime-node-content").className).not.toContain("border-y");
     expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
+  });
+
+  it("shows the completed duration below the status", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={completedRun}
+        runtimeSummary={{ ...runtimeSummary, display_status: "completed" }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    const duration = screen.getByTestId("runtime-node-duration");
+    expect(duration).toHaveTextContent("1m 30s");
+    expect(duration).toHaveAttribute("aria-label", "Duration 1m 30s");
+    expect(duration.parentElement).toHaveClass("items-end");
+  });
+
+  it("shows elapsed duration from the shared current time while a node is running", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{
+          ...completedRun,
+          status: "working",
+          started_at: "2026-07-25T10:00:00Z",
+          completed_at: null,
+        }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          display_status: "in_progress",
+          duration_seconds: null,
+        }}
+        nowMs={Date.parse("2026-07-25T10:01:40Z")}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("runtime-node-duration")).toHaveTextContent("1m 40s");
+  });
+
+  it("does not reserve a duration row for a node that has not started", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={null}
+        runtimeSummary={null}
+        nowMs={Date.parse("2026-07-25T10:01:40Z")}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("runtime-node-duration")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["gateway", { type: "gateway", gateway_kind: "fork", shape: "diamond" }],
+    ["split", { type: "split", shape: "rectangle" }],
+  ])("shows duration in the %s node status area", (_kind, formatSchema) => {
+    render(
+      <RuntimeNodeCard
+        node={{ ...baseNode, format_schema: formatSchema }}
+        nodeRun={completedRun}
+        runtimeSummary={{ ...runtimeSummary, display_status: "completed" }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("runtime-node-duration")).toHaveTextContent("1m 30s");
   });
 
   it("does not emphasize blocked runtime nodes unless they are selected as the runtime focus", () => {
@@ -349,6 +859,29 @@ describe("RuntimeNodeCard", () => {
     expect(surface?.className).toContain("ring-slate-200/70");
     expect(surface?.className).not.toContain("ring-red");
     expect(surface?.className).not.toContain("from-red");
+  });
+
+  it("prefers the exact failed node status over a compatibility blocked summary", () => {
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={{ ...completedRun, status: "failed" }}
+        runtimeSummary={{
+          ...runtimeSummary,
+          display_status: "blocked",
+          has_error: true,
+          error_message: "Max turns reached",
+        }}
+        workerName="Tester"
+        criticName="Reviewer"
+        onClick={vi.fn()}
+      />,
+    );
+
+    const card = screen.getByTestId("runtime-node-card-node-1");
+    expect(card).toHaveAttribute("data-runtime-display-status", "failed");
+    expect(screen.getByText("Failed")).toBeInTheDocument();
+    expect(screen.queryByText("Blocked")).not.toBeInTheDocument();
   });
 
   it("emphasizes only the selected runtime focus node with its status color", () => {
@@ -381,14 +914,18 @@ describe("RuntimeNodeCard", () => {
         nodeRun={completedRun}
         workerName="小助手"
         criticName="审核员"
+        workerIdentity={actorIdentity("小助手", "agent")}
+        criticIdentity={actorIdentity("审核员")}
         onClick={vi.fn()}
       />,
     );
 
-    expect(screen.getByText("Worker")).toBeInTheDocument();
+    expect(screen.getByText("Executor").parentElement).toHaveClass("row-span-2", "grid-rows-subgrid");
     expect(screen.getByText("小助手")).toBeInTheDocument();
-    expect(screen.getByText("Critic")).toBeInTheDocument();
+    expect(screen.getByText("Reviewer").parentElement).toHaveClass("row-span-2", "grid-rows-subgrid");
     expect(screen.getByText("审核员")).toBeInTheDocument();
+    expect(screen.getByText("Executor").closest("[data-workflow-actor-slot]")).toHaveAttribute("data-workflow-actor-slot", "worker");
+    expect(screen.getByText("Reviewer").closest("[data-workflow-actor-slot]")).toHaveAttribute("data-workflow-actor-slot", "critic");
   });
 
   it("renders fixed lane-anchored handles when used inside the canvas", () => {
@@ -429,7 +966,7 @@ describe("RuntimeNodeCard", () => {
       />,
     );
 
-    expect(screen.getByText("Fork gateway")).toBeInTheDocument();
+    expect(screen.getByText("Branch start")).toBeInTheDocument();
     expect(screen.getByLabelText("Dispatched")).toBeInTheDocument();
     expect(screen.queryByText("Worker:")).not.toBeInTheDocument();
     expect(screen.queryByText("Critic:")).not.toBeInTheDocument();
@@ -482,13 +1019,22 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByText("Task split")).toBeInTheDocument();
     expect(screen.getByText("Reviewing")).toBeInTheDocument();
     expect(screen.getByTestId("runtime-node-card-split-1")).toHaveTextContent("Reviewing");
+    expect(screen.getByTestId("runtime-node-card-split-1")).toHaveStyle({
+      height: `${RUNTIME_SPLIT_NODE_HEIGHT}px`,
+    });
+    expect(screen.getByTestId("runtime-node-type-badge-split-1")).toHaveTextContent("Split");
+    expect(screen.getByTestId("runtime-node-split-header")).toHaveClass("justify-between");
+    expect(screen.getByTestId("runtime-node-split-header")).toHaveTextContent("Task splitReviewing");
+    expect(screen.getByTestId("runtime-node-split-context")).toHaveClass("border-t", "border-border/45");
+    expect(screen.getByTestId("runtime-node-split-mode")).toHaveClass("text-muted-foreground");
     expect(screen.getByLabelText("Reviewing")).toBeInTheDocument();
     expect(screen.getByText("5 child issues")).toBeInTheDocument();
     expect(screen.getByText("Not started")).toBeInTheDocument();
     expect(screen.queryByText("Review 5 tasks")).not.toBeInTheDocument();
-    expect(screen.queryByText("Worker")).not.toBeInTheDocument();
-    expect(screen.queryByText("Critic")).not.toBeInTheDocument();
+    expect(screen.queryByText("Executor")).not.toBeInTheDocument();
+    expect(screen.queryByText("Reviewer")).not.toBeInTheDocument();
     expect(screen.getByTestId("runtime-node-split-progress")).toHaveClass("border-t", "border-border/45");
+    expect(screen.getByTestId("runtime-node-card-split-1").querySelector(".lucide-git-branch")).not.toBeInTheDocument();
   });
 
   it("shows split planner roles while the split planner is running", () => {
@@ -518,6 +1064,8 @@ describe("RuntimeNodeCard", () => {
         }}
         workerName="Tester"
         criticName="Reviewer"
+        workerIdentity={actorIdentity("Tester", "agent")}
+        criticIdentity={actorIdentity("Reviewer")}
         onClick={vi.fn()}
       />,
     );
@@ -525,18 +1073,17 @@ describe("RuntimeNodeCard", () => {
     const card = screen.getByTestId("runtime-node-card-split-generating");
     expect(card).toHaveTextContent("In progress");
     expect(screen.queryByText("Generating draft tasks")).not.toBeInTheDocument();
-		expect(screen.getByText("Barrier")).toBeInTheDocument();
-    expect(screen.getByText("Worker")).toBeInTheDocument();
+    expect(screen.getByText("Wait for child issues")).toBeInTheDocument();
+    expect(screen.getByText("Executor")).toBeInTheDocument();
     expect(screen.getByText("Tester")).toBeInTheDocument();
-    expect(screen.getByText("Critic")).toBeInTheDocument();
-    expect(screen.getByText("Reviewer")).toBeInTheDocument();
+    expect(screen.getAllByText("Reviewer")).toHaveLength(2);
     expect(card.innerHTML).not.toContain("text-amber");
   });
 
-	it.each([
-		["barrier", "Barrier"],
-		["pipeline", "Pipeline"],
-	] as const)("shows %s mode on collapsed split cards", (mode, label) => {
+  it.each([
+    ["barrier", "Wait for child issues"],
+    ["pipeline", "Continue after creation"],
+  ] as const)("shows %s mode as user-facing copy", (mode, label) => {
 		render(
 			<RuntimeNodeCard
 				node={{
@@ -554,7 +1101,27 @@ describe("RuntimeNodeCard", () => {
 			/>,
 		);
 		expect(screen.getByText(label)).toBeInTheDocument();
-	});
+  });
+
+  it("keeps long runtime actor names readable", () => {
+    render(
+      <RuntimeNodeCard
+        node={{ ...baseNode, title: "Long runtime node title that should wrap on the card" }}
+        nodeRun={completedRun}
+        workerName="Extremely Long Runtime Worker Name For Verification"
+        criticName="Extremely Long Runtime Reviewer Name"
+        workerIdentity={actorIdentity("Extremely Long Runtime Worker Name For Verification", "agent")}
+        criticIdentity={actorIdentity("Extremely Long Runtime Reviewer Name")}
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Long runtime node title/).className).toContain("line-clamp-2");
+    expect(screen.getByText(/Extremely Long Runtime Worker/)).toHaveAttribute(
+      "title",
+      "Extremely Long Runtime Worker Name For Verification",
+    );
+  });
 
   it("renders split child progress as the expansion control without opening the split panel", async () => {
     const onClick = vi.fn();
@@ -601,6 +1168,7 @@ describe("RuntimeNodeCard", () => {
 
     const toggleButton = screen.getByRole("button", { name: "Expand child issues" });
     expect(toggleButton).toHaveAttribute("data-testid", "runtime-node-split-child-toggle");
+    expect(toggleButton).toHaveClass("self-start", "mt-1.5");
     expect(toggleButton).toHaveTextContent("3 child issues");
     expect(toggleButton).toHaveTextContent("1 done · 1 running · 1 ready");
 
@@ -798,6 +1366,8 @@ describe("RuntimeNodeCard", () => {
     );
 
     expect(screen.getByText("In progress")).toBeInTheDocument();
+    expect(screen.getByTestId("runtime-node-type-badge-split-2")).toHaveTextContent("Split");
+    expect(screen.getByTestId("runtime-node-split-header")).toHaveTextContent("Split progressIn progress");
     expect(screen.getByText("1 done · 1 failed · 1 running · 1 ready")).toBeInTheDocument();
   });
 
@@ -844,6 +1414,8 @@ describe("RuntimeNodeCard", () => {
     );
 
     expect(screen.getByText("Completed")).toBeInTheDocument();
+    expect(screen.getByTestId("runtime-node-type-badge-split-completed")).toHaveTextContent("Split");
+    expect(screen.getByTestId("runtime-node-split-header")).toHaveTextContent("Split completedCompleted");
     expect(screen.getByText("4 done")).toBeInTheDocument();
   });
 

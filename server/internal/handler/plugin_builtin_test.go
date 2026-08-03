@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"sync"
 	"testing"
+
+	"github.com/multica-ai/multica/server/internal/plugincatalog"
 )
 
 // pluginListEnvelope mirrors the list envelope ListBuiltinPlugins returns to
@@ -105,9 +107,10 @@ func assertEmptyPluginEnvelope(t *testing.T, body []byte) {
 }
 
 func TestListBuiltinPlugins(t *testing.T) {
-	// Empty search must proxy straight to the builtin catalog endpoint with the
-	// default pagination, and forward the upstream body unchanged.
-	t.Run("empty query forwards to /api/plugins/builtin", func(t *testing.T) {
+	// Empty search must proxy to the catalog's plugin listing endpoint
+	// (/api/items?type=plugin), not /api/plugins/builtin (which returns an
+	// empty list on cloud-api and would hide every plugin from the picker).
+	t.Run("empty query forwards to /api/items?type=plugin", func(t *testing.T) {
 		upstream := newPluginUpstream(http.StatusOK,
 			`{"items":[{"id":"p1","name":"Plugin One"}],"total":1,"page":1,"pageSize":100,"hasMore":false}`)
 		defer upstream.close()
@@ -124,10 +127,16 @@ func TestListBuiltinPlugins(t *testing.T) {
 		if upstream.callCount() != 1 {
 			t.Fatalf("upstream call count: want 1, got %d", upstream.callCount())
 		}
-		if got := upstream.lastPath(); got != "/api/plugins/builtin" {
-			t.Fatalf("upstream path: want /api/plugins/builtin, got %q", got)
+		if got := upstream.lastPath(); got != "/api/items" {
+			t.Fatalf("upstream path: want /api/items, got %q", got)
 		}
 		q := upstream.lastQuery()
+		if q.Get("type") != "plugin" {
+			t.Errorf("type param: want plugin, got %q", q.Get("type"))
+		}
+		if _, ok := q["search"]; ok {
+			t.Errorf("search param: want absent on empty query, got %q", q.Get("search"))
+		}
 		if q.Get("page") != "1" {
 			t.Errorf("page param: want 1, got %q", q.Get("page"))
 		}
@@ -261,7 +270,7 @@ func TestFetchPluginDataResolvesItemDetailOnlyPlugin(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	result := fetchPluginData(t.Context(), upstream.URL, "search-only")
+	result := plugincatalog.Fetch(t.Context(), upstream.URL, "search-only")
 	if result == nil {
 		t.Fatal("expected plugin data from item detail, got nil")
 	}

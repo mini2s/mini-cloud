@@ -30,6 +30,7 @@ interface WorkflowNodeDetailPanelShellProps {
   closeLabel: string;
   onClose: () => void;
   children: ReactNode;
+  footer?: ReactNode;
   className?: string;
   contentClassName?: string;
   widthClassName?: string;
@@ -45,16 +46,17 @@ export function WorkflowNodeDetailPanelShell({
   closeLabel,
   onClose,
   children,
+  footer,
   className,
   contentClassName,
-  widthClassName = "w-[520px]",
+  widthClassName = "w-[620px]",
 }: WorkflowNodeDetailPanelShellProps) {
   const panel = (
     <aside
       data-testid="workflow-node-detail-panel-shell"
       data-mode={mode}
       className={cn(
-        "flex h-full flex-col border-l bg-background",
+        "flex h-full flex-col border-l border-border/80 bg-background shadow-[-10px_0_28px_rgba(15,23,42,0.06)]",
         widthClassName,
         variant === "overlay" &&
           "fixed right-0 top-0 bottom-0 z-50 h-auto shadow-2xl shadow-foreground/10 ring-1 ring-border/70 backdrop-blur",
@@ -87,11 +89,19 @@ export function WorkflowNodeDetailPanelShell({
       </div>
 
       <div
-        data-testid="node-detail-section-stack"
+        data-testid="node-detail-panel-content"
         className={cn("min-h-0 flex-1 overflow-y-auto px-4 py-3.5", contentClassName)}
       >
-        <div className="space-y-4">{children}</div>
+        <div data-testid="node-detail-section-stack" className="space-y-4">{children}</div>
       </div>
+      {footer ? (
+        <div
+          data-testid="node-detail-panel-footer"
+          className="shrink-0 border-t border-border/60 bg-background px-4 py-3"
+        >
+          {footer}
+        </div>
+      ) : null}
     </aside>
   );
 

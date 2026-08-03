@@ -16,15 +16,20 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
+	"github.com/multica-ai/multica/server/internal/cloudidentity"
+	"github.com/multica-ai/multica/server/internal/cloudruntime"
+	"github.com/multica-ai/multica/server/internal/csuser"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/handler"
+	"github.com/multica-ai/multica/server/internal/integration"
 	"github.com/multica-ai/multica/server/internal/logger"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service"
+	"github.com/multica-ai/multica/server/internal/teamnamespace"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/redis/go-redis/v9"
@@ -33,6 +38,12 @@ import (
 var (
 	version = "dev"
 	commit  = "unknown"
+)
+
+const (
+	workflowDispatchWorkerConcurrency = 2
+	workflowDispatchPollInterval      = time.Second
+	workflowDispatchLeaseDuration     = 30 * time.Second
 )
 
 func newNamedRedisClient(base *redis.Options, suffix string) *redis.Client {
@@ -266,6 +277,21 @@ func main() {
 	registerActivityListeners(bus, queries)
 	registerNotificationListeners(bus, queries)
 
+	// Optional outbound bridge to costrict-web (WeCom/webhook channels).
+	// Disabled unless both env vars are set; delivery runs in background
+	// workers and never blocks the event bus.
+	if endpoint := strings.TrimSpace(os.Getenv("MULTICA_INTEGRATION_ENDPOINT")); endpoint != "" {
+		if secret := os.Getenv("MULTICA_INTEGRATION_SECRET"); secret != "" {
+			notifier := integration.NewNotifier(endpoint, secret)
+			notifier.Run(ctx)
+			appURL := strings.TrimRight(strings.TrimSpace(os.Getenv("MULTICA_APP_URL")), "/")
+			registerIntegrationListener(bus, queries, notifier, appURL)
+			slog.Info("costrict-web integration bridge enabled", "endpoint", endpoint)
+		} else {
+			slog.Warn("MULTICA_INTEGRATION_ENDPOINT set but MULTICA_INTEGRATION_SECRET missing — integration bridge disabled")
+		}
+	}
+
 	metricsConfig := obsmetrics.ConfigFromEnv()
 	var metricsServer *http.Server
 	var httpMetrics *obsmetrics.HTTPMetrics
@@ -287,16 +313,15 @@ func main() {
 		}
 	}
 
-	// Casdoor SSO: when CASDOOR_ENDPOINT is set, validate RS256 JWTs issued
-	// by Casdoor. Otherwise fall back to legacy HMAC JWT auth. Both modes
-	// support PAT tokens (the CasdoorAuth middleware passes "mul_" prefixed
-	// Bearer tokens through to the downstream Auth middleware).
+	// Casdoor SSO: when CASDOOR_ENDPOINT is set, Casdoor JWTs are accepted on
+	// protected routes. The RS256 signature is verified by the gateway in
+	// front of Multica, so the backend only gates the CasdoorAuth middleware
+	// and the SSO login/callback routes. Both modes support PAT tokens (the
+	// CasdoorAuth middleware passes "mul_" prefixed Bearer tokens through to
+	// the downstream Auth middleware).
 	casdoorEndpoint := os.Getenv("CASDOOR_ENDPOINT")
 	casdoorEnabled := casdoorEndpoint != ""
-	var jwksProvider *auth.JWKSProvider
 	if casdoorEnabled {
-		jwksProvider = auth.NewJWKSProvider(casdoorEndpoint)
-		jwksProvider.Preload()
 		slog.Info("Casdoor SSO enabled", "endpoint", casdoorEndpoint)
 	} else {
 		slog.Warn("Casdoor SSO not configured — using legacy HMAC JWT auth")
@@ -311,22 +336,45 @@ func main() {
 		Timeout:  envDuration("DEPT_SYNC_TIMEOUT", 10*time.Second),
 		CacheTTL: envDuration("DEPT_SYNC_CACHE_TTL", time.Minute),
 	})
+	csUserClient := csuser.NewClient(csuser.Config{
+		BaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("CS_USER_API_BASE_URL")), "/"),
+		Token:   os.Getenv("CS_USER_INTERNAL_TOKEN"),
+		Timeout: envDuration("CS_USER_API_TIMEOUT", 10*time.Second),
+	})
+	teamNamespaceClient := teamnamespace.NewClient(teamnamespace.Config{
+		BaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("TEAM_NAMESPACE_API_BASE_URL")), "/"),
+		Token:   os.Getenv("TEAM_NAMESPACE_INTERNAL_SERVICE_TOKEN"),
+		Tenant:  os.Getenv("TEAM_NAMESPACE_TENANT_ID"),
+		Timeout: envDuration("TEAM_NAMESPACE_API_TIMEOUT", 10*time.Second),
+	})
+	// cloudIdentityClient translates a Casdoor access token into the cloud-api
+	// stable subject id (e.g. "usr_...") so the SubjectResolver can find the
+	// Multica user the account was provisioned under (keyed by the cloud
+	// subject id, not the raw Casdoor sub). Disabled (no-op fallback to JWT
+	// "sub") when CLOUD_API_BASE_URL is unset.
+	cloudIdentityClient := cloudidentity.NewClient(cloudidentity.Config{
+		BaseURL:  strings.TrimRight(strings.TrimSpace(os.Getenv("CLOUD_API_BASE_URL")), "/"),
+		Timeout:  envDuration("CLOUD_API_TIMEOUT", 5*time.Second),
+		CacheTTL: envDuration("CLOUD_API_SUBJECT_CACHE_TTL", 2*time.Minute),
+	})
 	// The SubjectResolver fires on every authenticated request; bound the
 	// dept-link work (dept-sync call + DB writes) to once per window per user.
 	deptLinkThrottle := &linkThrottle{last: make(map[string]time.Time), ttl: envDuration("DEPT_LINK_INTERVAL", 5*time.Minute)}
 
-	// subjectResolver maps a Casdoor subject_id (the "sub" claim) to a
-	// Multica user UUID. On first encounter the user is auto-provisioned
-	// with the real name/email from the JWT claims. For existing users,
-	// the name and email are kept in sync with Casdoor.
+	// subjectResolver maps a Casdoor subject_id (cloud subject, or the raw
+	// "sub" claim when cloud translation is unavailable) to a Multica user
+	// UUID. Resolution itself — including identity-link lookup, auto-
+	// provisioning, and email adoption — lives in internal/auth where it is
+	// unit-testable; the wrapper here adds login-time dept linking.
+	baseSubjectResolver := auth.NewSubjectResolver(queries)
 	subjectResolver := middleware.SubjectResolver(func(ctx context.Context, subjectID, universalID, name, email string) (userID string, err error) {
-		// After resolving the user, asynchronously bind + refresh their dept
-		// identity: activate any pending dept membership (→ the inviting
-		// workspace links to this account) and overwrite their name / org
-		// snapshot from dept-sync (→ repairs placeholder names like a Casdoor
-		// login UUID). This is the path costrict's embedded iframe actually
-		// uses (zgsmAdminToken cookie), so the linking must happen here, not
-		// only in the standalone Casdoor OAuth callback. Throttled per user so
+		// After resolving the user, asynchronously refresh their dept
+		// org snapshot and display name from dept-sync. The universal_id is
+		// passed through only as a transient lookup token (for dept-sync's
+		// GetUserDepartmentsByUniversalID); it is NOT persisted.
+		// This is the path costrict's embedded iframe actually uses
+		// (zgsmAdminToken cookie), so the refresh must happen here, not only
+		// in the standalone Casdoor OAuth callback. Throttled per user so
 		// it doesn't run on every request; detached context so it survives the
 		// response being written.
 		defer func() {
@@ -345,156 +393,10 @@ func main() {
 			go func() {
 				bgCtx, cancel := context.WithTimeout(context.Background(), envDuration("DEPT_LINK_TIMEOUT", 15*time.Second))
 				defer cancel()
-				handler.LinkDeptIdentity(bgCtx, queries, deptSyncClient, bus, uid, uni)
+				handler.LinkDeptIdentity(bgCtx, queries, deptSyncClient, uid, uni)
 			}()
 		}()
-		user, err := queries.GetUserBySubjectID(ctx, pgtype.Text{String: subjectID, Valid: true})
-		if err != nil {
-			// Auto-provision: use real name/email from JWT, fall back to placeholders.
-			if name == "" {
-				name = "casdoor-" + subjectID
-			}
-			if email == "" {
-				email = subjectID + "@casdoor.local"
-			}
-			user, err = queries.CreateUser(ctx, db.CreateUserParams{
-				Name:      name,
-				Email:     email,
-				AvatarUrl: pgtype.Text{},
-			})
-			if err != nil {
-				// The email already belongs to an existing account that isn't
-				// linked to this subject_id yet — e.g. the person was
-				// provisioned earlier under a different Casdoor subject (re-created
-				// in Casdoor, org migration) or a pre-Casdoor local account holds
-				// this email. Adopt that account by binding this subject_id to it,
-				// unless it already carries a *different* subject_id (a genuine
-				// two-identity-one-email collision we must not silently hijack).
-				if util.IsUniqueViolation(err) {
-					existing, findErr := queries.GetUserByEmail(ctx, email)
-					if findErr == nil {
-						if existing.SubjectID.Valid && existing.SubjectID.String != subjectID {
-							slog.Warn("casdoor: email owned by a different subject_id, refusing to adopt",
-								"subject_id", subjectID,
-								"existing_subject_id", existing.SubjectID.String,
-								"existing_user_id", util.UUIDToString(existing.ID),
-								"email", email,
-							)
-							return "", err
-						}
-						if !existing.SubjectID.Valid {
-							if setErr := queries.SetUserSubjectID(ctx, db.SetUserSubjectIDParams{
-								ID:        existing.ID,
-								SubjectID: pgtype.Text{String: subjectID, Valid: true},
-							}); setErr != nil {
-								slog.Warn("casdoor: failed to adopt existing user by email",
-									"user_id", util.UUIDToString(existing.ID),
-									"subject_id", subjectID,
-									"error", setErr,
-								)
-								return "", setErr
-							}
-						}
-						if universalID != "" {
-							if setErr := queries.SetUserCasdoorUniversalID(ctx, db.SetUserCasdoorUniversalIDParams{
-								ID:                 existing.ID,
-								CasdoorUniversalID: pgtype.Text{String: universalID, Valid: true},
-							}); setErr != nil {
-								slog.Warn("casdoor: failed to bind universal_id to adopted user",
-									"user_id", util.UUIDToString(existing.ID),
-									"universal_id", universalID,
-									"error", setErr,
-								)
-							}
-						}
-						slog.Info("casdoor: adopted existing user by email",
-							"user_id", util.UUIDToString(existing.ID),
-							"subject_id", subjectID,
-							"email", email,
-						)
-						return util.UUIDToString(existing.ID), nil
-					}
-				}
-				return "", err
-			}
-			if setErr := queries.SetUserSubjectID(ctx, db.SetUserSubjectIDParams{
-				ID:        user.ID,
-				SubjectID: pgtype.Text{String: subjectID, Valid: true},
-			}); setErr != nil {
-				slog.Warn("failed to bind subject_id to auto-provisioned user",
-					"user_id", util.UUIDToString(user.ID),
-					"subject_id", subjectID,
-					"error", setErr,
-				)
-			}
-			if universalID != "" {
-				if setErr := queries.SetUserCasdoorUniversalID(ctx, db.SetUserCasdoorUniversalIDParams{
-					ID:                 user.ID,
-					CasdoorUniversalID: pgtype.Text{String: universalID, Valid: true},
-				}); setErr != nil {
-					slog.Warn("failed to bind casdoor universal_id to auto-provisioned user",
-						"user_id", util.UUIDToString(user.ID),
-						"universal_id", universalID,
-						"error", setErr,
-					)
-				}
-			}
-			slog.Info("casdoor: auto-provisioned user", "user_id", util.UUIDToString(user.ID), "subject_id", subjectID, "name", name)
-			return util.UUIDToString(user.ID), nil
-		}
-		if universalID != "" && (!user.CasdoorUniversalID.Valid || user.CasdoorUniversalID.String != universalID) {
-			if setErr := queries.SetUserCasdoorUniversalID(ctx, db.SetUserCasdoorUniversalIDParams{
-				ID:                 user.ID,
-				CasdoorUniversalID: pgtype.Text{String: universalID, Valid: true},
-			}); setErr != nil {
-				slog.Warn("failed to sync casdoor universal_id",
-					"user_id", util.UUIDToString(user.ID),
-					"subject_id", subjectID,
-					"universal_id", universalID,
-					"error", setErr,
-				)
-			}
-		}
-
-		// Existing user: sync email if it changed in Casdoor. The display
-		// name is intentionally NOT synced from Casdoor here — for
-		// phone-registered accounts the Casdoor "name" is a placeholder UUID,
-		// and dept-sync is the org source of truth for names. LinkDeptIdentity
-		// (run on resolve, throttled) refreshes the name from dept-sync;
-		// syncing the Casdoor name here would overwrite that back to the UUID
-		// on every request.
-		syncEmail := email != "" && user.Email != email
-
-		// Guard against unique-key violations: if another user already owns
-		// this email (e.g. a pre-existing local account), skip the email sync.
-		if syncEmail {
-			existing, err := queries.GetUserByEmail(ctx, email)
-			if err == nil && existing.ID != user.ID {
-				slog.Warn("casdoor email already owned by another user, skipping email sync",
-					"user_id", util.UUIDToString(user.ID),
-					"existing_user_id", util.UUIDToString(existing.ID),
-					"email", email,
-				)
-				syncEmail = false
-			}
-		}
-
-		if syncEmail {
-			if _, updErr := queries.UpdateUserNameAndEmail(ctx, db.UpdateUserNameAndEmailParams{
-				ID:    user.ID,
-				Name:  user.Name, // keep current; dept-sync owns the name
-				Email: email,
-			}); updErr != nil {
-				slog.Warn("failed to sync user email from Casdoor",
-					"user_id", util.UUIDToString(user.ID),
-					"subject_id", subjectID,
-					"error", updErr,
-				)
-			} else {
-				slog.Info("casdoor: synced user email", "user_id", util.UUIDToString(user.ID), "subject_id", subjectID)
-			}
-		}
-		return util.UUIDToString(user.ID), nil
+		return baseSubjectResolver(ctx, subjectID, universalID, name, email)
 	})
 
 	// Construct the BatchedHeartbeatScheduler before the router so it can
@@ -520,11 +422,13 @@ func main() {
 		DaemonHub:              daemonHub,
 		DaemonWakeup:           daemonWakeup,
 		HeartbeatScheduler:     heartbeatScheduler,
-		JWKSProvider:           jwksProvider,
 		SubjectResolver:        subjectResolver,
+		CloudSubjectTranslator: cloudIdentityClient,
 		CasdoorEnabled:         casdoorEnabled,
 		SkillProxy:             skillProxy,
 		DeptSync:               deptSyncClient,
+		CsUser:                 csUserClient,
+		TeamNamespace:          teamNamespaceClient,
 		WorkflowRoleResolution: roleResolutionRuntime,
 	})
 
@@ -538,7 +442,19 @@ func main() {
 	autopilotCtx, autopilotCancel := context.WithCancel(context.Background())
 	taskSvc := service.NewTaskService(queries, pool, hub, bus, daemonWakeup)
 	taskSvc.Analytics = analyticsClient
+	// Background dispatch paths (workflow dispatch worker, autopilot, the
+	// runtime sweeper) share this TaskService instance, so it needs its own
+	// cs-cloud push client — the one wired in handler.NewHandler only covers
+	// the HTTP request path. Without this, cs-cloud tasks enqueued from
+	// background paths sit in 'queued' until the TTL sweeper expires them.
+	taskSvc.CSCloudPush = cloudruntime.NewClient(cloudruntime.Config{
+		BaseURL: cloudRuntimeFleetURLFromEnv(),
+		Timeout: envDuration("MULTICA_CLOUD_FLEET_TIMEOUT", 35*time.Second),
+	})
 	roleWorkflowSvc := service.NewWorkflowService(queries, pool, bus, taskSvc)
+	roleWorkflowSvc.TeamNamespace = teamNamespaceClient
+	assignmentSvc := &service.IssueAssignmentService{Queries: queries, Tasks: taskSvc, Workflows: roleWorkflowSvc}
+	splitDispatchSvc := service.NewSplitOrchestrator(queries, pool, roleWorkflowSvc, assignmentSvc, bus)
 	hostname, _ := os.Hostname()
 	for i := 0; i < roleResolutionRuntime.WorkerConcurrency; i++ {
 		worker := &service.WorkflowRoleResolutionWorker{
@@ -548,11 +464,6 @@ func main() {
 			PollInterval: roleResolutionRuntime.PollInterval, LeaseDuration: roleResolutionRuntime.LeaseDuration,
 			MaxCandidates: roleResolutionRuntime.MaxCandidates, MaxSlots: roleResolutionRuntime.MaxSlots,
 			MaxInputChars: roleResolutionRuntime.MaxInputChars,
-			OnRunPromoted: func(ctx context.Context, runID pgtype.UUID) {
-				if err := roleWorkflowSvc.DispatchRootNodeRuns(ctx, runID); err != nil {
-					slog.Error("dispatch workflow roots after role resolution", "run_id", util.UUIDToString(runID), "error", err)
-				}
-			},
 			OnStateChanged: func(_ context.Context, workspaceID, runID pgtype.UUID) {
 				payload := map[string]any{"run_id": util.UUIDToString(runID)}
 				for _, eventType := range []string{"workflow_role_resolution_updated", "workflow_run_updated"} {
@@ -562,6 +473,16 @@ func main() {
 					})
 				}
 			},
+		}
+		go worker.Run(sweepCtx)
+	}
+	for i := 0; i < workflowDispatchWorkerConcurrency; i++ {
+		worker := &service.WorkflowDispatchWorker{
+			Queries: queries, TxStarter: pool, Workflow: roleWorkflowSvc,
+			DispatchSplit: splitDispatchSvc.GenerateSplitTasksForDispatch,
+			WorkerID:      hostname + "-workflow-dispatch-" + strconv.Itoa(i+1),
+			PollInterval:  workflowDispatchPollInterval,
+			LeaseDuration: workflowDispatchLeaseDuration,
 		}
 		go worker.Run(sweepCtx)
 	}

@@ -13,13 +13,13 @@ import (
 // cs-cloud uses it to decide whether a Casdoor-authenticated user may access the
 // CSC session bound to a workflow node-run, and what operations they may perform.
 type SessionPermissionResponse struct {
-	WorkspaceID string              `json:"workspace_id"`
-	NodeRunID   string              `json:"node_run_id"`
-	DeviceID    string              `json:"device_id"`
-	SessionID   string              `json:"session_id"`
-	Role        string              `json:"role"`
-	CanControl  bool                `json:"can_control"`
-	CanObserve  bool                `json:"can_observe"`
+	WorkspaceID string `json:"workspace_id"`
+	NodeRunID   string `json:"node_run_id"`
+	DeviceID    string `json:"device_id"`
+	SessionID   string `json:"session_id"`
+	Role        string `json:"role"`
+	CanControl  bool   `json:"can_control"`
+	CanObserve  bool   `json:"can_observe"`
 }
 
 // GetSessionPermission resolves a CSC session_id to the bound workflow node-run
@@ -82,7 +82,8 @@ func (h *Handler) GetSessionPermission(w http.ResponseWriter, r *http.Request) {
 
 	role := resolveRuntimeRole(member, rt, explicitRole)
 	caps := runtimeCapabilities(role)
-	if !caps.Observe {
+	canObserve := canObserveSession(member, rt)
+	if !canObserve {
 		writeError(w, http.StatusForbidden, "you do not have permission to observe this session")
 		return
 	}
@@ -94,7 +95,7 @@ func (h *Handler) GetSessionPermission(w http.ResponseWriter, r *http.Request) {
 		SessionID:   sessionID,
 		Role:        string(role),
 		CanControl:  caps.Control,
-		CanObserve:  caps.Observe,
+		CanObserve:  canObserve,
 	}
 	if nodeRun.DeviceID.Valid {
 		resp.DeviceID = nodeRun.DeviceID.String

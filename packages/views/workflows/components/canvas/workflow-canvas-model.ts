@@ -1,5 +1,6 @@
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
-import type { WorkflowEdge, WorkflowNode, WorkflowStage } from "@multica/core/types";
+import { isBoundaryNode, parseNodeFormat, type WorkflowEdge, type WorkflowNode, type WorkflowStage } from "@multica/core/types";
+import { BOUNDARY_HEIGHT, BOUNDARY_WIDTH } from "../overview/reactflow-nodes/boundary-node";
 import {
   CRITIC_HEIGHT,
   CRITIC_WIDTH,
@@ -7,6 +8,7 @@ import {
   WORKER_CRITIC_GAP,
   WORKER_HEIGHT,
   WORKER_WIDTH,
+  UNASSIGNED_STAGE_ID,
   computeLaneY,
   createStageVisualIndexMap,
   getStageColor,
@@ -43,6 +45,69 @@ export interface WorkflowCanvasEdgeModelOptions {
 type CanvasEdgeKind = "data" | "condition" | "error" | "rework" | "critic";
 type CanvasEdgeTone = "data" | "condition" | "error" | "rework" | "critic" | "success" | "running" | "blocked" | "waiting";
 
+export const MIN_NODE_HORIZONTAL_GAP = 96;
+
+export function workflowCanvasStages(
+  stages: WorkflowStage[],
+  nodes: WorkflowNode[],
+  workflowId: string,
+): WorkflowStage[] {
+  const unassignedCount = nodes.filter((node) => !node.stage_id).length;
+  if (unassignedCount === 0 && stages.length > 0) return stages;
+
+  return [
+    ...stages,
+    {
+      id: UNASSIGNED_STAGE_ID,
+      workflow_id: workflowId,
+      name: "Unassigned",
+      description: "",
+      sort_order: stages.length,
+      node_count: unassignedCount,
+      created_at: "",
+      updated_at: "",
+    },
+  ];
+}
+
+function normalizedNodeXMap(
+  nodes: WorkflowNode[],
+  nodeWidth: number,
+): Map<string, number> {
+  const nodesByStage = new Map<string | null, WorkflowNode[]>();
+
+  for (const node of nodes) {
+    const stageId = node.stage_id ?? null;
+    const stageNodes = nodesByStage.get(stageId) ?? [];
+    stageNodes.push(node);
+    nodesByStage.set(stageId, stageNodes);
+  }
+
+  const positions = new Map<string, number>();
+  for (const stageNodes of nodesByStage.values()) {
+    const sortedNodes = [...stageNodes].sort((a, b) => {
+      const xDifference = (a.position_x ?? 100) - (b.position_x ?? 100);
+      if (xDifference !== 0) return xDifference;
+      if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+      return a.id.localeCompare(b.id);
+    });
+
+    let previousX: number | null = null;
+    let previousWidth = nodeWidth;
+    for (const node of sortedNodes) {
+      const storedX = node.position_x ?? 100;
+      const x: number = previousX === null
+        ? storedX
+        : Math.max(storedX, previousX + previousWidth + MIN_NODE_HORIZONTAL_GAP);
+      positions.set(node.id, x);
+      previousX = x;
+      previousWidth = isBoundaryNode(node) ? BOUNDARY_WIDTH : nodeWidth;
+    }
+  }
+
+  return positions;
+}
+
 export function workflowNodesToReactFlowNodes({
   nodes,
   stages,
@@ -55,13 +120,14 @@ export function workflowNodesToReactFlowNodes({
 }: WorkflowCanvasNodeModelOptions): Node[] {
   const stageMap = new Map(stages.map((stage) => [stage.id, stage]));
   const stageVisualIndexMap = createStageVisualIndexMap(stages);
+  const normalizedX = normalizedNodeXMap(nodes, nodeWidth);
 
   return nodes.flatMap((node) => {
     const stage = node.stage_id ? stageMap.get(node.stage_id) : undefined;
     const visualIndex = stage ? stageVisualIndexMap.get(stage.id) ?? stages.length : stages.length;
     const laneY = stage ? computeLaneY(visualIndex) : UNASSIGNED_LANE_Y(stages.length);
     const stageColorIndex = visualIndex;
-    const x = node.position_x ?? 100;
+    const x = normalizedX.get(node.id) ?? node.position_x ?? 100;
     const context: WorkflowCanvasNodeContext = {
       stage,
       stage_id: node.stage_id,
@@ -69,16 +135,24 @@ export function workflowNodesToReactFlowNodes({
       laneY,
     };
 
+    const boundaryKind = parseNodeFormat(node.format_schema).kind;
+    const boundary = boundaryKind === "start" || boundaryKind === "end";
     const workerNode: Node = {
       id: node.id,
-      type: nodeType,
-      position: { x, y: laneY },
-      width: nodeWidth,
-      height: nodeHeight,
-      data: makeNodeData(node, context),
+      type: boundary ? "boundary" : nodeType,
+      position: {
+        x,
+        y: boundary ? laneY + (nodeHeight - BOUNDARY_HEIGHT) / 2 : laneY,
+      },
+      width: boundary ? BOUNDARY_WIDTH : nodeWidth,
+      height: boundary ? BOUNDARY_HEIGHT : nodeHeight,
+      data: {
+        ...makeNodeData(node, context),
+        ...(boundary ? { kind: boundaryKind } : {}),
+      },
     };
 
-    if (!includeCriticBadges || (!node.critic_id && !node.critic_api_url && !node.critic_role_id && !node.critic_role)) return [workerNode];
+    if (boundary || !includeCriticBadges || (!node.critic_id && !node.critic_api_url && !node.critic_role_id && !node.critic_role)) return [workerNode];
 
     const criticNode: Node = {
       id: `${node.id}:critic`,
@@ -112,11 +186,12 @@ export function workflowEdgesToReactFlowEdges({
   const stageMap = new Map(stages.map((stage) => [stage.id, stage]));
   const stageVisualIndexMap = createStageVisualIndexMap(stages);
   const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+  const normalizedX = normalizedNodeXMap(nodes, WORKER_WIDTH);
   const positionMap = new Map(nodes.map((node) => {
     const stage = node.stage_id ? stageMap.get(node.stage_id) : undefined;
     const visualIndex = stage ? stageVisualIndexMap.get(stage.id) ?? stages.length : stages.length;
     return [node.id, {
-      x: node.position_x ?? 100,
+      x: normalizedX.get(node.id) ?? node.position_x ?? 100,
       y: stage ? computeLaneY(visualIndex) : UNASSIGNED_LANE_Y(stages.length),
     }];
   }));

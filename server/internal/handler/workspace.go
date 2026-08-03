@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/logger"
+	"github.com/multica-ai/multica/server/internal/teamnamespace"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
@@ -81,8 +83,6 @@ type MemberResponse struct {
 	Role                string  `json:"role"`
 	Source              string  `json:"source"`
 	Status              string  `json:"status"`
-	ExternalUserID      *string `json:"external_user_id"`
-	ExternalUniversalID *string `json:"external_universal_id"`
 	EmployeeID          *string `json:"employee_id"`
 	OrgDisplayName      *string `json:"org_display_name"`
 	DeptID              *string `json:"dept_id"`
@@ -100,8 +100,6 @@ func memberToResponse(m db.MulticaMember) MemberResponse {
 		Role:                m.Role,
 		Source:              m.Source,
 		Status:              m.Status,
-		ExternalUserID:      textToPtr(m.ExternalUserID),
-		ExternalUniversalID: textToPtr(m.ExternalUniversalID),
 		EmployeeID:          textToPtr(m.EmployeeID),
 		OrgDisplayName:      textToPtr(m.OrgDisplayName),
 		DeptID:              textToPtr(m.DeptID),
@@ -117,7 +115,6 @@ func (h *Handler) ListWorkspaces(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-
 	workspaces, err := h.Queries.ListWorkspaces(r.Context(), parseUUID(userID))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list workspaces")
@@ -240,6 +237,12 @@ func (h *Handler) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Async: provision the workspace's Gitea namespace (org + bot + members)
+	// on creation — not lazily on the first document-run. Best-effort.
+	if h.WorkflowService != nil {
+		go h.WorkflowService.ProvisionWorkspaceGitea(context.Background(), ws.ID)
+	}
+
 	wsID := uuidToString(ws.ID)
 
 	// "Is this the user's first workspace?" is derived in PostHog by looking
@@ -296,6 +299,39 @@ func (h *Handler) UpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 		params.Settings = s
 	}
 	if req.Repos != nil {
+		// Cascade: a URL removed from workspace.repos (Settings → Repositories)
+		// is also detached from every project in this workspace, so the project
+		// page and the settings page stay consistent.
+		type repoURL struct{ URL string `json:"url"` }
+		var newRepos []repoURL
+		if blob, err := json.Marshal(req.Repos); err == nil {
+			_ = json.Unmarshal(blob, &newRepos)
+		}
+		newURLs := make(map[string]struct{}, len(newRepos))
+		for _, nr := range newRepos {
+			if u := strings.TrimSpace(nr.URL); u != "" {
+				newURLs[u] = struct{}{}
+			}
+		}
+		if old, err := h.Queries.GetWorkspace(r.Context(), idUUID); err == nil {
+			var oldRepos []repoURL
+			_ = json.Unmarshal(old.Repos, &oldRepos)
+			for _, oldRepo := range oldRepos {
+				u := strings.TrimSpace(oldRepo.URL)
+				if u == "" {
+					continue
+				}
+				if _, kept := newURLs[u]; kept {
+					continue
+				}
+				if _, err := h.Queries.DeleteProjectResourcesByWorkspaceAndURL(r.Context(), db.DeleteProjectResourcesByWorkspaceAndURLParams{
+					WorkspaceID: idUUID,
+					Url:         u,
+				}); err != nil {
+					slog.Warn("cascade delete project resource failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", idUUID, "url", u)...)
+				}
+			}
+		}
 		reposJSON, _ := json.Marshal(req.Repos)
 		params.Repos = reposJSON
 	}
@@ -316,6 +352,9 @@ func (h *Handler) UpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 	slog.Info("workspace updated", append(logger.RequestAttrs(r), "workspace_id", id)...)
 	userID := requestUserID(r)
 	h.publish(protocol.EventWorkspaceUpdated, uuidToString(ws.ID), "member", userID, map[string]any{"workspace": workspaceToResponse(ws)})
+	if h.WorkflowService != nil && (req.Name != nil || req.Description != nil) {
+		go h.WorkflowService.UpdateTeamNamespace(context.Background(), ws.ID, ws.Name, ws.Description.String)
+	}
 
 	writeJSON(w, http.StatusOK, workspaceToResponse(ws))
 }
@@ -348,6 +387,7 @@ type MemberWithUserResponse struct {
 	Role                string  `json:"role"`
 	Source              string  `json:"source"`
 	Status              string  `json:"status"`
+	SubjectID           *string `json:"subject_id"`
 	ExternalUserID      *string `json:"external_user_id"`
 	ExternalUniversalID *string `json:"external_universal_id"`
 	EmployeeID          *string `json:"employee_id"`
@@ -381,6 +421,10 @@ func (h *Handler) ListMembersWithUser(w http.ResponseWriter, r *http.Request) {
 		if name == "" {
 			name = m.OrgDisplayName.String
 		}
+		subjectID := m.SubjectID
+		if !subjectID.Valid {
+			subjectID = m.UserSubjectID
+		}
 		resp[i] = MemberWithUserResponse{
 			ID:                  uuidToString(m.ID),
 			WorkspaceID:         uuidToString(m.WorkspaceID),
@@ -388,8 +432,7 @@ func (h *Handler) ListMembersWithUser(w http.ResponseWriter, r *http.Request) {
 			Role:                m.Role,
 			Source:              m.Source,
 			Status:              m.Status,
-			ExternalUserID:      textToPtr(m.ExternalUserID),
-			ExternalUniversalID: textToPtr(m.ExternalUniversalID),
+			SubjectID:           textToPtr(subjectID),
 			EmployeeID:          textToPtr(m.EmployeeID),
 			OrgDisplayName:      textToPtr(m.OrgDisplayName),
 			DeptID:              textToPtr(m.DeptID),
@@ -412,6 +455,10 @@ type CreateMemberRequest struct {
 }
 
 func memberWithUserResponse(member db.MulticaMember, user db.MulticaUser) MemberWithUserResponse {
+	subjectID := member.SubjectID
+	if !subjectID.Valid {
+		subjectID = user.SubjectID
+	}
 	return MemberWithUserResponse{
 		ID:                  uuidToString(member.ID),
 		WorkspaceID:         uuidToString(member.WorkspaceID),
@@ -419,8 +466,7 @@ func memberWithUserResponse(member db.MulticaMember, user db.MulticaUser) Member
 		Role:                member.Role,
 		Source:              member.Source,
 		Status:              member.Status,
-		ExternalUserID:      textToPtr(member.ExternalUserID),
-		ExternalUniversalID: textToPtr(member.ExternalUniversalID),
+		SubjectID:           textToPtr(subjectID),
 		EmployeeID:          textToPtr(member.EmployeeID),
 		OrgDisplayName:      textToPtr(member.OrgDisplayName),
 		DeptID:              textToPtr(member.DeptID),
@@ -432,6 +478,13 @@ func memberWithUserResponse(member db.MulticaMember, user db.MulticaUser) Member
 		Email:               user.Email,
 		AvatarURL:           textToPtr(user.AvatarUrl),
 	}
+}
+
+func memberTeamNamespaceUserRef(member db.MulticaMember) teamnamespace.UserRef {
+	if member.SubjectID.Valid && strings.TrimSpace(member.SubjectID.String) != "" {
+		return teamnamespace.UserRef{UserID: strings.TrimSpace(member.SubjectID.String)}
+	}
+	return teamnamespace.UserRef{}
 }
 
 func normalizeMemberRole(role string) (string, bool) {
@@ -517,6 +570,7 @@ func (h *Handler) CreateMember(w http.ResponseWriter, r *http.Request) {
 		eventPayload["workspace_name"] = ws.Name
 	}
 	h.publish(protocol.EventMemberAdded, uuidToString(requester.WorkspaceID), "member", userID, eventPayload)
+	h.syncWorkspaceGiteaMembers(requester.WorkspaceID)
 
 	writeJSON(w, http.StatusCreated, memberWithUserResponse(member, user))
 }
@@ -660,6 +714,7 @@ func (h *Handler) DeleteMember(w http.ResponseWriter, r *http.Request) {
 		"workspace_id": wsIDStr,
 		"user_id":      uuidToString(target.UserID),
 	})
+	h.syncWorkspaceGiteaMembers(requester.WorkspaceID)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -702,6 +757,7 @@ func (h *Handler) LeaveWorkspace(w http.ResponseWriter, r *http.Request) {
 		"workspace_id": workspaceID,
 		"user_id":      uuidToString(member.UserID),
 	})
+	h.syncWorkspaceGiteaMembers(member.WorkspaceID)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -734,6 +790,9 @@ func (h *Handler) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 
 	// At this point workspaceMember has resolved → workspaceID is a valid UUID
 	// (the lookup would have errored otherwise), so reuse the resolved value.
+	if h.WorkflowService != nil {
+		go h.WorkflowService.DissolveTeamNamespace(context.Background(), requester.WorkspaceID, memberTeamNamespaceUserRef(requester), "workspace deleted")
+	}
 	if err := h.Queries.DeleteWorkspace(r.Context(), requester.WorkspaceID); err != nil {
 		slog.Warn("delete workspace failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", workspaceID)...)
 		writeError(w, http.StatusInternalServerError, "failed to delete workspace")

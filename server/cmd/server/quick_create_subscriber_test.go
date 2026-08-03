@@ -60,15 +60,16 @@ func TestQuickCreateCompletion_SubscribesRequester(t *testing.T) {
 		t.Fatalf("IncrementIssueCounter: %v", err)
 	}
 	issue, err := queries.CreateIssueWithOrigin(ctx, db.CreateIssueWithOriginParams{
-		WorkspaceID: parseUUID(testWorkspaceID),
-		Title:       "agent-filed bug",
-		Status:      "todo",
-		Priority:    "none",
-		CreatorType: "agent",
-		CreatorID:   parseUUID(agentID),
-		Number:      number,
-		OriginType:  pgtype.Text{String: "quick_create", Valid: true},
-		OriginID:    task.ID,
+		WorkspaceID:       parseUUID(testWorkspaceID),
+		Title:             "agent-filed bug",
+		Status:            "todo",
+		Priority:          "none",
+		ResponsibleUserID: parseUUID(testUserID),
+		CreatorType:       "agent",
+		CreatorID:         parseUUID(agentID),
+		Number:            number,
+		OriginType:        pgtype.Text{String: "quick_create", Valid: true},
+		OriginID:          task.ID,
 	})
 	if err != nil {
 		t.Fatalf("CreateIssueWithOrigin: %v", err)

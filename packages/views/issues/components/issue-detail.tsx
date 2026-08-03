@@ -43,7 +43,6 @@ import { Popover, PopoverTrigger, PopoverContent } from "@multica/ui/components/
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@multica/ui/components/ui/dialog";
 import { Checkbox } from "@multica/ui/components/ui/checkbox";
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@multica/ui/components/ui/command";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@multica/ui/components/ui/select";
 import { AvatarGroup, AvatarGroupCount } from "@multica/ui/components/ui/avatar";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { PropRow } from "../../common/prop-row";
@@ -76,7 +75,7 @@ import { ProjectIcon } from "../../projects/components/project-icon";
 import { issueLabelsOptions } from "@multica/core/labels";
 import { memberListOptions, agentListOptions } from "@multica/core/workspace/queries";
 import { isActiveWorkspaceMember } from "@multica/core/workspace/members";
-import { workflowStagesOptions, workflowNodeRunsOptions } from "@multica/core/workflows/queries";
+import { workflowNodeRunsOptions } from "@multica/core/workflows/queries";
 import type { WorkflowNodeRun } from "@multica/core/types";
 import { NodeRunControlActions } from "../../workflows/components/node-run-control-actions";
 import { useRecentIssuesStore } from "@multica/core/issues/stores";
@@ -702,58 +701,6 @@ interface IssueDetailProps {
 }
 
 // ---------------------------------------------------------------------------
-// StagePicker
-// ---------------------------------------------------------------------------
-
-type StagePickerProps = {
-  workflowId: string | null;
-  stageId: string | null;
-  onUpdate: (updates: Partial<UpdateIssueRequest>) => void;
-  disabled?: boolean;
-};
-
-function StagePicker({ workflowId, stageId, onUpdate, disabled }: StagePickerProps) {
-  const wsId = useWorkspaceId();
-  const { t } = useT("issues");
-  const { data: stages, isLoading } = useQuery({
-    ...workflowStagesOptions(wsId, workflowId ?? ""),
-    enabled: !!workflowId,
-  });
-
-  if (!workflowId) {
-    return (
-      <Select value="" disabled>
-        <SelectTrigger className="w-full" size="sm">
-          <SelectValue placeholder={t(($) => $.detail.stage_assign_workflow_first)} />
-        </SelectTrigger>
-      </Select>
-    );
-  }
-
-  return (
-    <Select
-      value={stageId ?? "none"}
-      onValueChange={(value) => {
-        onUpdate({ stage_id: value === "none" ? null : value });
-      }}
-      disabled={disabled || isLoading}
-    >
-      <SelectTrigger className="w-full" size="sm">
-        <SelectValue placeholder={t(($) => $.detail.stage_placeholder)} />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="none">{t(($) => $.detail.stage_no_stage)}</SelectItem>
-        {stages?.map((stage) => (
-          <SelectItem key={stage.id} value={stage.id}>
-            {stage.name}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // IssueDetail
 // ---------------------------------------------------------------------------
 
@@ -896,9 +843,14 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     },
   });
 
-  // Workflow issues can toggle between detail mode and fullscreen mode.
-  // Default to fullscreen mode so the workflow panorama is immediately visible.
-  const hasWorkflow = issue?.assignee_type === "workflow" && !!issue?.assignee_id;
+  const workflowAssigneeId = issue?.assignee_type === "workflow" ? issue.assignee_id : null;
+  const effectiveWorkflowId = issue?.workflow_id ?? workflowAssigneeId;
+  const effectiveWorkflowRunId = issue?.workflow_run_id ?? null;
+
+  // Issues backed by a workflow run can toggle between detail mode and
+  // fullscreen mode. This includes direct member/agent issues routed through
+  // the default archive workflow.
+  const hasWorkflow = !!effectiveWorkflowId && !!effectiveWorkflowRunId;
   const [isFullscreen, setIsFullscreen] = useState(true);
   // Only activate fullscreen when the issue actually has a workflow assigned.
   const effectiveFullscreen = isFullscreen && hasWorkflow;
@@ -916,8 +868,8 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // maintains its own observer with the same queryKey that handles polling.
   // Two observers on the same key with refetchInterval would double-poll.
   const { data: workflowNodeRuns } = useQuery({
-    ...workflowNodeRunsOptions(wsId, issue?.assignee_id ?? "", issue?.workflow_run_id ?? ""),
-    enabled: issue?.assignee_type === "workflow" && !!issue?.assignee_id && !!issue?.workflow_run_id,
+    ...workflowNodeRunsOptions(wsId, effectiveWorkflowId ?? "", effectiveWorkflowRunId ?? ""),
+    enabled: hasWorkflow,
     refetchInterval: false,
   });
   const isWorkflowRunning = useMemo(() => {
@@ -1132,12 +1084,11 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // Older sub-issues may not have workflow_id/workflow_run_id stamped, so fall
   // back to the parent issue's workflow fields when available.
   const isWorkflowOrigin = issue?.origin_type === "workflow" && !!issue?.origin_id;
-  const workflowAssigneeId = issue?.assignee_type === "workflow" ? issue.assignee_id : null;
-  const effectiveWorkflowId = issue?.workflow_id ?? workflowAssigneeId ?? parentIssue?.workflow_id;
-  const effectiveWorkflowRunId = issue?.workflow_run_id ?? parentIssue?.workflow_run_id;
+  const originEffectiveWorkflowId = effectiveWorkflowId ?? parentIssue?.workflow_id;
+  const originEffectiveWorkflowRunId = effectiveWorkflowRunId ?? parentIssue?.workflow_run_id;
   const { data: nodeRuns = [] } = useQuery({
-    ...workflowNodeRunsOptions(wsId, effectiveWorkflowId ?? "", effectiveWorkflowRunId ?? ""),
-    enabled: isWorkflowOrigin && !!effectiveWorkflowId && !!effectiveWorkflowRunId,
+    ...workflowNodeRunsOptions(wsId, originEffectiveWorkflowId ?? "", originEffectiveWorkflowRunId ?? ""),
+    enabled: isWorkflowOrigin && !!originEffectiveWorkflowId && !!originEffectiveWorkflowRunId,
   });
   const originNodeRun: WorkflowNodeRun | undefined = useMemo(
     () => nodeRuns.find((nr) => nr.id === issue?.origin_id),
@@ -1452,14 +1403,19 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           <PropRow label={t(($) => $.detail.prop_status)}>
             <StatusPicker status={issue.status} onUpdate={handleUpdateField} align="start" />
           </PropRow>
+          <PropRow label={t(($) => $.detail.prop_responsible)}>
+            <AssigneePicker
+              assigneeType={issue.responsible_user_id ? "member" : null}
+              assigneeId={issue.responsible_user_id ?? null}
+              onUpdate={(updates) => handleUpdateField({ responsible_user_id: updates.assignee_id ?? null })}
+              align="start"
+              allowedTypes={["member"]}
+              allowUnassigned={false}
+            />
+          </PropRow>
           <PropRow label={t(($) => $.detail.prop_assignee)}>
             <AssigneePicker assigneeType={issue.assignee_type} assigneeId={issue.assignee_id} isWorkflowRunning={isWorkflowRunning} onUpdate={handleUpdateField} align="start" />
           </PropRow>
-          {issue.assignee_type === "workflow" && issue.assignee_id && (
-            <PropRow label={t(($) => $.detail.prop_stage)}>
-              <StagePicker workflowId={issue.workflow_id} stageId={issue.stage_id} onUpdate={handleUpdateField} disabled={isWorkflowRunning} />
-            </PropRow>
-          )}
           <PropRow label={t(($) => $.detail.prop_project)}>
             <ProjectPicker
               projectId={issue.project_id}
@@ -2022,7 +1978,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           </div>
           )}
           {/* Full-width Workflow Panorama (replaces old WorkflowDagViewer position) */}
-          {issue.assignee_type === "workflow" && issue.assignee_id && (
+          {hasWorkflow && (
             <div className={
               effectiveFullscreen
                 ? "flex-1 min-h-0 flex flex-col"
@@ -2034,6 +1990,8 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                   runId={effectiveWorkflowRunId ?? null}
                   wsId={wsId}
                   issueId={issue.id}
+                  issueCreatorType={issue.creator_type}
+                  issueCreatorId={issue.creator_id}
                   fillAvailableHeight={effectiveFullscreen}
                 />
               </div>

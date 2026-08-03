@@ -1,5 +1,10 @@
-import { Cloud, Monitor, Wifi, WifiHigh, WifiOff } from "lucide-react";
+import { Cloud, Info, Monitor, Wifi, WifiHigh, WifiOff } from "lucide-react";
 import { Badge } from "@multica/ui/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@multica/ui/components/ui/tooltip";
 import type { RuntimeHealth } from "@multica/core/runtimes";
 import { ProviderLogo } from "./provider-logo";
 import { useT } from "../../i18n";
@@ -171,16 +176,19 @@ export function TokenCard({ label, value }: { label: string; value: string }) {
 // is the visual anchor of the whole left column — sized large enough that
 // it dominates over the chart hierarchy below it. Label sits as a small
 // caps eyebrow; hint is a thin caption beneath the number for deltas /
-// ratios / savings context.
+// ratios / savings context. `tip` adds a small ⓘ affordance next to the
+// label that reveals the metric definition (口径) on hover.
 export function KpiCard({
   label,
   value,
   hint,
+  tip,
   accent,
 }: {
   label: string;
-  value: string;
+  value: React.ReactNode;
   hint?: React.ReactNode;
+  tip?: string;
   accent?: "brand" | "success" | "default";
 }) {
   const valueClass =
@@ -191,8 +199,26 @@ export function KpiCard({
         : "";
   return (
     <div className="flex flex-col gap-2 p-5">
-      <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+      <div className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
         {label}
+        {tip != null && tip !== "" && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={tip}
+                  className="inline-flex cursor-help items-center text-muted-foreground/70 transition-colors hover:text-muted-foreground"
+                >
+                  <Info className="h-3 w-3" />
+                </button>
+              }
+            />
+            <TooltipContent className="whitespace-pre-line text-left">
+              {tip}
+            </TooltipContent>
+          </Tooltip>
+        )}
       </div>
       <div className={`text-3xl font-semibold leading-none tabular-nums ${valueClass}`}>
         {value}

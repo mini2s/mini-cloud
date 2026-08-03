@@ -3,9 +3,6 @@ package auth
 import (
 	"crypto/rand"
 	"crypto/rsa"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +10,8 @@ import (
 )
 
 // signRS256 creates a signed RS256 JWT with the given kid header and claims.
+// ParseCasdoorJWT no longer verifies the signature (the gateway does), but a
+// well-formed RS256 token remains a realistic fixture.
 func signRS256(t *testing.T, key *rsa.PrivateKey, kid string, claims jwt.MapClaims) string {
 	t.Helper()
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
@@ -24,29 +23,11 @@ func signRS256(t *testing.T, key *rsa.PrivateKey, kid string, claims jwt.MapClai
 	return signed
 }
 
-// newTestJWKSProvider spins up an httptest server serving the given RSA key as
-// JWKS and returns a *JWKSProvider pointed at it (already preloaded).
-func newTestJWKSProvider(t *testing.T, key *rsa.PublicKey, kid string) *JWKSProvider {
-	t.Helper()
-	body := jwkFromRSA(t, key, kid)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(body)
-	}))
-	t.Cleanup(srv.Close)
-
-	p := NewJWKSProvider(srv.URL)
-	p.Preload()
-	return p
-}
-
 func TestParseCasdoorJWT_ValidToken(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
-	const kid = "casdoor-key-1"
-	jwks := newTestJWKSProvider(t, &key.PublicKey, kid)
 
 	claims := jwt.MapClaims{
 		"sub":                "user-abc-123",
@@ -56,9 +37,9 @@ func TestParseCasdoorJWT_ValidToken(t *testing.T) {
 		"phone":              "+1234567890",
 		"exp":                time.Now().Add(1 * time.Hour).Unix(),
 	}
-	tokenStr := signRS256(t, key, kid, claims)
+	tokenStr := signRS256(t, key, "any-kid", claims)
 
-	info, err := ParseCasdoorJWT(tokenStr, jwks)
+	info, err := ParseCasdoorJWT(tokenStr)
 	if err != nil {
 		t.Fatalf("ParseCasdoorJWT: %v", err)
 	}
@@ -85,8 +66,6 @@ func TestParseCasdoorJWT_ExpiredToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
-	const kid = "casdoor-key-1"
-	jwks := newTestJWKSProvider(t, &key.PublicKey, kid)
 
 	claims := jwt.MapClaims{
 		"sub":   "user-abc-123",
@@ -94,42 +73,32 @@ func TestParseCasdoorJWT_ExpiredToken(t *testing.T) {
 		"email": "ada@example.com",
 		"exp":   time.Now().Add(-1 * time.Hour).Unix(), // expired
 	}
-	tokenStr := signRS256(t, key, kid, claims)
+	tokenStr := signRS256(t, key, "any-kid", claims)
 
-	_, err = ParseCasdoorJWT(tokenStr, jwks)
+	_, err = ParseCasdoorJWT(tokenStr)
 	if err == nil {
 		t.Fatal("expected error for expired token, got nil")
 	}
 }
 
-func TestParseCasdoorJWT_WrongAlgorithm(t *testing.T) {
+// TestParseCasdoorJWT_NoSignatureVerification pins the trust-the-gateway
+// behavior: a token signed with an arbitrary key (no JWKS configured anywhere)
+// still parses successfully — signature validation is delegated upstream.
+func TestParseCasdoorJWT_NoSignatureVerification(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
-	const kid = "casdoor-key-1"
-	jwks := newTestJWKSProvider(t, &key.PublicKey, kid)
-
-	// Sign with HS256 using the RSA public key bytes as the HMAC secret — a
-	// classic algorithm-confusion attack. The parser must reject it regardless.
-	hmacSecret := []byte("some-hmac-secret-that-is-not-rsa")
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"sub":   "user-abc-123",
-		"name":  "Ada Lovelace",
-		"email": "ada@example.com",
-		"exp":   time.Now().Add(1 * time.Hour).Unix(),
+	tokenStr := signRS256(t, key, "unknown-kid", jwt.MapClaims{
+		"sub": "user-no-verify",
+		"exp": time.Now().Add(time.Hour).Unix(),
 	})
-	token.Header["kid"] = kid
-	tokenStr, err := token.SignedString(hmacSecret)
-	if err != nil {
-		t.Fatalf("sign HS256 token: %v", err)
-	}
 
-	_, err = ParseCasdoorJWT(tokenStr, jwks)
-	if err == nil {
-		t.Fatal("expected error for HS256-signed token, got nil")
+	info, err := ParseCasdoorJWT(tokenStr)
+	if err != nil {
+		t.Fatalf("expected trust-parse to succeed without signature verification: %v", err)
 	}
-	if !strings.Contains(err.Error(), "RS256") && !strings.Contains(err.Error(), "method") {
-		t.Errorf("error should mention algorithm mismatch, got: %v", err)
+	if info.SubjectID != "user-no-verify" {
+		t.Errorf("SubjectID = %q, want %q", info.SubjectID, "user-no-verify")
 	}
 }

@@ -46,6 +46,23 @@ make check            # Full verification pipeline
 
 See CLAUDE.md for the complete command reference.
 
+### Database-backed Go tests
+
+- PostgreSQL runs in Docker; use `make db-up` and read connection values from the active `.env` or `.env.worktree`.
+- `make test` prepares, migrates, and tests against the isolated `${POSTGRES_DB}_test` database. It never uses the development database.
+- Direct `go test` does not load the repository env file. Before a targeted database-backed test, explicitly set `DATABASE_URL` to the isolated test database and run migrations against that same URL.
+- A passing command that reports `database not reachable` or `testPool not initialized` only compiled the package and skipped integration behavior; do not report those tests as verified.
+- Never point handler/service test fixtures at the development `DATABASE_URL`. See CLAUDE.md section **Database-backed Go tests** for the PowerShell workflow.
+
+### Git Safety (hard rules)
+
+- Only local `main` may track `origin/main`; no feature, fix, docs, spec, or integration branch may track a protected base branch.
+- Create branches from the remote base with `git switch --create <branch-name> --no-track origin/main`. Never use `git switch -c <branch-name> origin/main`.
+- Immediately verify new branches with `git branch -vv`. If a non-main branch shows `[origin/main]` or `[origin/master]`, run `git branch --unset-upstream` and stop before any push.
+- Never publish a new branch with an implicit `git push`. First run `git push --dry-run origin HEAD:refs/heads/<branch-name>`, then use `git push --set-upstream origin HEAD:refs/heads/<branch-name>` and require the remote destination name to match the current local branch.
+- Never push to `main` or `master` unless the user explicitly authorizes that exact remote push in the current conversation. "Commit", "merge", "finish", and "integrate" are not push authorization.
+- See `CLAUDE.md` section **Git Branch and Push Safety (hard rules)** for the complete policy.
+
 ### Troubleshooting
 
 When debugging agent, daemon, or runtime issues, check logs in this order:

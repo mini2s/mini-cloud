@@ -19,6 +19,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/cloudruntime"
+	"github.com/multica-ai/multica/server/internal/csuser"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
@@ -96,6 +97,18 @@ type Config struct {
 	// the plugin's content from this API and appends it to the agent's generated
 	// task instructions under the ## Agent Identity section.
 	BuiltinPluginAPIBaseURL string
+	// QuotaManagerAPIBaseURL is the base URL of the shared quota-manager
+	// service used for personal quota overview and usage-consumption statistics
+	// (the "My Quota" page). When non-empty, the personal-quota routes are
+	// reverse-proxied to this backend; empty disables the proxy and the routes
+	// return 503.
+	QuotaManagerAPIBaseURL string
+	// KanbanAPIBaseURL is the base URL of the separately deployed
+	// efficiency-dashboard backend (kanban). When non-empty, /kanban/* routes
+	// are reverse-proxied to this backend with HTTP Basic Auth credentials
+	// injected from KANBAN_API_USERNAME/KANBAN_API_PASSWORD; empty disables the
+	// proxy and the routes return 503.
+	KanbanAPIBaseURL string
 	// CSCPluginMarketplaceName / CSCPluginMarketplaceRepo identify the plugin
 	// marketplace the daemon must register against when installing a CSC
 	// agent's bound plugin. Delivered to the daemon via the task-claim
@@ -114,43 +127,47 @@ type cloudRuntimeProxy interface {
 	Do(ctx context.Context, req cloudruntime.Request) (*cloudruntime.Response, error)
 }
 
+type csUserClient interface {
+	SearchUsers(ctx context.Context, keyword string, limit int) ([]csuser.User, error)
+	GetUser(ctx context.Context, subjectID string) (csuser.User, error)
+}
+
 type workspaceDeptClient interface {
 	Configured() bool
-	SearchDepartments(ctx context.Context, query string, limit int) ([]deptsync.Department, error)
-	ListDepartmentUsers(ctx context.Context, deptID string, includeChildren bool) ([]deptsync.User, error)
-	SearchUsers(ctx context.Context, query string, limit int) ([]deptsync.User, error)
 	GetUserDepartmentsByUniversalID(ctx context.Context, universalID string) ([]deptsync.User, error)
 }
 
 type Handler struct {
-	Queries               *db.Queries
-	DB                    dbExecutor
-	TxStarter             txStarter
-	Hub                   *realtime.Hub
-	DaemonHub             *daemonws.Hub
-	Bus                   *events.Bus
-	TaskService           *service.TaskService
-	AutopilotService      *service.AutopilotService
-	WorkflowService       *service.WorkflowService
-	SplitOrchestrator     *service.SplitOrchestrator
-	EmailService          *service.EmailService
-	UpdateStore           UpdateStore
-	ModelListStore        ModelListStore
-	LocalSkillListStore   LocalSkillListStore
-	LocalSkillImportStore LocalSkillImportStore
-	LivenessStore         LivenessStore
-	HeartbeatScheduler    HeartbeatScheduler
-	Storage               storage.Storage
-	CFSigner              *auth.CloudFrontSigner
-	Analytics             analytics.Client
-	PATCache              *auth.PATCache
-	DaemonTokenCache      *auth.DaemonTokenCache
-	MembershipCache       *auth.MembershipCache
-	WebhookRateLimiter    WebhookRateLimiter
-	WebhookIPRateLimiter  WebhookRateLimiter
-	CloudRuntime          cloudRuntimeProxy
-	DeptSync              workspaceDeptClient
-	cfg                   Config
+	Queries                *db.Queries
+	DB                     dbExecutor
+	TxStarter              txStarter
+	Hub                    *realtime.Hub
+	DaemonHub              *daemonws.Hub
+	Bus                    *events.Bus
+	TaskService            *service.TaskService
+	AutopilotService       *service.AutopilotService
+	WorkflowService        *service.WorkflowService
+	IssueAssignmentService *service.IssueAssignmentService
+	SplitOrchestrator      *service.SplitOrchestrator
+	EmailService           *service.EmailService
+	UpdateStore            UpdateStore
+	ModelListStore         ModelListStore
+	LocalSkillListStore    LocalSkillListStore
+	LocalSkillImportStore  LocalSkillImportStore
+	LivenessStore          LivenessStore
+	HeartbeatScheduler     HeartbeatScheduler
+	Storage                storage.Storage
+	CFSigner               *auth.CloudFrontSigner
+	Analytics              analytics.Client
+	PATCache               *auth.PATCache
+	DaemonTokenCache       *auth.DaemonTokenCache
+	MembershipCache        *auth.MembershipCache
+	WebhookRateLimiter     WebhookRateLimiter
+	WebhookIPRateLimiter   WebhookRateLimiter
+	CloudRuntime           cloudRuntimeProxy
+	CsUser                 csUserClient
+	DeptSync               workspaceDeptClient
+	cfg                    Config
 }
 
 func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *events.Bus, emailService *service.EmailService, store storage.Storage, cfSigner *auth.CloudFrontSigner, analyticsClient analytics.Client, cfg Config, daemonHubs ...*daemonws.Hub) *Handler {
@@ -172,7 +189,8 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 	taskSvc.Analytics = analyticsClient
 	autopilotSvc := service.NewAutopilotService(queries, txStarter, bus, taskSvc)
 	workflowSvc := service.NewWorkflowService(queries, txStarter, bus, taskSvc)
-	splitOrchestrator := service.NewSplitOrchestrator(queries, txStarter, workflowSvc, bus, store)
+	assignmentSvc := &service.IssueAssignmentService{Queries: queries, Tasks: taskSvc, Workflows: workflowSvc}
+	splitOrchestrator := service.NewSplitOrchestrator(queries, txStarter, workflowSvc, assignmentSvc, bus, store)
 
 	taskSvc.OnTaskCompleting = func(ctx context.Context, task db.MulticaAgentTaskQueue) error {
 		if splitOrchestrator != nil {
@@ -192,36 +210,61 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 	// the node run so the workflow can reach a terminal state.
 	taskSvc.OnTaskFailed = func(ctx context.Context, task db.MulticaAgentTaskQueue) {
 		_ = workflowSvc.HandleWorkflowTaskFailure(ctx, task)
+		if task.IssueID.Valid {
+			if err := splitOrchestrator.HandleChildExecutionFailed(ctx, task.IssueID, errors.New("agent task failed without retry")); err != nil {
+				slog.Warn("split child task-failure hook failed", "issue_id", uuidToString(task.IssueID), "error", err)
+			}
+		}
 	}
 
 	h := &Handler{
-		Queries:               queries,
-		DB:                    executor,
-		TxStarter:             txStarter,
-		Hub:                   hub,
-		DaemonHub:             daemonHub,
-		Bus:                   bus,
-		TaskService:           taskSvc,
-		AutopilotService:      autopilotSvc,
-		WorkflowService:       workflowSvc,
-		SplitOrchestrator:     splitOrchestrator,
-		EmailService:          emailService,
-		UpdateStore:           NewInMemoryUpdateStore(),
-		ModelListStore:        NewInMemoryModelListStore(),
-		LocalSkillListStore:   NewInMemoryLocalSkillListStore(),
-		LocalSkillImportStore: NewInMemoryLocalSkillImportStore(),
-		LivenessStore:         NewNoopLivenessStore(),
-		HeartbeatScheduler:    NewPassthroughHeartbeatScheduler(queries),
-		Storage:               store,
-		CFSigner:              cfSigner,
-		Analytics:             analyticsClient,
-		WebhookRateLimiter:    NewMemoryWebhookRateLimiter(DefaultWebhookRateLimit()),
-		WebhookIPRateLimiter:  NewMemoryWebhookIPRateLimiter(DefaultWebhookIPRateLimit()),
+		Queries:                queries,
+		DB:                     executor,
+		TxStarter:              txStarter,
+		Hub:                    hub,
+		DaemonHub:              daemonHub,
+		Bus:                    bus,
+		TaskService:            taskSvc,
+		AutopilotService:       autopilotSvc,
+		WorkflowService:        workflowSvc,
+		IssueAssignmentService: assignmentSvc,
+		SplitOrchestrator:      splitOrchestrator,
+		EmailService:           emailService,
+		UpdateStore:            NewInMemoryUpdateStore(),
+		ModelListStore:         NewInMemoryModelListStore(),
+		LocalSkillListStore:    NewInMemoryLocalSkillListStore(),
+		LocalSkillImportStore:  NewInMemoryLocalSkillImportStore(),
+		LivenessStore:          NewNoopLivenessStore(),
+		HeartbeatScheduler:     NewPassthroughHeartbeatScheduler(queries),
+		Storage:                store,
+		CFSigner:               cfSigner,
+		Analytics:              analyticsClient,
+		WebhookRateLimiter:     NewMemoryWebhookRateLimiter(DefaultWebhookRateLimit()),
+		WebhookIPRateLimiter:   NewMemoryWebhookIPRateLimiter(DefaultWebhookIPRateLimit()),
 		CloudRuntime: cloudruntime.NewClient(cloudruntime.Config{
 			BaseURL: cfg.CloudRuntimeFleetURL,
 			Timeout: cfg.CloudRuntimeFleetTimeout,
 		}),
 		cfg: cfg,
+	}
+	assignmentSvc.Hooks = service.IssueAssignmentHooks{
+		CanAccessPrivateAgent: func(ctx context.Context, agent db.MulticaAgent, actor service.AssignmentActor, workspaceID pgtype.UUID) bool {
+			return h.canAccessPrivateAgent(ctx, agent, actor.Type, uuidToString(actor.ID), uuidToString(workspaceID))
+		},
+		CreateWorkflowSubIssues: func(ctx context.Context, issue db.MulticaIssue, _ db.MulticaWorkflowRun, nodeRuns []db.MulticaWorkflowNodeRun) error {
+			for _, nodeRun := range nodeRuns {
+				number, err := h.Queries.IncrementIssueCounter(ctx, issue.WorkspaceID)
+				if err != nil {
+					slog.Warn("failed to increment issue counter for sub-issue", "error", err)
+					continue
+				}
+				if _, err := h.createWorkflowSubIssue(ctx, h.Queries, issue, nodeRun, issue.WorkspaceID, number); err != nil {
+					slog.Warn("failed to create sub-issue for node run", "node_run_id", uuidToString(nodeRun.ID), "error", err)
+				}
+			}
+			return nil
+		},
+		DefaultWorkflowEnabled: isGiteaConfigured,
 	}
 
 	// Server-side task push to cs-cloud devices uses the same outbound
@@ -256,6 +299,22 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 				slog.Warn("split orchestrator run-terminal hook failed", "run_id", uuidToString(run.ID), "error", err)
 			}
 		}
+		if status == service.RunStatusFailed {
+			issue, err := h.Queries.GetDirectIssueByWorkflowRun(ctx, db.GetDirectIssueByWorkflowRunParams{
+				WorkflowRunID: run.ID,
+				WorkspaceID:   run.WorkspaceID,
+			})
+			if err == nil {
+				if err := h.SplitOrchestrator.HandleChildExecutionFailed(ctx, issue.ID, errors.New("assigned workflow run failed")); err != nil {
+					slog.Warn("split child workflow-failure hook failed", "issue_id", uuidToString(issue.ID), "error", err)
+				}
+			}
+		}
+	}
+	// Split child issues are status-synced by the orchestrator (not by node
+	// runs), so it gets its own broadcast hook.
+	splitOrchestrator.OnChildIssueStatusChanged = func(ctx context.Context, prev, issue db.MulticaIssue) {
+		h.publishIssueStatusChanged(ctx, prev, issue)
 	}
 
 	return h

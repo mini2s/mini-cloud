@@ -11,10 +11,10 @@ import (
 // builtinAgentID is the fixed seed UUID for the "任务拆解" built-in agent.
 const builtinAgentID = "4348e20d-eadc-4095-ac7a-cd480e927375"
 
-// TestCreateIssueAssignedToBuiltinAgentEnqueuesTask verifies that built-in
-// agents (which have no fixed runtime) can be assigned to an issue and the
-// service layer auto-selects a runtime at enqueue time.
-func TestCreateIssueAssignedToBuiltinAgentEnqueuesTask(t *testing.T) {
+// TestCreateIssueAssignedToBuiltinAgentWaitsUntilInProgress verifies that
+// built-in agents can be pre-assigned while the issue is still planned, and
+// only receive work after a member moves the issue to in_progress.
+func TestCreateIssueAssignedToBuiltinAgentWaitsUntilInProgress(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("handler test fixture not available")
 	}
@@ -23,6 +23,7 @@ func TestCreateIssueAssignedToBuiltinAgentEnqueuesTask(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
 		"title":         "Assigned to built-in agent",
+		"status":        "todo",
 		"assignee_type": "agent",
 		"assignee_id":   builtinAgentID,
 	})
@@ -48,8 +49,28 @@ func TestCreateIssueAssignedToBuiltinAgentEnqueuesTask(t *testing.T) {
 	`, created.ID, builtinAgentID).Scan(&taskCount); err != nil {
 		t.Fatalf("count tasks: %v", err)
 	}
+	if taskCount != 0 {
+		t.Fatalf("expected no built-in agent task before in_progress, got %d", taskCount)
+	}
+
+	w = httptest.NewRecorder()
+	req = newRequest("PUT", "/api/issues/"+created.ID, map[string]any{
+		"status": "in_progress",
+	})
+	req = withURLParam(req, "id", created.ID)
+	testHandler.UpdateIssue(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("UpdateIssue: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if err := testPool.QueryRow(ctx, `
+		SELECT count(*) FROM multica_agent_task_queue
+		WHERE issue_id = $1 AND agent_id = $2
+	`, created.ID, builtinAgentID).Scan(&taskCount); err != nil {
+		t.Fatalf("count tasks after in_progress: %v", err)
+	}
 	if taskCount == 0 {
-		t.Fatalf("expected built-in agent task to be enqueued, got 0")
+		t.Fatalf("expected built-in agent task after in_progress, got 0")
 	}
 
 	var selectedRuntimeID string

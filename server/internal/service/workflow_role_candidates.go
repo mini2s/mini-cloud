@@ -70,10 +70,7 @@ func normalizeWorkflowRoleMemberCandidates(rows []db.ListActiveWorkflowRoleCandi
 	identities := make([]string, len(rows))
 	identityCounts := make(map[string]int, len(rows))
 	for i, row := range rows {
-		identity := strings.TrimSpace(row.ExternalUniversalID.String)
-		if identity == "" {
-			identity = strings.TrimSpace(row.ExternalUserID.String)
-		}
+		identity := strings.TrimSpace(row.SubjectID.String)
 		identities[i] = identity
 		if identity != "" {
 			identityCounts[identity]++

@@ -13,8 +13,9 @@ import {
   type NodeTemplateCategory,
 } from "./node-template-catalog";
 
-interface NodeTemplatePickerProps {
+export interface NodeTemplatePickerProps {
   onSelect: (template: NodeTemplate) => void;
+  disabledTemplateIds?: Set<string>;
 }
 
 function getCategoryLabel(
@@ -37,7 +38,10 @@ function getCategoryLabel(
   }
 }
 
-export function NodeTemplatePicker({ onSelect }: NodeTemplatePickerProps) {
+export function NodeTemplatePicker({
+  onSelect,
+  disabledTemplateIds = new Set<string>(),
+}: NodeTemplatePickerProps) {
   const { t } = useT("workflows");
   const [query, setQuery] = useState("");
   const templates = useMemo(() => filterNodeTemplates(query), [query]);
@@ -76,14 +80,19 @@ export function NodeTemplatePicker({ onSelect }: NodeTemplatePickerProps) {
                     </h3>
                   </div>
                   <div className="space-y-0.5">
-                    {items.map((template) => (
-                      <button
+                    {items.map((template) => {
+                      const disabled = disabledTemplateIds.has(template.id);
+                      return (
+                        <button
                         key={template.id}
                         type="button"
                         onClick={() => onSelect(template)}
+                        disabled={disabled}
+                        title={disabled ? t(($) => $.panorama.node_picker.boundary_already_exists) : undefined}
                         className={cn(
                           "flex w-full min-w-0 flex-col rounded-md px-2.5 py-2 text-left transition-colors",
                           "hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                          "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent",
                         )}
                         aria-label={`${template.title}: ${template.description}`}
                       >
@@ -91,8 +100,9 @@ export function NodeTemplatePicker({ onSelect }: NodeTemplatePickerProps) {
                         <span className="line-clamp-2 min-w-0 text-xs text-muted-foreground">
                           {template.description}
                         </span>
-                      </button>
-                    ))}
+                        </button>
+                      );
+                    })}
                   </div>
                 </section>
               );

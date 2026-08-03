@@ -13,12 +13,21 @@ import type {
   WorkflowRoleAssignmentInput,
   ApproveSplitRequest,
   BatchPatchSplitDraftTasksRequest,
+  BatchPatchSplitTaskAssigneesRequest,
   ChatMessage,
   ChatPendingTask,
   CreateSplitDraftTaskRequest,
   PatchSplitConfigRequest,
   PatchSplitDraftTaskRequest,
-  RetrySplitTaskRequest,
+  PatchSplitTaskAssigneeRequest,
+  WorkflowRuntimeSelectionPolicy,
+  WorkflowRun,
+  WorkflowNodeRun,
+  WorkflowNode,
+  WorkflowEdge,
+  WorkflowStage,
+  WorkerType,
+  CriticType,
 } from "../types";
 import { chatKeys } from "../chat/queries";
 
@@ -33,6 +42,10 @@ export const workflowKeys = {
   nodeRuns: (wsId: string, workflowId: string, runId: string) => [...workflowKeys.run(wsId, workflowId, runId), "node-runs"] as const,
   runCanvasSummary: (wsId: string, workflowId: string, runId: string) => [...workflowKeys.run(wsId, workflowId, runId), "canvas-summary"] as const,
   nodeRunsAll: () => ["workflows", "node-runs"] as const,
+  workflowNodeDeliverables: (wsId: string, workflowId: string, nodeId: string) =>
+    [...workflowKeys.nodes(wsId, workflowId), nodeId, "deliverables"] as const,
+  nodeRunDeliverables: (nodeRunId: string) =>
+    [...workflowKeys.nodeRunsAll(), nodeRunId, "deliverables"] as const,
   myTasks: (wsId: string) => [...workflowKeys.all(wsId), "my-tasks"] as const,
   templates: () => ["templates"] as const,
   admins: () => ["workflow-admins"] as const,
@@ -52,15 +65,17 @@ export const workflowKeys = {
 export function workflowListOptions(wsId: string) {
   return queryOptions({
     queryKey: workflowKeys.list(wsId),
-    queryFn: () => api.listWorkflows(wsId),
+    queryFn: () => api.listWorkflows(wsId, false),
   });
 }
 
 export function workflowActiveListOptions(wsId: string) {
   return queryOptions({
     queryKey: [...workflowKeys.list(wsId), "active"],
-    queryFn: () => api.listWorkflows(wsId),
-    select: (data) => data.workflows.filter((w) => w.status === "active"),
+    queryFn: () => api.listWorkflows(wsId, false),
+    select: (data) => data.workflows.filter(
+      (workflow) => workflow.status === "active" && workflow.is_template === false,
+    ),
   });
 }
 
@@ -98,6 +113,92 @@ export function workflowRunOptions(wsId: string, workflowId: string, runId: stri
     queryKey: workflowKeys.run(wsId, workflowId, runId),
     queryFn: () => api.getWorkflowRun(workflowId, runId),
   });
+}
+
+function snapshotWorkerType(value: string): WorkerType {
+  return value === "agent" || value === "squad" || value === "role" ? value : "human";
+}
+
+function snapshotCriticType(value: string): CriticType {
+  return value === "agent" || value === "squad" || value === "api" || value === "role" ? value : "human";
+}
+
+export function workflowRunCanvasDefinition(
+  run: WorkflowRun,
+  nodeRuns: WorkflowNodeRun[],
+  genericNodeTitle: string,
+): { nodes: WorkflowNode[]; edges: WorkflowEdge[]; stages: WorkflowStage[] } {
+  const snapshot = run.definition_snapshot;
+  if (!snapshot) {
+    return {
+      nodes: nodeRuns.map((nodeRun, index) => ({
+        id: nodeRun.source_workflow_node_id ?? nodeRun.workflow_node_id,
+        workflow_id: run.workflow_id,
+        title: nodeRun.node_title || genericNodeTitle,
+        description: nodeRun.node_description ?? "",
+        position_x: index * 240,
+        position_y: 0,
+        format_schema: nodeRun.format_schema ?? null,
+        worker_type: nodeRun.worker_type,
+        worker_id: nodeRun.worker_id,
+        critic_type: nodeRun.critic_type,
+        critic_id: nodeRun.critic_id,
+        critic_api_url: nodeRun.critic_api_url ?? null,
+        sort_order: index,
+        stage_id: null,
+        created_at: nodeRun.created_at,
+        updated_at: nodeRun.updated_at,
+      })),
+      edges: [],
+      stages: [],
+    };
+  }
+
+  return {
+    nodes: snapshot.nodes.map((node) => {
+      const format = node.format_schema && typeof node.format_schema === "object" && !Array.isArray(node.format_schema)
+        ? { ...(node.format_schema as Record<string, unknown>) }
+        : {};
+      if (node.kind !== "task") format.type = node.kind;
+      if (node.gateway_kind) format.gateway_kind = node.gateway_kind;
+      if (node.split_config) format.split_config = node.split_config;
+      return {
+        id: node.id,
+        workflow_id: snapshot.workflow.id,
+        title: node.title,
+        description: node.description,
+        position_x: node.position_x,
+        position_y: node.position_y,
+        format_schema: Object.keys(format).length > 0 ? format : null,
+        worker_type: snapshotWorkerType(node.worker_type),
+        worker_id: node.worker_id ?? null,
+        worker_role_id: node.worker_role_id ?? null,
+        critic_type: snapshotCriticType(node.critic_type),
+        critic_id: node.critic_id ?? null,
+        critic_role_id: node.critic_role_id ?? null,
+        critic_api_url: node.critic_api_url ?? null,
+        sort_order: node.sort_order,
+        stage_id: node.stage_id ?? null,
+        created_at: "",
+        updated_at: "",
+      } satisfies WorkflowNode;
+    }),
+    edges: snapshot.edges.map((edge) => ({
+      id: edge.id,
+      workflow_id: snapshot.workflow.id,
+      source_node_id: edge.source_node_id,
+      target_node_id: edge.target_node_id,
+      condition: edge.condition ?? null,
+      created_at: edge.created_at ?? "",
+    })),
+    stages: snapshot.stages.map((stage) => ({
+      ...stage,
+      workflow_id: snapshot.workflow.id,
+      node_count: snapshot.nodes.filter((node) => node.stage_id === stage.id).length,
+      created_at: "",
+      updated_at: "",
+    })),
+  };
 }
 
 export function workflowNodeRunsOptions(wsId: string, workflowId: string, runId: string) {
@@ -265,8 +366,12 @@ export function useDeleteEdge(wsId: string, workflowId: string) {
 export function useStartWorkflowRun(wsId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ workflowId, input }: { workflowId: string; input?: unknown }) =>
-      api.startWorkflowRun(workflowId, input),
+    mutationFn: ({ workflowId, ...options }: {
+      workflowId: string;
+      input?: unknown;
+      runtimeSelectionPolicy?: WorkflowRuntimeSelectionPolicy;
+      runtimeId?: string;
+    }) => api.startWorkflowRunWithRuntimeSelection(workflowId, options),
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: workflowKeys.runs(wsId, vars.workflowId) });
     },
@@ -286,24 +391,48 @@ export function useCancelWorkflowRun(wsId: string) {
   });
 }
 
+export interface NodeRunMutationVars {
+  nodeRunId: string;
+  workflowId?: string;
+  runId?: string;
+}
+
+function invalidateNodeRunQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+  wsId: string,
+  vars: NodeRunMutationVars,
+) {
+  queryClient.invalidateQueries({ queryKey: workflowKeys.myTasks(wsId) });
+  if (!vars.workflowId || !vars.runId) return;
+
+  queryClient.invalidateQueries({ queryKey: workflowKeys.run(wsId, vars.workflowId, vars.runId) });
+  queryClient.invalidateQueries({ queryKey: workflowKeys.nodeRuns(wsId, vars.workflowId, vars.runId) });
+  queryClient.invalidateQueries({
+    queryKey: workflowKeys.runCanvasSummary(wsId, vars.workflowId, vars.runId),
+  });
+}
+
 export function useSubmitNodeRun(wsId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ nodeRunId, output }: { nodeRunId: string; output: unknown }) =>
+    mutationFn: ({ nodeRunId, output }: NodeRunMutationVars & { output: unknown }) =>
       api.submitNodeRun(nodeRunId, output),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workflowKeys.myTasks(wsId) });
-    },
+    onSuccess: (_data, vars) => invalidateNodeRunQueries(queryClient, wsId, vars),
   });
 }
 
 export function useReviewNodeRun(wsId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ nodeRunId, approved, comment }: { nodeRunId: string; approved: boolean; comment?: string }) =>
+    mutationFn: ({ nodeRunId, approved, comment }: { nodeRunId: string; approved: boolean; comment?: string; workflowId?: string; runId?: string }) =>
       api.reviewNodeRun(nodeRunId, approved, comment),
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: workflowKeys.myTasks(wsId) });
+      if (vars.workflowId && vars.runId) {
+        queryClient.invalidateQueries({ queryKey: workflowKeys.run(wsId, vars.workflowId, vars.runId) });
+        queryClient.invalidateQueries({ queryKey: workflowKeys.nodeRuns(wsId, vars.workflowId, vars.runId) });
+        queryClient.invalidateQueries({ queryKey: workflowKeys.runCanvasSummary(wsId, vars.workflowId, vars.runId) });
+      }
     },
   });
 }
@@ -311,10 +440,8 @@ export function useReviewNodeRun(wsId: string) {
 export function useSkipNodeRun(wsId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (nodeRunId: string) => api.skipNodeRun(nodeRunId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workflowKeys.myTasks(wsId) });
-    },
+    mutationFn: ({ nodeRunId }: NodeRunMutationVars) => api.skipNodeRun(nodeRunId),
+    onSuccess: (_data, vars) => invalidateNodeRunQueries(queryClient, wsId, vars),
   });
 }
 
@@ -410,16 +537,38 @@ export function usePatchSplitConfig(wsId: string) {
   });
 }
 
-export function useRetrySplitTask(wsId: string) {
+export function usePatchSplitTaskAssignee(wsId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
       nodeRunId,
       taskId,
       request,
-    }: SplitMutationVars & { taskId: string; request?: RetrySplitTaskRequest }) =>
-      api.retrySplitTask(nodeRunId, taskId, request),
-    onSuccess: (_data, vars) => invalidateSplitNodeQueries(queryClient, wsId, vars),
+    }: SplitMutationVars & { taskId: string; request: PatchSplitTaskAssigneeRequest }) =>
+      api.patchSplitTaskAssignee(nodeRunId, taskId, request),
+    onSuccess: (data, vars) => {
+      queryClient.setQueryData(workflowKeys.splitTasks(wsId, vars.nodeRunId), data);
+    },
+    onSettled: (_data, _error, vars) => queryClient.invalidateQueries({
+      queryKey: workflowKeys.splitTasks(wsId, vars.nodeRunId),
+    }),
+  });
+}
+
+export function useBatchPatchSplitTaskAssignees(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      nodeRunId,
+      request,
+    }: SplitMutationVars & { request: BatchPatchSplitTaskAssigneesRequest }) =>
+      api.batchPatchSplitTaskAssignees(nodeRunId, request),
+    onSuccess: (data, vars) => {
+      queryClient.setQueryData(workflowKeys.splitTasks(wsId, vars.nodeRunId), data);
+    },
+    onSettled: (_data, _error, vars) => queryClient.invalidateQueries({
+      queryKey: workflowKeys.splitTasks(wsId, vars.nodeRunId),
+    }),
   });
 }
 
@@ -650,6 +799,22 @@ export function useAssignNodeToStage(wsId: string, workflowId: string) {
       queryClient.invalidateQueries({ queryKey: workflowKeys.detail(wsId, workflowId) });
       queryClient.invalidateQueries({ queryKey: workflowKeys.nodes(wsId, workflowId) });
     },
+  });
+}
+
+// ── Deliverable queries ───────────────────────────────────────────────────
+
+export function workflowNodeDeliverablesOptions(wsId: string, workflowId: string, nodeId: string) {
+  return queryOptions({
+    queryKey: workflowKeys.workflowNodeDeliverables(wsId, workflowId, nodeId),
+    queryFn: () => api.listWorkflowNodeDeliverables(workflowId, nodeId),
+  });
+}
+
+export function nodeRunDeliverableSubmissionsOptions(_wsId: string, nodeRunId: string) {
+  return queryOptions({
+    queryKey: workflowKeys.nodeRunDeliverables(nodeRunId),
+    queryFn: () => api.listNodeRunDeliverableSubmissions(nodeRunId),
   });
 }
 

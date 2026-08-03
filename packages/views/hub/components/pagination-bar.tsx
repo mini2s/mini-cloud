@@ -1,0 +1,145 @@
+"use client"
+
+import { Button } from "@multica/ui/components/ui/button"
+import { cn } from "@multica/ui/lib/utils"
+import { ChevronLeft, ChevronRight } from "lucide-react"
+import { useT } from "@multica/views/i18n"
+
+export interface PaginationBarProps {
+  page: number
+  pageSize: number
+  total: number
+  onPageChange: (page: number) => void
+  onPageSizeChange?: (size: number) => void
+  pageSizeOptions?: number[]
+  /**
+   * When true, renders as a compact inline control (no full-width stretch,
+   * no top padding) suitable for placing inside a toolbar row.
+   */
+  inline?: boolean
+}
+
+export function PaginationBar({
+  page,
+  pageSize,
+  total,
+  onPageChange,
+  onPageSizeChange,
+  pageSizeOptions = [10, 15, 20, 30, 50],
+  inline = false,
+}: PaginationBarProps) {
+  const { t } = useT("hub")
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+  const pages = getPageRange(page, totalPages)
+
+  // 「显示 X–Y，共 Z 条」— mirrors the old StoreTableFooter summary.
+  const from = total > 0 ? Math.min((page - 1) * pageSize + 1, total) : 0
+  const to = Math.min(page * pageSize, total)
+  const summary = total <= 0
+    ? t(($) => $.pagination.empty)
+    : t(($) => $.pagination.showing, { from, to, total })
+
+  return (
+    <div className={cn(
+      "flex items-center gap-4",
+      inline ? "pt-0" : "justify-between pt-4",
+    )}>
+      <div className={cn(
+        "flex items-center gap-2 text-sm text-muted-foreground",
+        inline && "[font-variant-numeric:tabular-nums]",
+      )}>
+        <span className="whitespace-nowrap text-[12.5px] font-semibold [font-variant-numeric:tabular-nums]">
+          {summary}
+        </span>
+        {onPageSizeChange && (
+          <span className="flex items-center gap-1">
+            <select
+              value={pageSize}
+              onChange={(e) => onPageSizeChange(Number(e.target.value))}
+              className="cursor-pointer rounded-md border border-border/60 bg-background px-2 py-0.5 text-xs text-foreground outline-none hover:border-muted-foreground/30"
+            >
+              {pageSizeOptions.map((size) => (
+                <option key={size} value={size}>
+                  {t(($) => $.pagination.pageSize, { count: size })}
+                </option>
+              ))}
+            </select>
+          </span>
+        )}
+      </div>
+
+      <nav aria-label="pagination" className="flex items-center gap-1">
+        <Button
+          variant="outline"
+          size="icon"
+          disabled={page <= 1}
+          onClick={() => onPageChange(page - 1)}
+          className="h-8 w-8"
+        >
+          <ChevronLeft size={16} />
+        </Button>
+
+        {pages.map((p, i) =>
+          p === "..." ? (
+            <span key={`ellipsis-${i}`} className="flex h-8 w-8 items-center justify-center text-sm text-muted-foreground">
+              ...
+            </span>
+          ) : (
+            <Button
+              key={p}
+              variant={page === p ? "default" : "outline"}
+              size="icon"
+              onClick={() => onPageChange(p as number)}
+              className={cn("h-8 w-8 text-sm", page === p && "pointer-events-none")}
+            >
+              {p}
+            </Button>
+          ),
+        )}
+
+        <Button
+          variant="outline"
+          size="icon"
+          disabled={page >= totalPages}
+          onClick={() => onPageChange(page + 1)}
+          className="h-8 w-8"
+        >
+          <ChevronRight size={16} />
+        </Button>
+      </nav>
+    </div>
+  )
+}
+
+function getPageRange(current: number, total: number): (number | "...")[] {
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, i) => i + 1)
+  }
+
+  const result: (number | "...")[] = []
+  const delta = 1
+
+  result.push(1)
+
+  if (current - delta > 2) {
+    result.push("...")
+  }
+
+  const start = Math.max(2, current - delta)
+  const end = Math.min(total - 1, current + delta)
+
+  for (let i = start; i <= end; i++) {
+    result.push(i)
+  }
+
+  if (current + delta < total - 1) {
+    result.push("...")
+  }
+
+  result.push(total)
+
+  return result
+}
+
+export default PaginationBar

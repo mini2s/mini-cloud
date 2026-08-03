@@ -1,6 +1,6 @@
 {
   "title": "Usage",
-  "subtitle": "Token spend and agent activity across this workspace.",
+  "subtitle": "Token spend and digital human activity across this workspace.",
   "filter": {
     "project_label": "Project",
     "all_projects": "All projects",
@@ -40,17 +40,17 @@
   },
   "leaderboard": {
     "title": "Leaderboard",
-    "caption": "{{count}} agents",
-    "header_agent": "Agent",
+    "caption": "{{count}} digital humans",
+    "header_agent": "Digital Human",
     "header_tokens": "Tokens",
     "header_cost": "Cost",
     "header_time": "Time",
     "header_tasks": "Tasks",
-    "no_data": "No agent activity in this window."
+    "no_data": "No digital human activity in this window."
   },
   "empty": {
     "title": "No usage yet",
-    "body": "Once agents start running tasks here, their token spend and run time will appear in this view."
+    "body": "Once digital humans start running tasks here, their token spend and run time will appear in this view."
   },
   "duration": {
     "less_than_minute": "<1m"

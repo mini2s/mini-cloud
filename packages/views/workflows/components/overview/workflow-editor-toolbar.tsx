@@ -14,6 +14,7 @@ import {
   Plus,
   Redo2,
   Save,
+  Settings2,
   Trash2,
   Undo2,
   WandSparkles,
@@ -48,7 +49,7 @@ export interface WorkflowEditorToolbarProps {
   canUndo: boolean;
   canRedo: boolean;
   hasUnsavedEdits: boolean;
-  hasBlockingPreflightIssues: boolean;
+  blockingPreflightIssueCount: number;
   onBackToWorkflows: () => void;
   onUpdateTitle: (title: string) => void;
   onUndo: () => void;
@@ -56,9 +57,12 @@ export interface WorkflowEditorToolbarProps {
   onSave: () => void | boolean | Promise<void | boolean>;
   onAutoLayout: () => void;
   onSelectTemplate: (template: NodeTemplate) => void;
+  disabledTemplateIds?: Set<string>;
   onTestRun: () => void | Promise<void>;
   onToggleWorkflowStatus: () => void;
+  onReviewIssues: () => void;
   onOpenRunHistory: () => void;
+  onOpenRunSettings: () => void;
   onDeleteWorkflow: () => void;
 }
 
@@ -83,7 +87,7 @@ export function WorkflowEditorToolbar({
   canUndo,
   canRedo,
   hasUnsavedEdits,
-  hasBlockingPreflightIssues,
+  blockingPreflightIssueCount,
   onBackToWorkflows,
   onUpdateTitle,
   onUndo,
@@ -91,9 +95,12 @@ export function WorkflowEditorToolbar({
   onSave,
   onAutoLayout,
   onSelectTemplate,
+  disabledTemplateIds,
   onTestRun,
   onToggleWorkflowStatus,
+  onReviewIssues,
   onOpenRunHistory,
+  onOpenRunSettings,
   onDeleteWorkflow,
 }: WorkflowEditorToolbarProps) {
   const { t } = useT("workflows");
@@ -103,13 +110,31 @@ export function WorkflowEditorToolbar({
   const titleInputRef = useRef<HTMLInputElement>(null);
 
   const isActive = workflow.status === "active";
-  const statusActionLabel = isActive ? t(($) => $.detail.deactivate) : t(($) => $.detail.activate);
+  const isPaused = workflow.status === "paused";
+  const hasBlockingPreflightIssues = blockingPreflightIssueCount > 0;
+  const workflowAvailabilityLabel = isActive
+    ? `${statusLabel} · ${t(($) => $.panorama.toolbar.available_in_issues)}`
+    : hasUnsavedEdits
+      ? `${t(($) => $.status.draft)} · ${t(($) => $.panorama.toolbar.save_before_activating_status)}`
+      : hasBlockingPreflightIssues
+        ? `${t(($) => $.status.draft)} · ${t(($) => $.panorama.toolbar.blocking_issues_left, { count: blockingPreflightIssueCount })}`
+        : isPaused
+          ? `${statusLabel} · ${t(($) => $.panorama.toolbar.hidden_from_issue_picker)}`
+          : `${t(($) => $.status.draft)} · ${t(($) => $.panorama.toolbar.hidden_from_issue_picker)}`;
+  const statusActionLabel = isActive
+    ? t(($) => $.detail.deactivate)
+    : hasUnsavedEdits
+      ? t(($) => $.panorama.toolbar.save_first)
+      : hasBlockingPreflightIssues
+        ? t(($) => $.panorama.toolbar.review_issues)
+        : isPaused
+          ? t(($) => $.panorama.toolbar.reactivate)
+          : t(($) => $.panorama.toolbar.activate);
   const testRunLabel = hasUnsavedEdits
     ? t(($) => $.panorama.toolbar.save_and_test)
     : t(($) => $.panorama.toolbar.test_run);
   const testRunDisabled = !isActive;
-  const statusDisabled = !isActive && (hasUnsavedEdits || hasBlockingPreflightIssues);
-  const blockingTooltip = t(($) => $.panorama.toolbar.blocked_tooltip);
+  const statusDisabled = !isActive && hasUnsavedEdits;
   const activateUnsavedTooltip = t(($) => $.panorama.toolbar.activate_disabled_unsaved);
   const activateBeforeTestTooltip = t(($) => $.panorama.toolbar.activate_before_test);
 
@@ -187,9 +212,9 @@ export function WorkflowEditorToolbar({
           <div className="mt-1 flex min-w-0 items-center gap-2">
             <Badge
               variant={isActive ? "default" : "secondary"}
-              className="h-4 rounded px-1.5 text-[10px] capitalize"
+              className="h-4 rounded px-1.5 text-[10px]"
             >
-              {statusLabel}
+              {workflowAvailabilityLabel}
             </Badge>
             {hasUnsavedEdits ? (
               <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
@@ -254,7 +279,7 @@ export function WorkflowEditorToolbar({
             align="start"
             side="bottom"
           >
-            <NodeTemplatePicker onSelect={handleSelectTemplate} />
+            <NodeTemplatePicker onSelect={handleSelectTemplate} disabledTemplateIds={disabledTemplateIds} />
           </PopoverContent>
         </Popover>
 
@@ -273,12 +298,12 @@ export function WorkflowEditorToolbar({
           </Button>
         </ToolbarTooltip>
 
-        <ToolbarTooltip label={statusDisabled ? (hasUnsavedEdits ? activateUnsavedTooltip : blockingTooltip) : statusActionLabel}>
+        <ToolbarTooltip label={statusDisabled ? activateUnsavedTooltip : statusActionLabel}>
           <Button
             variant={isActive ? "outline" : "default"}
             size="sm"
             disabled={statusDisabled}
-            onClick={onToggleWorkflowStatus}
+            onClick={!isActive && hasBlockingPreflightIssues ? onReviewIssues : onToggleWorkflowStatus}
             aria-label={statusActionLabel}
           >
             {isActive ? <PauseCircle className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}
@@ -295,6 +320,10 @@ export function WorkflowEditorToolbar({
             }
           />
           <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem onClick={onOpenRunSettings}>
+              <Settings2 className="size-4" />
+              {t(($) => $.panorama.toolbar.run_settings)}
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={onOpenRunHistory}>
               <History className="size-4" />
               {t(($) => $.panorama.toolbar.run_history)}

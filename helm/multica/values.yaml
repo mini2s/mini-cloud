@@ -16,7 +16,7 @@ backend:
   replicaCount: 1
 
   image:
-    repository: ghcr.io/multica-ai/multica-backend
+    repository: ghcr.io/askhz/multica-backend
     pullPolicy: IfNotPresent
     tag: "0.0.1"
 
@@ -41,7 +41,6 @@ backend:
     rateLimitTrustedProxies: []
     realtimeMetricsToken: ""
     multicaCloudFleetUrl: ""
-    multicaFleetUrl: ""
     redisUrl: ""
     realtimeRelayMode: ""
     realtimeRelayShards: ""
@@ -72,10 +71,37 @@ backend:
     # service (namespace costrict, port 8080). Set deptSyncQueryKey to enable
     # dept-backed member management; leave both empty to disable.
     deptSyncBaseUrl: "http://costrict-dept-sync-svc.costrict:8080/costrict-dept-info/api/v1"
-    deptSyncTimeout: "10s"
-    deptSyncCacheTtl: "1m"
-    deptLinkTimeout: "15s"
-    deptLinkInterval: "5m"
+    # cs-user integration — member search/resolve by cs-user subject_id. Point at
+    # the in-cluster cs-user service (e.g. http://cs-user-svc.costrict:8082) and
+    # set csUserInternalToken (backend.secrets) to enable. Leave empty to disable
+    # (member search returns 503 "cs-user not configured").
+    csUserApiBaseUrl: ""
+    # Team-namespace integration — delegates Gitea team/repo/bot provisioning
+    # and member sync to costrict-web's /api/internal/teams/* surface (the
+    # delegated "Path A" deliverable path). This is distinct from cs-user above
+    # (member search/resolve): it targets costrict-web, not cs-user, and
+    # authenticates with teamNamespaceInternalServiceToken (backend.secrets)
+    # sent as X-Internal-Secret. Point at the in-cluster costrict-web service.
+    # Leave empty to keep Gitea provisioning dormant.
+    teamNamespaceApiBaseUrl: ""
+    # Team-namespace tenant id (sent as X-Tenant-Id). costrict-web defaults to
+    # "default" when omitted.
+    teamNamespaceTenantId: ""
+    # Team-namespace API HTTP timeout.
+    teamNamespaceApiTimeout: "10s"
+    # Cloud-api identity translation — translates a raw Casdoor JWT (whose "sub"
+    # is the Casdoor user id / universal_id) into the cloud-api stable subject id
+    # ("usr_...") that multica users are keyed by, so cs-cloud daemons carrying a
+    # Casdoor token resolve to the real user instead of an empty placeholder.
+    # Without this the same account maps to two multica users (web cookie vs
+    # daemon token) and the daemon sees 0 workspaces. Point at the cloud-api root
+    # (e.g. https://zgsmtest.cn:30443/cloud-api). Leave empty to disable (falls
+    # back to raw JWT sub). See docs/adr/0001-translate-casdoor-subject-to-cloud-subject-id.md.
+    cloudApiBaseUrl: ""
+    # cloud-api /api/auth/me HTTP timeout.
+    cloudApiTimeout: "5s"
+    # How long a resolved cloud subject id is cached per universal_id.
+    cloudApiSubjectCacheTtl: "2m"
     # CSC plugin marketplace — optional. Override the marketplace the daemon
     # registers against when installing a CSC agent's bound plugin; when empty
     # the daemon falls back to its built-in github default (costrict-plugins).
@@ -83,6 +109,14 @@ backend:
     # via backend.extraEnv); it is intentionally not exposed here.
     cscPluginMarketplaceName: ""
     cscPluginMarketplaceRepo: ""
+    # Gitea — backs the workflow deliverable feature: document deliverables are
+    # stored in per-workspace Gitea repos. Leave all empty to keep the feature
+    # dormant (server reports isGiteaConfigured=false). Enable by setting
+    # giteaBaseUrl and team-namespace provisioning. Set
+    # giteaPublicBaseUrl to a daemon/agent-reachable clone URL when the
+    # in-cluster giteaBaseUrl is not resolvable from where daemons run.
+    giteaBaseUrl: ""
+    giteaPublicBaseUrl: ""
     # Workflow role-to-member resolution. Keep disabled until the organization
     # integration and workflowRoleLlmApiKey secret are configured.
     workflowRoleResolutionEnabled: "false"
@@ -90,14 +124,6 @@ backend:
     workflowRoleLlmProvider: "openai"
     workflowRoleLlmModel: "glm-4-plus"
     workflowRoleLlmBaseUrl: "https://open.bigmodel.cn/api/paas/v4"
-    workflowRoleLlmMaxOutputTokens: "4096"
-    workflowRoleLlmTemperature: "0"
-    workflowRoleLlmTimeoutSeconds: "30"
-    workflowRoleLlmMaxCandidates: "200"
-    workflowRoleLlmMaxSlots: "50"
-    workflowRoleLlmMaxInputChars: "100000"
-    workflowRoleWorkerConcurrency: "2"
-    workflowRoleMaxActiveJobsPerWorkspace: "5"
 
   persistence:
     enabled: false
@@ -122,8 +148,14 @@ backend:
     anthropicApiKey: ""
     casdoorClientSecret: ""
     deptSyncQueryKey: ""
+    # cs-user internal API token (X-Internal-Token). Required to enable cs-user
+    # member search/resolve (must match cs-user's USER_INTERNAL_TOKEN).
+    csUserInternalToken: ""
+    # Team-namespace internal service token (X-Internal-Secret). Must match
+    # costrict-web's INTERNAL_SECRET. Required to enable team-namespace Gitea
+    # provisioning (teamNamespaceApiBaseUrl in backend.config).
+    teamNamespaceInternalServiceToken: ""
     workflowRoleLlmApiKey: ""
-
   resources: {}
   nodeSelector: {}
   tolerations: []
@@ -161,7 +193,7 @@ web:
   replicaCount: 1
 
   image:
-    repository: ghcr.io/multica-ai/multica-web
+    repository: ghcr.io/askhz/multica-web
     pullPolicy: IfNotPresent
     tag: "0.0.1"
 

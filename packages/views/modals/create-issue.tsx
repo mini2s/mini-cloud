@@ -6,7 +6,6 @@ import { useNavigation } from "../navigation";
 import {
   AlertTriangle,
   ArrowDown,
-  ArrowLeftRight,
   ArrowUp,
   Check,
   ChevronRight,
@@ -17,7 +16,14 @@ import {
 } from "lucide-react";
 import { cn } from "@multica/ui/lib/utils";
 import { toast } from "sonner";
-import type { Issue, IssueStatus, IssuePriority, IssueAssigneeType } from "@multica/core/types";
+import type {
+  Issue,
+  IssueStatus,
+  IssuePriority,
+  IssueAssigneeType,
+  CreateIssueRequest,
+  UpdateIssueRequest,
+} from "@multica/core/types";
 import {
   DialogContent,
   DialogTitle,
@@ -34,6 +40,7 @@ import { Button } from "@multica/ui/components/ui/button";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { ContentEditor, type ContentEditorRef, TitleEditor, useFileDropZone, FileDropOverlay } from "../editor";
 import { StatusIcon, StatusPicker, PriorityPicker, AssigneePicker, StartDatePicker, DueDatePicker } from "../issues/components";
+import { useRuntimeStartDialogs } from "../issues/hooks/use-runtime-start-dialogs";
 import { BacklogAgentHintContent } from "../issues/components/backlog-agent-hint-dialog";
 import { ProjectPicker } from "../projects/components/project-picker";
 import { useCurrentWorkspace, useWorkspacePaths } from "@multica/core/paths";
@@ -60,13 +67,11 @@ import { useT } from "../i18n";
 // ManualCreatePanel — manual-mode body of the create-issue dialog. Renders
 // DialogContent + everything inside; the surrounding `<Dialog>` is owned by
 // CreateIssueDialog so mode switching swaps only the inner panel without
-// remounting the Dialog Root (no overlay flash). `onSwitchMode` flips the
-// shell's local mode state.
+// remounting the Dialog Root (no overlay flash).
 // ---------------------------------------------------------------------------
 
 export function ManualCreatePanel({
   onClose,
-  onSwitchMode,
   data,
   isExpanded,
   setIsExpanded,
@@ -74,8 +79,6 @@ export function ManualCreatePanel({
   setBacklogHintIssueId,
 }: {
   onClose: () => void;
-  /** Called with the carry payload to seed the agent panel after switch. */
-  onSwitchMode?: (carry?: Record<string, unknown> | null) => void;
   data?: Record<string, unknown> | null;
   /** Lifted to the shell so DialogContent's mode-aware className can react
    *  without the body itself having to live inside DialogContent (which would
@@ -119,11 +122,18 @@ export function ManualCreatePanel({
     }
     return draft.assigneeId;
   });
+  const [responsibleUserId, setResponsibleUserId] = useState<string | undefined>(() =>
+    (data?.responsible_user_id as string | null | undefined) ?? undefined,
+  );
+  const [responsibleRequiredVisible, setResponsibleRequiredVisible] = useState(false);
+  const [responsiblePickerOpen, setResponsiblePickerOpen] = useState(false);
   const [startDate, setStartDate] = useState<string | null>(draft.startDate);
   const [dueDate, setDueDate] = useState<string | null>(draft.dueDate);
   const [projectId, setProjectId] = useState<string | undefined>(
     (data?.project_id as string) || undefined,
   );
+  const [projectRequiredVisible, setProjectRequiredVisible] = useState(false);
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [parentIssueId, setParentIssueId] = useState<string | undefined>(
     (data?.parent_issue_id as string) || undefined,
   );
@@ -135,6 +145,7 @@ export function ManualCreatePanel({
   // Fetch parent issue details for the chip (status/identifier/title).
   // List cache usually has it already, so this resolves synchronously.
   const wsId = useWorkspaceId();
+  const { maybeSelectRuntimeThen, dialogs: runtimeDialogs } = useRuntimeStartDialogs(wsId);
   const { data: parentIssue } = useQuery({
     ...issueDetailOptions(wsId, parentIssueId ?? ""),
     enabled: !!parentIssueId,
@@ -155,9 +166,16 @@ export function ManualCreatePanel({
   const updateTitle = (v: string) => { setTitle(v); setDraft({ title: v }); };
   const updateStatus = (v: IssueStatus) => { setStatus(v); setDraft({ status: v }); };
   const updatePriority = (v: IssuePriority) => { setPriority(v); setDraft({ priority: v }); };
-  const updateAssignee = (type?: IssueAssigneeType, id?: string) => {
+  const updateAssignee = (updates: Partial<UpdateIssueRequest>) => {
+    const type = updates.assignee_type ?? undefined;
+    const id = updates.assignee_id ?? undefined;
     setAssigneeType(type); setAssigneeId(id);
     setDraft({ assigneeType: type, assigneeId: id });
+  };
+  const updateResponsibleUser = (updates: Partial<UpdateIssueRequest>) => {
+    if (updates.assignee_type !== "member" || !updates.assignee_id) return;
+    setResponsibleUserId(updates.assignee_id);
+    setResponsibleRequiredVisible(false);
   };
   const updateStartDate = (v: string | null) => { setStartDate(v); setDraft({ startDate: v }); };
   const updateDueDate = (v: string | null) => { setDueDate(v); setDraft({ dueDate: v }); };
@@ -166,18 +184,22 @@ export function ManualCreatePanel({
   const updateIssueMutation = useUpdateIssue();
   const resetForNextIssue = () => {
     setTitle("");
-    setStatus("todo");
+    setStatus("backlog");
     setPriority("none");
     setStartDate(null);
     setDueDate(null);
     setProjectId(undefined);
+    setProjectRequiredVisible(false);
+    setProjectPickerOpen(false);
+    setResponsibleRequiredVisible(false);
+    setResponsiblePickerOpen(false);
     setParentIssueId(undefined);
     setChildIssues([]);
     setAttachmentIds([]);
     setDraft({
       title: "",
       description: "",
-      status: "todo",
+      status: "backlog",
       priority: "none",
       assigneeType,
       assigneeId,
@@ -188,23 +210,25 @@ export function ManualCreatePanel({
     setFormResetKey((key) => key + 1);
   };
 
-  const handleSubmit = async () => {
-    if (!title.trim() || submitting) return;
+  const buildCreatePayload = (status: IssueStatus): CreateIssueRequest => ({
+    title: title.trim(),
+    description: descEditorRef.current?.getMarkdown()?.trim() || undefined,
+    status,
+    priority,
+    assignee_type: assigneeType,
+    assignee_id: assigneeId,
+    responsible_user_id: responsibleUserId!,
+    start_date: startDate || undefined,
+    due_date: dueDate || undefined,
+    attachment_ids: attachmentIds.length > 0 ? attachmentIds : undefined,
+    parent_issue_id: parentIssueId,
+    project_id: projectId,
+  });
+
+  const performCreate = async (payload: CreateIssueRequest) => {
     setSubmitting(true);
     try {
-      const issue = await createIssueMutation.mutateAsync({
-        title: title.trim(),
-        description: descEditorRef.current?.getMarkdown()?.trim() || undefined,
-        status,
-        priority,
-        assignee_type: assigneeType,
-        assignee_id: assigneeId,
-        start_date: startDate || undefined,
-        due_date: dueDate || undefined,
-        attachment_ids: attachmentIds.length > 0 ? attachmentIds : undefined,
-        parent_issue_id: parentIssueId,
-        project_id: projectId,
-      });
+      const issue = await createIssueMutation.mutateAsync(payload);
 
       // Link queued children to the new parent. Deferred to after create
       // because the new issue's ID doesn't exist yet. Partial failures don't
@@ -335,39 +359,41 @@ export function ManualCreatePanel({
     }
   };
 
-  // Switch to agent mode. Hand the typed text up to the shell as the carry
-  // payload; the shell stores it as the next panel's `data` so the agent
-  // panel reads `data.prompt` on mount. Concatenate title + description so
-  // nothing the user typed is lost — the agent derives a fresh title from
-  // the combined text. Persist the mode flip so the next `c` lands in agent.
-  // Also forward the picked project so the agent panel pins the new issue
-  // to it; without this the agent panel would fall back to its persisted
-  // `lastProjectId`, silently routing the issue to the wrong project.
-  // Forward squad picks alongside agent picks so the agent panel honors
-  // the actor the user already chose — otherwise a squad selection silently
-  // falls back to the persisted actor / first visible agent on flip.
-  const switchToAgent = () => {
-    const desc = descEditorRef.current?.getMarkdown()?.trim() ?? "";
-    const prompt = [title.trim(), desc].filter(Boolean).join("\n\n");
-    // Title + description have been packed into the agent prompt — clear them
-    // from the shared draft so a later agent→manual switch doesn't surface
-    // stale manual state on top of the prompt-as-description, which would
-    // duplicate content on every round-trip.
-    setDraft({ title: "", description: "" });
-    setLastMode("agent");
-    onSwitchMode?.({
-      prompt,
-      ...(assigneeId && assigneeType === "agent"
-        ? { agent_id: assigneeId }
-        : assigneeId && assigneeType === "squad"
-          ? { squad_id: assigneeId }
-          : {}),
-      ...(projectId ? { project_id: projectId } : {}),
+  const validateBeforeCreate = (): boolean => {
+    if (!title.trim() || submitting) return false;
+    if (!projectId) {
+      setProjectRequiredVisible(true);
+      setProjectPickerOpen(true);
+      return false;
+    }
+    if (!responsibleUserId) {
+      setResponsibleRequiredVisible(true);
+      setResponsiblePickerOpen(true);
+      return false;
+    }
+    return true;
+  };
+
+  const handleSubmit = async () => {
+    if (!validateBeforeCreate()) return;
+    const submitStatus: IssueStatus = assigneeType && assigneeId ? "todo" : "backlog";
+    await performCreate(buildCreatePayload(submitStatus));
+  };
+
+  // 运行任务: create the issue already in_progress, asking for a runtime first
+  // when the assignee is a workflow / built-in agent that needs one. Runtime is
+  // chosen here (at run time), never at assignee-selection time.
+  const handleSubmitRun = async () => {
+    if (!validateBeforeCreate()) return;
+    const basePayload = buildCreatePayload("in_progress");
+    maybeSelectRuntimeThen(assigneeType ?? null, assigneeId ?? null, basePayload, (p) => {
+      void performCreate(p);
     });
   };
 
   return (
     <>
+        {runtimeDialogs}
         {backlogHintIssueId ? (
           <BacklogAgentHintContent
             onKeepInBacklog={() => {
@@ -377,9 +403,9 @@ export function ManualCreatePanel({
             onDismissPermanently={() => {
               localStorage.setItem("multica:backlog-agent-hint-dismissed", "true");
             }}
-            onMoveToTodo={() => {
+            onMoveToInProgress={() => {
               updateIssueMutation.mutate(
-                { id: backlogHintIssueId, status: "todo" },
+                { id: backlogHintIssueId, status: "in_progress" },
                 {
                   onError: (err) =>
                     toast.error(
@@ -466,6 +492,50 @@ export function ManualCreatePanel({
 
             {/* Property toolbar */}
             <div className="flex items-center gap-1.5 px-4 py-2 shrink-0 flex-wrap">
+              {/* Project — required, leads the row so the scope is set first.
+                  A subtle brand ring highlights the pill until a project is
+                  picked, so users can tell the field is mandatory. */}
+              <ProjectPicker
+                projectId={projectId ?? null}
+                onUpdate={(u) => {
+                  setProjectId(u.project_id ?? undefined);
+                  if (u.project_id) setProjectRequiredVisible(false);
+                }}
+                triggerRender={
+                  <PillButton
+                    className={cn(
+                      !projectId && "ring-1 ring-brand/30 bg-brand/5",
+                      projectRequiredVisible && "border-destructive/60 bg-destructive/10 text-destructive ring-2 ring-destructive/25",
+                    )}
+                  />
+                }
+                align="start"
+                open={projectPickerOpen}
+                onOpenChange={setProjectPickerOpen}
+              />
+
+              {/* Responsible member */}
+              <AssigneePicker
+                assigneeType={responsibleUserId ? "member" : null}
+                assigneeId={responsibleUserId ?? null}
+                onUpdate={updateResponsibleUser}
+                triggerRender={
+                  <PillButton
+                    className={cn(
+                      !responsibleUserId && "ring-1 ring-brand/30 bg-brand/5",
+                      responsibleRequiredVisible && "border-destructive/60 bg-destructive/10 text-destructive ring-2 ring-destructive/25",
+                    )}
+                  />
+                }
+                align="start"
+                open={responsiblePickerOpen}
+                onOpenChange={setResponsiblePickerOpen}
+                allowedTypes={["member"]}
+                allowUnassigned={false}
+                ariaLabel={t(($) => $.create_issue.responsible_aria)}
+                emptyTriggerLabel={t(($) => $.create_issue.responsible_empty_label)}
+              />
+
               {/* Status */}
               <StatusPicker
                 status={status}
@@ -486,12 +556,12 @@ export function ManualCreatePanel({
               <AssigneePicker
                 assigneeType={assigneeType ?? null}
                 assigneeId={assigneeId ?? null}
-                onUpdate={(u) => updateAssignee(
-                  u.assignee_type ?? undefined,
-                  u.assignee_id ?? undefined,
-                )}
+                onUpdate={updateAssignee}
                 triggerRender={<PillButton />}
                 align="start"
+                skipRuntimeSelection
+                ariaLabel={t(($) => $.create_issue.assignee_aria)}
+                emptyTriggerLabel={t(($) => $.create_issue.assignee_empty_label)}
               />
 
               {/* Start date */}
@@ -506,14 +576,6 @@ export function ManualCreatePanel({
               <DueDatePicker
                 dueDate={dueDate}
                 onUpdate={(u) => updateDueDate(u.due_date ?? null)}
-                triggerRender={<PillButton />}
-                align="start"
-              />
-
-              {/* Project */}
-              <ProjectPicker
-                projectId={projectId ?? null}
-                onUpdate={(u) => setProjectId(u.project_id ?? undefined)}
                 triggerRender={<PillButton />}
                 align="start"
               />
@@ -612,6 +674,17 @@ export function ManualCreatePanel({
 
             {/* Parent / child pickers — rendered inline so they stack over this
                 modal instead of replacing it via useModalStore. */}
+            {projectRequiredVisible && !projectId && (
+              <div className="px-5 pb-2 text-xs font-medium text-destructive">
+                {t(($) => $.create_issue.project_required_detail)}
+              </div>
+            )}
+            {responsibleRequiredVisible && !responsibleUserId && (
+              <div className="px-5 pb-2 text-xs font-medium text-destructive">
+                {t(($) => $.create_issue.responsible_required_detail)}
+              </div>
+            )}
+
             <IssuePickerModal
               open={parentPickerOpen}
               onOpenChange={setParentPickerOpen}
@@ -649,15 +722,6 @@ export function ManualCreatePanel({
                 />
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={switchToAgent}
-                  title={t(($) => $.create_issue.switch_to_agent_tooltip)}
-                  className="border-beam group flex shrink-0 items-center gap-1.5 text-xs px-2 py-1 rounded-sm text-muted-foreground bg-brand/5 hover:bg-brand/10 hover:text-foreground transition-colors cursor-pointer"
-                >
-                  <ArrowLeftRight className="size-3.5 text-brand/80 transition-transform duration-300 group-hover:rotate-180" />
-                  {t(($) => $.create_issue.switch_to_agent)}
-                </button>
                 <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
                   <Switch
                     size="sm"
@@ -670,7 +734,9 @@ export function ManualCreatePanel({
                   <TooltipProvider delay={200}>
                     <Tooltip>
                       <TooltipTrigger render={<span><Button size="sm" onClick={handleSubmit} disabled>{t(($) => $.create_issue.submit)}</Button></span>} />
-                      <TooltipContent side="top">{t(($) => $.create_issue.title_required)}</TooltipContent>
+                      <TooltipContent side="top">
+                        {t(($) => $.create_issue.title_required)}
+                      </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
                 ) : (
@@ -678,6 +744,9 @@ export function ManualCreatePanel({
                     {submitting ? t(($) => $.create_issue.submitting) : t(($) => $.create_issue.submit)}
                   </Button>
                 )}
+                <Button size="sm" variant="destructive" onClick={handleSubmitRun} disabled={!title.trim() || !assigneeType || !assigneeId || submitting}>
+                  {t(($) => $.create_issue.run_task)}
+                </Button>
               </div>
             </div>
           </>

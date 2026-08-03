@@ -27,7 +27,10 @@ import {
   memberListOptions,
   workspaceKeys,
 } from "@multica/core/workspace/queries";
-import { runtimeListOptions } from "@multica/core/runtimes";
+import {
+  AGENT_RUNTIME_PROVIDERS,
+  runtimeListOptions,
+} from "@multica/core/runtimes";
 import { useAgentPermissions } from "@multica/core/permissions";
 import { useWorkflowAdmins } from "@multica/core/workflows/queries";
 import { Button } from "@multica/ui/components/ui/button";
@@ -190,7 +193,7 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
     try {
       await api.promoteAgentToBuiltin(agent.id);
       qc.invalidateQueries({ queryKey: workspaceKeys.agents(wsId) });
-      toast.success("已提升为内置 Agent");
+      toast.success("已提升为内置数智人");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "提升失败");
     }
@@ -340,7 +343,9 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
           runtime={runtime}
           owner={owner}
           presence={presence}
-          runtimes={runtimes}
+          runtimes={runtimes.filter((r) =>
+            AGENT_RUNTIME_PROVIDERS.has(r.provider),
+          )}
           members={members}
           currentUserId={currentUser?.id ?? null}
           canEdit={canEdit.allowed && !isBuiltinReadOnly}
@@ -350,7 +355,9 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
 
         <AgentOverviewPane
           agent={agent}
-          runtimes={runtimes}
+          runtimes={runtimes.filter((r) =>
+            AGENT_RUNTIME_PROVIDERS.has(r.provider),
+          )}
           onUpdate={handleUpdate}
         />
       </div>
@@ -492,7 +499,7 @@ function DetailHeader({
                 {canManageWorkflows && !agent.is_builtin && (
                   <DropdownMenuItem onClick={onPromote}>
                     <Zap className="h-3.5 w-3.5" />
-                    提升为内置 Agent
+                    提升为内置数智人
                   </DropdownMenuItem>
                 )}
                 {canManageWorkflows && agent.is_builtin && (

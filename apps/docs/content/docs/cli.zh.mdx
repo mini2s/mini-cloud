@@ -5,7 +5,7 @@ description: Multica CLI 的所有顶级命令一页概览。完整用法查 `cs
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-Multica CLI 把 Web UI 能做的事几乎全部搬到了命令行上（创建 [issue](/issues)、分配 [智能体](/agents)、启动 [守护进程](/daemon-runtimes) 等等）。这一页把所有顶级命令列出来，每条配一句用途。完整 flag 和示例用 `cs-workflow <命令> --help` 查。
+Multica CLI 把 Web UI 能做的事几乎全部搬到了命令行上（创建 [issue](/issues)、分配 [数智人](/agents)、启动 [守护进程](/daemon-runtimes) 等等）。这一页把所有顶级命令列出来，每条配一句用途。完整 flag 和示例用 `cs-workflow <命令> --help` 查。
 
 ## 认证入口
 
@@ -54,26 +54,26 @@ Token 类型的详细区分见 [认证与令牌](/auth-tokens)。
 | `cs-workflow issue get <id>` | 查看单条 issue（接受 issue key 或 UUID） |
 | `cs-workflow issue create --title "..."` | 创建新 issue |
 | `cs-workflow issue update <id> ...` | 修改 issue（状态、优先级、分配人等） |
-| `cs-workflow issue assign <id> --agent <slug>` | 分配给智能体（立即触发任务） |
+| `cs-workflow issue assign <id> --agent <slug>` | 分配给数智人（立即触发任务） |
 | `cs-workflow issue status <id> --set <status>` | 快捷改状态 |
 | `cs-workflow issue search <query>` | 关键字搜索 |
-| `cs-workflow issue runs <id>` | 查看 issue 上智能体跑过的任务 |
-| `cs-workflow issue rerun <id>` | 给该 issue 当前的智能体分配人重新创建一条任务 |
+| `cs-workflow issue runs <id>` | 查看 issue 上数智人跑过的任务 |
+| `cs-workflow issue rerun <id>` | 给该 issue 当前的数智人分配人重新创建一条任务 |
 | `cs-workflow issue comment <id> ...` | 嵌套：看 / 发评论 |
 | `cs-workflow issue subscriber <id> ...` | 嵌套：订阅 / 取消订阅 |
 | `cs-workflow project list/get/create/update/delete/status` | Project CRUD |
 
-## 智能体和 Skill
+## 数智人和 Skill
 
 | 命令 | 用途 |
 |---|---|
-| `cs-workflow agent list` | 列出工作区的智能体 |
-| `cs-workflow agent get <slug>` | 查看智能体配置 |
-| `cs-workflow agent create ...` | 创建智能体 |
-| `cs-workflow agent update <slug> ...` | 修改智能体 |
+| `cs-workflow agent list` | 列出工作区的数智人 |
+| `cs-workflow agent get <slug>` | 查看数智人配置 |
+| `cs-workflow agent create ...` | 创建数智人 |
+| `cs-workflow agent update <slug> ...` | 修改数智人 |
 | `cs-workflow agent archive <slug>` | 归档 |
-| `cs-workflow agent restore <slug>` | 恢复归档的智能体 |
-| `cs-workflow agent tasks <slug>` | 查看智能体的任务历史 |
+| `cs-workflow agent restore <slug>` | 恢复归档的数智人 |
+| `cs-workflow agent tasks <slug>` | 查看数智人的任务历史 |
 | `cs-workflow agent skills ...` | 嵌套：挂载 / 卸载 Skill |
 | `cs-workflow skill list/get/create/update/delete` | Skill CRUD |
 | `cs-workflow skill import ...` | 从 GitHub / ClawHub / 本机导入 Skill |
@@ -89,7 +89,7 @@ Token 类型的详细区分见 [认证与令牌](/auth-tokens)。
 | `cs-workflow squad update <id> ...` | 修改名字、描述、instructions、队长、头像 |
 | `cs-workflow squad delete <id>` | 归档（软删除）—— 同时把分配给小队的 issue 转给队长 |
 | `cs-workflow squad member list/add/remove <squad-id>` | 管理小队成员 |
-| `cs-workflow squad activity <issue-id> <action\|no_action\|failed> --reason "..."` | 队长智能体每轮结束时调用，记录 evaluation |
+| `cs-workflow squad activity <issue-id> <action\|no_action\|failed> --reason "..."` | 队长数智人每轮结束时调用，记录 evaluation |
 
 完整模型见 [小队](/squads)。
 
@@ -123,7 +123,7 @@ Token 类型的详细区分见 [认证与令牌](/auth-tokens)。
 
 | 命令 | 用途 |
 |---|---|
-| `cs-workflow repo checkout <url>` | 把 repo 拉到本地以供智能体使用 |
+| `cs-workflow repo checkout <url>` | 把 repo 拉到本地以供数智人使用 |
 | `cs-workflow config` | 查看 / 修改 CLI 本地配置 |
 | `cs-workflow version` | 显示 CLI 版本 |
 | `cs-workflow update` | 升级 CLI 到最新版 |
@@ -144,4 +144,4 @@ v2 会给每条命令一个独立的详细 reference 页。
 
 - [认证与令牌](/auth-tokens) —— PAT / JWT / Daemon Token 的区别
 - [守护进程与运行时](/daemon-runtimes) —— `daemon` 命令背后的工作机制
-- [创建和配置智能体](/agents-create) —— `cs-workflow agent create` 的完整选项
+- [创建和配置数智人](/agents-create) —— `cs-workflow agent create` 的完整选项

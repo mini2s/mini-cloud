@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Monitor } from "lucide-react";
+import { Monitor, Sparkles } from "lucide-react";
 import type { AgentRuntime } from "@multica/core/types";
 import { Button } from "@multica/ui/components/ui/button";
 import {
@@ -13,12 +13,14 @@ import {
 } from "@multica/ui/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@multica/ui/components/ui/radio-group";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
+import { useT } from "../../i18n";
 
 interface RuntimeSelectDialogProps {
   agentName: string;
   runtimes: AgentRuntime[];
   loading: boolean;
-  onConfirm: (runtimeId: string) => void;
+  allowAuto?: boolean;
+  onConfirm: (runtimeId: string | null) => void;
   onClose: () => void;
 }
 
@@ -26,20 +28,22 @@ export function RuntimeSelectDialog({
   agentName,
   runtimes,
   loading,
+  allowAuto = false,
   onConfirm,
   onClose,
 }: RuntimeSelectDialogProps) {
-  const [selectedRuntimeId, setSelectedRuntimeId] = useState<string>("");
+  const { t } = useT("agents");
+  const [selectedRuntimeId, setSelectedRuntimeId] = useState<string>(allowAuto ? "auto" : "");
 
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="sm:max-w-md" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle className="text-sm font-semibold">
-            选择运行时
+            {t(($) => $.runtime_select.title)}
           </DialogTitle>
           <DialogDescription className="text-xs">
-            为 <strong>{agentName}</strong> 选择一个运行时来执行操作。
+            {t(($) => $.runtime_select.description, { name: agentName })}
           </DialogDescription>
         </DialogHeader>
 
@@ -49,12 +53,14 @@ export function RuntimeSelectDialog({
               <Skeleton key={i} className="h-[60px] w-full rounded-lg" />
             ))}
           </div>
-        ) : runtimes.length === 0 ? (
+        ) : runtimes.length === 0 && !allowAuto ? (
           <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
             <Monitor className="h-8 w-8 text-muted-foreground/40" />
-            <p className="text-sm text-muted-foreground">没有可用的运行时</p>
+            <p className="text-sm text-muted-foreground">
+              {t(($) => $.runtime_select.empty_title)}
+            </p>
             <p className="text-xs text-muted-foreground/70 max-w-xs">
-              请先连接一个运行时设备后再执行内置 Agent。
+              {t(($) => $.runtime_select.empty_description)}
             </p>
           </div>
         ) : (
@@ -63,6 +69,24 @@ export function RuntimeSelectDialog({
             value={selectedRuntimeId}
             onValueChange={setSelectedRuntimeId}
           >
+            {allowAuto && (
+              <label
+                className={`flex cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 transition-colors hover:bg-accent/40 ${
+                  selectedRuntimeId === "auto" ? "border-primary bg-primary/5" : ""
+                }`}
+              >
+                <RadioGroupItem value="auto" className="shrink-0" />
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <span className="text-sm font-medium">
+                    {t(($) => $.runtime_select.auto_title)}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {t(($) => $.runtime_select.auto_description)}
+                  </span>
+                </div>
+                <Sparkles className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
+              </label>
+            )}
             {runtimes.map((runtime) => (
               <label
                 key={runtime.id}
@@ -98,14 +122,14 @@ export function RuntimeSelectDialog({
 
         <div className="flex items-center justify-end gap-2 border-t bg-background px-5 py-3 -mx-4 -mb-4">
           <Button variant="ghost" size="sm" onClick={onClose}>
-            取消
+            {t(($) => $.runtime_select.cancel)}
           </Button>
           <Button
             size="sm"
             disabled={!selectedRuntimeId}
-            onClick={() => onConfirm(selectedRuntimeId)}
+            onClick={() => onConfirm(selectedRuntimeId === "auto" ? null : selectedRuntimeId)}
           >
-            确认执行
+            {t(($) => $.runtime_select.confirm)}
           </Button>
         </div>
       </DialogContent>

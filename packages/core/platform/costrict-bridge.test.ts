@@ -44,7 +44,11 @@ describe("costrict-bridge", () => {
       const parent = { postMessage } as unknown as Window;
       vi.stubGlobal("window", { parent } as unknown as Window);
 
-      const posted = postCostrictNavigateToSession({ sessionId: "s1", workDir: "/p/proj" });
+      const posted = postCostrictNavigateToSession({
+        sessionId: "s1",
+        workDir: "/p/proj",
+        newTab: true,
+      });
 
       expect(postMessage).toHaveBeenCalledWith(
         {
@@ -52,6 +56,7 @@ describe("costrict-bridge", () => {
           target: "session",
           sessionId: "s1",
           workDir: "/p/proj",
+          newTab: true,
         },
         "*",
       );

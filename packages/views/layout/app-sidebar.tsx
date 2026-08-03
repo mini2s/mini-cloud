@@ -18,12 +18,12 @@ import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } 
 import { CSS } from "@dnd-kit/utilities";
 import {
   Inbox,
-  ListTodo,
   Bot,
   Monitor,
   ChevronDown,
   ChevronRight,
   Settings,
+  // SlidersHorizontal,
   LogOut,
   Plus,
   Check,
@@ -31,14 +31,29 @@ import {
   SquarePen,
   CircleUser,
   FolderKanban,
-  // Hidden per 2026-06-16 product decision.
-  // BarChart3,
+  BarChart3,
   X,
-  // Hidden per 2026-06-16 product decision.
-  // Zap,
   IdCard,
   Users,
   GitBranch,
+  // Upcoming product surface — placeholder nav entries.
+  LayoutDashboard,
+  MessagesSquare,
+  // ClipboardCheck,
+  // FileText,
+  // Brain,
+  Gauge,
+  Coins,
+  ListChecks,
+  Sparkles,
+  // KeyRound,
+  // Plug,
+  Megaphone,
+  // Percent,
+  // User,
+  Wallet,
+  // Bell,
+  UserRoundCog,
 } from "lucide-react";
 import { WorkspaceAvatar } from "../workspace/workspace-avatar";
 import { ActorAvatar } from "@multica/ui/components/common/actor-avatar";
@@ -104,7 +119,6 @@ const EMPTY_PINS: PinnedItem[] = [];
 const EMPTY_WORKSPACES: Awaited<ReturnType<typeof api.listWorkspaces>> = [];
 const EMPTY_INVITATIONS: Awaited<ReturnType<typeof api.listMyInvitations>> = [];
 const EMPTY_INBOX: Awaited<ReturnType<typeof api.listInbox>> = [];
-
 // Nav items reference WorkspacePaths method names so they can be resolved
 // against the current workspace slug at render time (see AppSidebar body).
 // Only parameterless paths are valid nav destinations.
@@ -113,7 +127,6 @@ type NavKey =
   | "myIssues"
   | "issues"
   | "projects"
-  | "autopilots"
   | "agents"
   | "members"
   | "squads"
@@ -121,7 +134,30 @@ type NavKey =
   | "runtimes"
   | "skills"
   | "workflows"
-  | "settings";
+  | "settings"
+  // Upcoming product surface (placeholder destinations).
+  | "home"
+  | "sessions"
+  | "reviews"
+  | "wiki"
+  | "memory"
+  | "hub"
+  | "metricsOverview"
+  | "metricsEfficiency"
+  | "metricsQuality"
+  | "metricsCost"
+  | "metricsCoverage"
+  | "metricsContribution"
+  | "metricsNeeds"
+  | "permissions"
+  | "connectors"
+  | "channels"
+  | "quotas"
+  | "meProfile"
+  | "meQuota"
+  | "meNotifications"
+  | "roles"
+  | "efficiencySettings";
 
 // Static schema (key + icon) — labels resolved at render via useT("layout").
 type NavLabelKey =
@@ -129,7 +165,6 @@ type NavLabelKey =
   | "my_issues"
   | "issues"
   | "projects"
-  | "autopilots"
   | "agents"
   | "members"
   | "squads"
@@ -137,30 +172,100 @@ type NavLabelKey =
   | "runtimes"
   | "skills"
   | "workflows"
-  | "settings";
+  | "settings"
+  | "home"
+  | "sessions"
+  | "reviews"
+  | "wiki"
+  | "memory"
+  | "hub"
+  | "metrics_overview"
+  | "metrics_efficiency"
+  | "metrics_quality"
+  | "metrics_cost"
+  | "metrics_coverage"
+  | "metrics_contribution"
+  | "metrics_needs"
+  | "permissions"
+  | "connectors"
+  | "channels"
+  | "quotas"
+  | "me_profile"
+  | "me_quota"
+  | "me_notifications"
+  | "roles"
+  | "efficiency_settings";
 
-const personalNav: { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox }[] = [
+type NavItem = { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox };
+
+// Top quick-access group (no header label).
+const personalNav: NavItem[] = [
+  { key: "home", labelKey: "home", icon: LayoutDashboard },
+];
+
+const workbenchNav: NavItem[] = [
   { key: "inbox", labelKey: "inbox", icon: Inbox },
+  // 隐藏菜单项（保留代码，仅注释）
+  { key: "sessions", labelKey: "sessions", icon: MessagesSquare },
   { key: "myIssues", labelKey: "my_issues", icon: CircleUser },
-];
-
-const workspaceNav: { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox }[] = [
-  { key: "issues", labelKey: "issues", icon: ListTodo },
+  // { key: "reviews", labelKey: "reviews", icon: ClipboardCheck },
   { key: "projects", labelKey: "projects", icon: FolderKanban },
-  // Hidden per 2026-06-16 product decision.
-  // { key: "autopilots", labelKey: "autopilots", icon: Zap },
-  { key: "workflows", labelKey: "workflows", icon: GitBranch },
-  { key: "agents", labelKey: "agents", icon: Bot },
-  { key: "members", labelKey: "members", icon: IdCard },
-  { key: "squads", labelKey: "squads", icon: Users },
-  // Hidden per 2026-06-16 product decision.
-  // { key: "usage", labelKey: "usage", icon: BarChart3 },
 ];
 
-const configureNav: { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox }[] = [
-  { key: "runtimes", labelKey: "runtimes", icon: Monitor },
+const collaborationNav: NavItem[] = [
+  { key: "workflows", labelKey: "workflows", icon: GitBranch },
+  { key: "roles", labelKey: "roles", icon: UserRoundCog },
+  { key: "squads", labelKey: "squads", icon: Users },
+  { key: "members", labelKey: "members", icon: IdCard },
+  { key: "agents", labelKey: "agents", icon: Bot },
+];
+
+const repositoryNav: NavItem[] = [
+  // { key: "wiki", labelKey: "wiki", icon: FileText },
   { key: "skills", labelKey: "skills", icon: BookOpenText },
+  // { key: "memory", labelKey: "memory", icon: Brain },
+  // Single Hub entry — hub type filtering lives inside the Hub page tabs;
+  // stays highlighted on every /hub sub-route (/hub/manager, /hub/[id], …)
+  // via the pathname-prefix match in isNavActive.
+  { key: "hub", labelKey: "hub", icon: Sparkles },
+];
+
+const metricsNav: NavItem[] = [
+  { key: "metricsOverview", labelKey: "metrics_overview", icon: LayoutDashboard },
+  { key: "usage", labelKey: "usage", icon: BarChart3 },
+  { key: "metricsEfficiency", labelKey: "metrics_efficiency", icon: Gauge },
+  { key: "metricsCost", labelKey: "metrics_cost", icon: Coins },
+  { key: "metricsContribution", labelKey: "metrics_contribution", icon: Sparkles },
+  { key: "metricsNeeds", labelKey: "metrics_needs", icon: ListChecks },
+];
+
+const adminNav: NavItem[] = [
+  // { key: "permissions", labelKey: "permissions", icon: KeyRound },
+  // { key: "connectors", labelKey: "connectors", icon: Plug },
+  { key: "channels", labelKey: "channels", icon: Megaphone },
+  // { key: "quotas", labelKey: "quotas", icon: Percent },
+  { key: "runtimes", labelKey: "runtimes", icon: Monitor },
+  // One entry for the eight efficiency settings/ops pages (pricing /
+  // datasources / sync / config + platform overview / health / realtime /
+  // realtime query) — surfaced via a tabbed shell rather than eight rows.
+  // { key: "efficiencySettings", labelKey: "efficiency_settings", icon: SlidersHorizontal },
+];
+
+const meNav: NavItem[] = [
+  // { key: "meProfile", labelKey: "me_profile", icon: User },
+  { key: "meQuota", labelKey: "me_quota", icon: Wallet },
+  // { key: "meNotifications", labelKey: "me_notifications", icon: Bell },
   { key: "settings", labelKey: "settings", icon: Settings },
+];
+
+// Labeled groups rendered with a header. Order matches the product IA.
+const labeledNavGroups: { labelKey: "workbench_group" | "collaboration_group" | "repository_group" | "metrics_group" | "admin_group" | "me_group"; items: NavItem[] }[] = [
+  { labelKey: "workbench_group", items: workbenchNav },
+  { labelKey: "collaboration_group", items: collaborationNav },
+  { labelKey: "repository_group", items: repositoryNav },
+  { labelKey: "metrics_group", items: metricsNav },
+  { labelKey: "admin_group", items: adminNav },
+  { labelKey: "me_group", items: meNav },
 ];
 
 function DraftDot() {
@@ -355,7 +460,7 @@ interface AppSidebarProps {
 
 export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }: AppSidebarProps = {}) {
   const { t } = useT("layout");
-  const { pathname, push } = useNavigation();
+  const { pathname, push, searchParams } = useNavigation();
   const user = useAuthStore((s) => s.user);
   const userId = useAuthStore((s) => s.user?.id);
   const logout = useLogout();
@@ -707,58 +812,73 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
             </Collapsible>
           )}
 
-          <SidebarGroup>
-            <SidebarGroupLabel>{t(($) => $.sidebar.workspace_group)}</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu className="gap-0.5">
-                {workspaceNav.map((item) => {
-                  const href = p[item.key]();
-                  const isActive = isNavActive(pathname, href);
-                  return (
-                    <SidebarMenuItem key={item.key}>
-                      <SidebarMenuButton
-                        isActive={isActive}
-                        render={<AppLink href={href} />}
-                        className="text-muted-foreground hover:not-data-active:bg-sidebar-accent/70 data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground"
-                      >
-                        <item.icon />
-                        <span>{t(($) => $.nav[item.labelKey])}</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-
-          <SidebarGroup>
-            <SidebarGroupLabel>{t(($) => $.sidebar.configure_group)}</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu className="gap-0.5">
-                {configureNav
-                  .filter((item) => SKILLS_ENABLED || item.key !== "skills")
-                  .map((item) => {
-                  const href = p[item.key]();
-                  const isActive = isNavActive(pathname, href);
-                  return (
-                    <SidebarMenuItem key={item.key}>
-                      <SidebarMenuButton
-                        isActive={isActive}
-                        render={<AppLink href={href} />}
-                        className="text-muted-foreground hover:not-data-active:bg-sidebar-accent/70 data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground"
-                      >
-                        <item.icon />
-                        <span>{t(($) => $.nav[item.labelKey])}</span>
-                        {item.key === "runtimes" && hasRuntimeUpdates && (
-                          <span className="ml-auto size-1.5 rounded-full bg-destructive" />
-                        )}
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+          {labeledNavGroups.map((group) => {
+            const items = group.items.filter((item) => SKILLS_ENABLED || item.key !== "skills");
+            return (
+              <Collapsible key={group.labelKey} defaultOpen={true}>
+                <SidebarGroup className="group/nav-group">
+                  <SidebarGroupLabel
+                    render={<CollapsibleTrigger />}
+                    className="group/trigger cursor-pointer hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground"
+                  >
+                    <span>{t(($) => $.sidebar[group.labelKey])}</span>
+                    <ChevronRight className="!size-3 ml-1 stroke-[2.5] text-muted-foreground transition-transform duration-200 group-data-[panel-open]/trigger:rotate-90" />
+                    <span className="ml-auto text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover/nav-group:opacity-100">{items.length}</span>
+                  </SidebarGroupLabel>
+                  <CollapsibleContent>
+                    <SidebarGroupContent>
+                      <SidebarMenu className="gap-0.5">
+                        {items.map((item) => {
+                          const href = p[item.key]() ?? "";
+                          const hasQuery = href.includes("?");
+                          const basePath = href.split("?")[0] as string;
+                          // Hub type items carry ?type= in the href; match the
+                          // query param exactly so only the active type lights up
+                          // instead of all hub entries sharing the same base path.
+                          const currentType = searchParams?.get("type");
+                          // Drill-down detail routes (user/repo/project/need/
+                          // task/commit/workdir) live directly under /metrics/
+                          // rather than under a dimension, so no dimension item
+                          // matches them via the prefix check below. Overview
+                          // acts as the catch-all for the metrics area so the
+                          // sidebar still shows an active entry on those pages;
+                          // when a more specific sibling dimension matches it
+                          // takes over and Overview stays dim.
+                          const isActive =
+                            item.key === "metricsOverview"
+                              ? isNavActive(pathname, basePath) &&
+                                !items.some(
+                                  (i) =>
+                                    i.key !== "metricsOverview" &&
+                                    isNavActive(pathname, (p[i.key]() ?? "").split("?")[0] as string),
+                                )
+                              : hasQuery
+                                ? isNavActive(pathname, basePath) &&
+                                  href.includes(`type=${currentType}`)
+                                : isNavActive(pathname, basePath);
+                          return (
+                            <SidebarMenuItem key={item.key}>
+                              <SidebarMenuButton
+                                isActive={isActive}
+                                render={<AppLink href={href} />}
+                                className="text-muted-foreground hover:not-data-active:bg-sidebar-accent/70 data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground"
+                              >
+                                <item.icon />
+                                <span>{t(($) => $.nav[item.labelKey])}</span>
+                                {item.key === "runtimes" && hasRuntimeUpdates && (
+                                  <span className="ml-auto size-1.5 rounded-full bg-destructive" />
+                                )}
+                              </SidebarMenuButton>
+                            </SidebarMenuItem>
+                          );
+                        })}
+                      </SidebarMenu>
+                    </SidebarGroupContent>
+                  </CollapsibleContent>
+                </SidebarGroup>
+              </Collapsible>
+            );
+          })}
         </SidebarContent>
 
         <SidebarFooter className="p-2">

@@ -165,6 +165,26 @@ function buildColumns(
   return cols;
 }
 
+/** Structural equality for column id maps. Used to make setColumns idempotent
+ *  so unstable upstream deps don't trigger a render loop. */
+function columnsEqual(
+  a: Record<string, string[]>,
+  b: Record<string, string[]>,
+): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    const av = a[key];
+    const bv = b[key];
+    if (!av || !bv || av.length !== bv.length) return false;
+    for (let i = 0; i < av.length; i++) {
+      if (av[i] !== bv[i]) return false;
+    }
+  }
+  return true;
+}
+
 /** Compute a float position for `activeId` based on its neighbors in `ids`. */
 function computePosition(ids: string[], activeId: string, issueMap: Map<string, Issue>): number {
   const idx = ids.indexOf(activeId);
@@ -230,7 +250,7 @@ export function BoardView({
   assigneeGroupFilter?: AssigneeGroupedIssuesFilter;
   visibleStatuses: IssueStatus[];
   hiddenStatuses: IssueStatus[];
-  onMoveIssue: (issueId: string, updates: BoardMoveUpdates) => void;
+  onMoveIssue: (issueId: string, updates: BoardMoveUpdates) => boolean | void;
   childProgressMap?: Map<string, ChildProgress>;
   /** When set, per-status load-more targets the scoped cache instead of the workspace one. */
   myIssuesScope?: string;
@@ -322,9 +342,11 @@ export function BoardView({
   columnsRef.current = columns;
 
   useEffect(() => {
-    if (!isDraggingRef.current) {
-      setColumns(buildColumns(groupedIssues, groups, grouping, sortBy, sortDirection));
-    }
+    if (isDraggingRef.current) return;
+    setColumns((prev) => {
+      const next = buildColumns(groupedIssues, groups, grouping, sortBy, sortDirection);
+      return columnsEqual(prev, next) ? prev : next;
+    });
   }, [groupedIssues, groups, grouping, sortBy, sortDirection]);
 
   // After a cross-column move, lock for one animation frame so dnd-kit's
@@ -454,7 +476,10 @@ export function BoardView({
         return;
       }
 
-      onMoveIssue(activeId, getMoveUpdates(finalGroup, newPosition));
+      const handled = onMoveIssue(activeId, getMoveUpdates(finalGroup, newPosition));
+      if (handled === false) {
+        resetColumns();
+      }
     },
     [groupedIssues, groups, grouping, sortBy, sortDirection, onMoveIssue, groupIds, groupMap],
   );

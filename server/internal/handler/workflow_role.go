@@ -10,7 +10,13 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+)
+
+var (
+	errBuiltinWorkflowRole    = errors.New("built-in workflow role")
+	errReferencedWorkflowRole = errors.New("referenced workflow role")
 )
 
 type CreateWorkflowRoleRequest struct {
@@ -97,7 +103,16 @@ func (h *Handler) CreateWorkflowRole(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	role, err := h.Queries.CreateWorkflowRole(r.Context(), db.CreateWorkflowRoleParams{WorkspaceID: member.WorkspaceID, Name: name, NormalizedName: strings.ToLower(name), Description: description, CreatedBy: parseUUID(userID)})
+	var role db.MulticaWorkflowRole
+	err = h.WorkflowService.RunWorkspaceRoleWrite(
+		r.Context(), member.WorkspaceID,
+		func(*db.Queries) ([]pgtype.UUID, error) { return nil, nil },
+		func(qtx *db.Queries) error {
+			var err error
+			role, err = qtx.CreateWorkflowRole(r.Context(), db.CreateWorkflowRoleParams{WorkspaceID: member.WorkspaceID, Name: name, NormalizedName: strings.ToLower(name), Description: description, CreatedBy: parseUUID(userID)})
+			return err
+		},
+	)
 	if isUniqueViolation(err) {
 		writeError(w, 409, "a workflow role with this name already exists")
 		return
@@ -147,7 +162,28 @@ func (h *Handler) UpdateWorkflowRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, err.Error())
 		return
 	}
-	role, err := h.Queries.UpdateWorkflowRole(r.Context(), db.UpdateWorkflowRoleParams{ID: roleID, WorkspaceID: member.WorkspaceID, Name: pgtype.Text{String: name, Valid: true}, NormalizedName: pgtype.Text{String: strings.ToLower(name), Valid: true}, Description: pgtype.Text{String: description, Valid: true}})
+	var role db.MulticaWorkflowRole
+	err = h.WorkflowService.RunWorkspaceRoleWrite(
+		r.Context(), member.WorkspaceID,
+		func(qtx *db.Queries) ([]pgtype.UUID, error) {
+			return qtx.ListWorkflowIDsReferencingRole(r.Context(), roleID)
+		},
+		func(qtx *db.Queries) error {
+			lockedRole, err := qtx.GetWorkflowRoleInWorkspace(r.Context(), db.GetWorkflowRoleInWorkspaceParams{ID: roleID, WorkspaceID: member.WorkspaceID})
+			if err != nil {
+				return err
+			}
+			if lockedRole.IsBuiltin {
+				return errBuiltinWorkflowRole
+			}
+			role, err = qtx.UpdateWorkflowRole(r.Context(), db.UpdateWorkflowRoleParams{ID: roleID, WorkspaceID: member.WorkspaceID, Name: pgtype.Text{String: name, Valid: true}, NormalizedName: pgtype.Text{String: strings.ToLower(name), Valid: true}, Description: pgtype.Text{String: description, Valid: true}})
+			return err
+		},
+	)
+	if errors.Is(err, errBuiltinWorkflowRole) {
+		writeError(w, 403, "built-in workflow roles are read-only")
+		return
+	}
 	if isUniqueViolation(err) {
 		writeError(w, 409, "a workflow role with this name already exists")
 		return
@@ -181,16 +217,50 @@ func (h *Handler) DeleteWorkflowRole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 403, "built-in workflow roles cannot be deleted")
 		return
 	}
-	references, err := h.Queries.CountWorkflowRoleReferences(r.Context(), roleID)
-	if err != nil {
-		writeError(w, 500, "failed to inspect workflow role")
+	var deleted int64
+	err = h.WorkflowService.RunWorkspaceRoleWrite(
+		r.Context(), member.WorkspaceID,
+		func(qtx *db.Queries) ([]pgtype.UUID, error) {
+			return qtx.ListWorkflowIDsReferencingRole(r.Context(), roleID)
+		},
+		func(qtx *db.Queries) error {
+			lockedRole, err := qtx.GetWorkflowRoleInWorkspace(r.Context(), db.GetWorkflowRoleInWorkspaceParams{ID: roleID, WorkspaceID: member.WorkspaceID})
+			if err != nil {
+				return err
+			}
+			if lockedRole.IsBuiltin {
+				return errBuiltinWorkflowRole
+			}
+			references, err := qtx.CountWorkflowRoleReferences(r.Context(), roleID)
+			if err != nil {
+				return err
+			}
+			if references > 0 {
+				return errReferencedWorkflowRole
+			}
+			inUse, err := qtx.WorkflowRoleHasActiveRunReferences(r.Context(), roleID)
+			if err != nil {
+				return err
+			}
+			if inUse {
+				return service.ErrWorkflowDefinitionInUse
+			}
+			deleted, err = qtx.DeleteWorkflowRole(r.Context(), db.DeleteWorkflowRoleParams{ID: roleID, WorkspaceID: member.WorkspaceID})
+			return err
+		},
+	)
+	if errors.Is(err, errBuiltinWorkflowRole) {
+		writeError(w, 403, "built-in workflow roles cannot be deleted")
 		return
 	}
-	if references > 0 {
+	if errors.Is(err, errReferencedWorkflowRole) {
 		writeError(w, 409, "workflow role is used by one or more workflows")
 		return
 	}
-	deleted, err := h.Queries.DeleteWorkflowRole(r.Context(), db.DeleteWorkflowRoleParams{ID: roleID, WorkspaceID: member.WorkspaceID})
+	if errors.Is(err, service.ErrWorkflowDefinitionInUse) {
+		writeCodeError(w, http.StatusConflict, "workflow_definition_in_use", "workflow definition is used by an active run")
+		return
+	}
 	if err != nil {
 		writeError(w, 500, "failed to delete workflow role")
 		return

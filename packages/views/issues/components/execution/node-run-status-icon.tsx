@@ -72,6 +72,7 @@ const DISPLAY_STATUS_MAP: Record<WorkflowRuntimeDisplayStatus, {
   in_progress: { icon: Loader2, className: "text-blue-500", label: "In progress", spin: true },
   reviewing: { icon: UserCheck, className: "text-violet-500", label: "Reviewing" },
   completed: { icon: CheckCircle2, className: "text-green-500", label: "Completed" },
+  failed: { icon: AlertCircle, className: "text-destructive", label: "Failed" },
   blocked: { icon: AlertCircle, className: "text-red-500", label: "Blocked" },
   cancelled: { icon: MinusCircle, className: "text-muted-foreground", label: "Cancelled" },
 };

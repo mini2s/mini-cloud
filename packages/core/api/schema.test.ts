@@ -24,6 +24,41 @@ afterEach(() => {
 // app in past incidents. The contract is: a malformed response degrades to
 // an empty/safe shape, never throws into React.
 describe("ApiClient schema fallback", () => {
+  describe("workflow run start", () => {
+    it("parses a successful run response through the workflow schema", async () => {
+      stubFetchJson({ id: 7, workflow_id: "wf-1", workspace_id: "ws-1" });
+      const client = new ApiClient("https://api.example.test");
+      const run = await client.startWorkflowRun("wf-1");
+      expect(run.id).toBe("");
+    });
+
+    it("throws a structured workflow config error", async () => {
+      stubFetchJson({
+        error: "workflow configuration is invalid",
+        code: "workflow_config_invalid",
+        run_id: "run-failed",
+        issues: [{ code: "workflow_empty", detail: "Workflow has no nodes" }],
+      }, 422);
+      const client = new ApiClient("https://api.example.test");
+      try {
+        await client.startWorkflowRun("wf-1");
+        expect.unreachable("expected workflow start to fail");
+      } catch (error) {
+        expect(error).toMatchObject({
+          name: "WorkflowConfigInvalidError",
+          runId: "run-failed",
+          issues: [{ code: "workflow_empty", detail: "Workflow has no nodes" }],
+        });
+      }
+    });
+
+    it("uses a generic message for a malformed workflow config error", async () => {
+      stubFetchJson({ code: "workflow_config_invalid", issues: null }, 422);
+      const client = new ApiClient("https://api.example.test");
+      await expect(client.startWorkflowRun("wf-1")).rejects.toThrow("无法启动工作流，请检查配置。");
+    });
+  });
+
   describe("listTimeline", () => {
     it("falls back to an empty array when the body is null", async () => {
       stubFetchJson(null);
@@ -129,73 +164,50 @@ describe("ApiClient schema fallback", () => {
   });
 
   describe("dept member lookup", () => {
-    it("falls back to [] when dept user search returns a malformed body", async () => {
+    it("falls back to [] when cs-user search returns a malformed body", async () => {
       stubFetchJson({ users: "not-an-array" });
       const client = new ApiClient("https://api.example.test");
-      const users = await client.searchDeptUsers("E001");
-      expect(users).toEqual([]);
+      const hits = await client.searchDeptUsers("Ada");
+      expect(hits).toEqual([]);
     });
 
-    it("preserves future dept fields while validating known department search shape", async () => {
+    it("parses cs-user search hits and preserves future fields", async () => {
       stubFetchJson([
         {
-          dept_id: "D100",
-          dept_name: "Platform Dept",
+          subject_id: "sub-001",
+          name: "Ada Lovelace",
+          email: "ada@example.test",
           future_field: "kept",
         },
       ]);
       const client = new ApiClient("https://api.example.test");
-      const departments = await client.searchDeptDepartments("Platform");
-      expect(departments).toHaveLength(1);
-      expect((departments[0] as unknown as Record<string, unknown>).future_field).toBe("kept");
+      const hits = await client.searchDeptUsers("Ada");
+      expect(hits).toHaveLength(1);
+      expect(hits[0]?.subject_id).toBe("sub-001");
+      expect(hits[0]?.name).toBe("Ada Lovelace");
+      expect((hits[0] as unknown as Record<string, unknown>).future_field).toBe("kept");
     });
 
     it("falls back to a zero result when batch add returns malformed counts", async () => {
       stubFetchJson({ added: "one", skipped: 0 });
       const client = new ApiClient("https://api.example.test");
       const result = await client.batchAddDeptMembers("ws-1", {
-        users: [{ external_user_id: "E001" }],
+        users: [{ subject_id: "sub-001" }],
       });
       expect(result).toEqual({ added: 0, skipped: 0 });
     });
 
-    it("sends dept member snapshots when batch adding members", async () => {
+    it("sends subject_id when batch adding members", async () => {
       stubFetchJson({ added: 1, skipped: 0 });
       const client = new ApiClient("https://api.example.test");
       await client.batchAddDeptMembers("ws-1", {
-        users: [
-          {
-            external_user_id: "E001",
-            external_universal_id: "uni-001",
-            name: "Ada",
-            employee_id: "E001",
-            department_id: "D100",
-            department_name: "Platform",
-            department_path: "R&D/Platform",
-            position: "Engineer",
-            is_main_department: true,
-            dept_user_status: 1,
-          },
-        ],
+        users: [{ subject_id: "sub-001" }],
       });
 
       const fetchMock = vi.mocked(globalThis.fetch);
       const [, init] = fetchMock.mock.calls[0]!;
       expect(JSON.parse(String(init?.body))).toEqual({
-        users: [
-          {
-            external_user_id: "E001",
-            external_universal_id: "uni-001",
-            name: "Ada",
-            employee_id: "E001",
-            department_id: "D100",
-            department_name: "Platform",
-            department_path: "R&D/Platform",
-            position: "Engineer",
-            is_main_department: true,
-            dept_user_status: 1,
-          },
-        ],
+        users: [{ subject_id: "sub-001" }],
       });
     });
   });

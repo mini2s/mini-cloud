@@ -12,6 +12,7 @@ import {
   type Edge,
   type EdgeTypes,
   type FitViewOptions,
+  type IsValidConnection,
   type Node,
   type NodeTypes,
   type Viewport,
@@ -49,6 +50,7 @@ export interface WorkflowCanvasCoreProps {
   onPaneClick?: () => void;
   onNodeDragStop?: (event: MouseEvent | TouchEvent, node: Node) => void;
   onConnect?: (connection: Connection) => void;
+  isValidConnection?: IsValidConnection;
   onEdgesDelete?: (edges: Edge[]) => void;
   onMove?: (viewport: Viewport) => void;
   onStageEdit?: (stage: WorkflowStage) => void;
@@ -79,6 +81,7 @@ export function WorkflowCanvasCore({
   onPaneClick,
   onNodeDragStop,
   onConnect,
+  isValidConnection,
   onEdgesDelete,
   onMove,
   onStageEdit,
@@ -121,6 +124,7 @@ export function WorkflowCanvasCore({
           onPaneClick={onPaneClick}
           onNodeDragStop={readOnly ? undefined : onNodeDragStop}
           onConnect={readOnly ? undefined : onConnect}
+          isValidConnection={readOnly ? undefined : isValidConnection}
           onEdgesDelete={readOnly ? undefined : onEdgesDelete}
           fitView={fitView}
           fitViewOptions={fitViewOptions}

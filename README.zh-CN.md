@@ -17,8 +17,8 @@
 开源的 Managed Agents 平台。<br/>
 将编码 Agent 变成真正的队友——分配任务、跟踪进度、积累技能。
 
-[![CI](https://github.com/multica-ai/multica/actions/workflows/ci.yml/badge.svg)](https://github.com/multica-ai/multica/actions/workflows/ci.yml)
-[![GitHub stars](https://img.shields.io/github/stars/multica-ai/multica?style=flat)](https://github.com/multica-ai/multica/stargazers)
+[![CI](https://github.com/Askhz/multica/actions/workflows/ci.yml/badge.svg)](https://github.com/Askhz/multica/actions/workflows/ci.yml)
+[![GitHub stars](https://img.shields.io/github/stars/Askhz/multica?style=flat)](https://github.com/Askhz/multica/stargazers)
 
 [官网](https://multica.ai) · [云服务](https://multica.ai) · [X](https://x.com/MulticaAI) · [自部署指南](SELF_HOSTING.md) · [参与贡献](CONTRIBUTING.md)
 
@@ -65,26 +65,18 @@ Multica 管理完整的 Agent 生命周期：从任务分配到执行监控再�
 
 ## 快速安装
 
-### macOS / Linux（推荐 Homebrew）
+### macOS / Linux（安装脚本，推荐）
 
 ```bash
-brew install multica-ai/tap/multica
+curl -fsSL https://raw.githubusercontent.com/Askhz/multica/main/scripts/install.sh | bash
 ```
 
-后续可用 `brew upgrade multica-ai/tap/multica` 更新 CLI。
-
-### macOS / Linux（安装脚本）
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/multica-ai/multica/main/scripts/install.sh | bash
-```
-
-如果没有 Homebrew，可以使用安装脚本。脚本会安装 Multica CLI：检测到 `brew` 时通过 Homebrew 安装，否则直接下载二进制。
+脚本会从 GitHub Releases 下载 CLI 二进制并安装到 `/usr/local/bin`（无 sudo 权限时安装到 `~/.local/bin`）。再次执行同一命令即可升级。
 
 ### Windows (PowerShell)
 
 ```powershell
-irm https://raw.githubusercontent.com/multica-ai/multica/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/Askhz/multica/main/scripts/install.ps1 | iex
 ```
 
 安装完成后，一条命令完成配置、认证和启动：
@@ -96,7 +88,7 @@ cs-workflow setup          # 连接 Multica Cloud，登录，启动 daemon
 > **自部署？** 加上 `--with-server` 在本地部署完整的 Multica 服务：
 >
 > ```bash
-> curl -fsSL https://raw.githubusercontent.com/multica-ai/multica/main/scripts/install.sh | bash -s -- --with-server
+> curl -fsSL https://raw.githubusercontent.com/Askhz/multica/main/scripts/install.sh | bash -s -- --with-server
 > cs-workflow setup self-host
 > ```
 >

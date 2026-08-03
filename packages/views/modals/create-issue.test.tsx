@@ -33,7 +33,7 @@ const mockDraftStore = {
   draft: {
     title: "",
     description: "",
-    status: "todo" as const,
+    status: "backlog" as const,
     priority: "none" as const,
     assigneeType: undefined as "agent" | "squad" | "member" | undefined,
     assigneeId: undefined as string | undefined,
@@ -50,6 +50,11 @@ const mockDraftStore = {
 const mockQuickCreateStore = {
   keepOpen: false,
   setKeepOpen: mockSetKeepOpen,
+};
+
+const REQUIRED_CREATE_DATA = {
+  project_id: "proj-test",
+  responsible_user_id: "member-1",
 };
 
 vi.mock("../navigation", () => ({
@@ -189,13 +194,52 @@ vi.mock("../issues/components", () => ({
   StatusIcon: ({ status }: { status: string }) => <span data-testid="status-icon">{status}</span>,
   StatusPicker: () => <div data-testid="status-picker" />,
   PriorityPicker: () => <div data-testid="priority-picker" />,
-  AssigneePicker: () => <div data-testid="assignee-picker" />,
+  AssigneePicker: ({
+    onUpdate,
+    open,
+    allowedTypes,
+    emptyTriggerLabel,
+  }: {
+    onUpdate: (updates: Record<string, unknown>) => void;
+    open?: boolean;
+    allowedTypes?: string[];
+    emptyTriggerLabel?: string;
+  }) => {
+    const isResponsiblePicker = allowedTypes?.length === 1 && allowedTypes[0] === "member";
+    return (
+    <button
+      type="button"
+      data-testid={isResponsiblePicker ? "responsible-picker" : "assignee-picker"}
+      data-open={open ? "true" : "false"}
+      data-empty-trigger-label={emptyTriggerLabel}
+      onClick={() =>
+        onUpdate(
+          isResponsiblePicker
+            ? {
+                assignee_type: "member",
+                assignee_id: "member-2",
+              }
+            : {
+                assignee_type: "workflow",
+                assignee_id: "workflow-1",
+                runtime_selection_policy: "specified_runtime_first",
+                runtime_id: "runtime-1",
+              },
+        )
+      }
+    >
+      {isResponsiblePicker ? "Select responsible member" : "Select workflow assignee"}
+    </button>
+    );
+  },
   StartDatePicker: () => <div data-testid="start-date-picker" />,
   DueDatePicker: () => <div data-testid="due-date-picker" />,
 }));
 
 vi.mock("../projects/components/project-picker", () => ({
-  ProjectPicker: () => <div data-testid="project-picker" />,
+  ProjectPicker: ({ triggerRender, open }: { triggerRender?: ReactNode; open?: boolean }) => (
+    <div data-testid="project-picker" data-open={open ? "true" : "false"}>{triggerRender}</div>
+  ),
 }));
 
 vi.mock("@multica/ui/components/ui/dialog", () => ({
@@ -284,7 +328,7 @@ vi.mock("sonner", () => ({
   },
 }));
 
-import { CreateIssueModal, ManualCreatePanel } from "./create-issue";
+import { CreateIssueModal } from "./create-issue";
 
 function renderModal(element: React.ReactElement) {
   const qc = new QueryClient({
@@ -312,15 +356,55 @@ describe("CreateIssueModal", () => {
       id: "issue-123",
       identifier: "TES-123",
       title: "Ship create issue regression coverage",
-      status: "todo",
+      status: "backlog",
     });
+  });
+
+  // A project is required to create an issue. When the user tries to submit
+  // without one, the form should say what blocked creation and open the
+  // project picker instead of silently doing nothing.
+  it("shows project-required feedback when Create Issue is clicked without a project", async () => {
+    const user = userEvent.setup();
+    renderModal(<CreateIssueModal onClose={vi.fn()} />);
+
+    await user.type(screen.getByPlaceholderText("Issue title"), "Needs a project");
+    await user.click(screen.getByRole("button", { name: "Create Issue" }));
+
+    expect(mockCreateIssue).not.toHaveBeenCalled();
+    expect(screen.getByText("Pick a project first. Every issue must belong to a project.")).toBeInTheDocument();
+    expect(screen.getByTestId("project-picker")).toHaveAttribute("data-open", "true");
+  });
+
+  it("shows responsible-required feedback when Create Issue is clicked without a responsible member", async () => {
+    const user = userEvent.setup();
+    renderModal(<CreateIssueModal onClose={vi.fn()} data={{ project_id: "proj-test" }} />);
+
+    await user.type(screen.getByPlaceholderText("Issue title"), "Needs an owner");
+    await user.click(screen.getByRole("button", { name: "Create Issue" }));
+
+    expect(mockCreateIssue).not.toHaveBeenCalled();
+    expect(screen.getByText("Pick an owner first. Every issue must have someone responsible.")).toBeInTheDocument();
+    expect(screen.getByTestId("responsible-picker")).toHaveAttribute("data-open", "true");
+  });
+
+  it("shows a task-owner empty label for the responsible picker", () => {
+    renderModal(<CreateIssueModal onClose={vi.fn()} data={{ project_id: "proj-test" }} />);
+
+    expect(screen.getByTestId("responsible-picker")).toHaveAttribute("data-empty-trigger-label", "Responsible");
+  });
+
+  it("highlights the project picker while project is missing", () => {
+    renderModal(<CreateIssueModal onClose={vi.fn()} />);
+
+    const projectPill = screen.getByTestId("project-picker").querySelector("button");
+    expect(projectPill).toHaveClass("ring-1", "ring-brand/30", "bg-brand/5");
   });
 
   it("shows success feedback with a direct path to the new issue", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
 
-    renderModal(<CreateIssueModal onClose={onClose} />);
+    renderModal(<CreateIssueModal onClose={onClose} data={REQUIRED_CREATE_DATA} />);
 
     fireEvent.change(screen.getByPlaceholderText("Issue title"), {
       target: { value: "  Ship create issue regression coverage  " },
@@ -331,15 +415,18 @@ describe("CreateIssueModal", () => {
       expect(mockCreateIssue).toHaveBeenCalledWith({
         title: "Ship create issue regression coverage",
         description: undefined,
-        status: "todo",
+        status: "backlog",
         priority: "none",
         assignee_type: undefined,
         assignee_id: undefined,
+        responsible_user_id: "member-1",
+        runtime_selection_policy: undefined,
+        runtime_id: undefined,
         start_date: undefined,
         due_date: undefined,
         attachment_ids: undefined,
         parent_issue_id: undefined,
-        project_id: undefined,
+        project_id: "proj-test",
       });
     });
 
@@ -368,7 +455,7 @@ describe("CreateIssueModal", () => {
     const onClose = vi.fn();
     mockQuickCreateStore.keepOpen = true;
 
-    renderModal(<CreateIssueModal onClose={onClose} />);
+    renderModal(<CreateIssueModal onClose={onClose} data={REQUIRED_CREATE_DATA} />);
 
     await user.type(screen.getByPlaceholderText("Issue title"), "First follow-up issue");
     await user.type(screen.getByPlaceholderText("Add description..."), "Description to clear");
@@ -378,15 +465,18 @@ describe("CreateIssueModal", () => {
       expect(mockCreateIssue).toHaveBeenCalledWith({
         title: "First follow-up issue",
         description: "Description to clear",
-        status: "todo",
+        status: "backlog",
         priority: "none",
         assignee_type: undefined,
         assignee_id: undefined,
+        responsible_user_id: "member-1",
+        runtime_selection_policy: undefined,
+        runtime_id: undefined,
         start_date: undefined,
         due_date: undefined,
         attachment_ids: undefined,
         parent_issue_id: undefined,
-        project_id: undefined,
+        project_id: "proj-test",
       });
     });
 
@@ -396,7 +486,7 @@ describe("CreateIssueModal", () => {
     expect(mockSetDraft).toHaveBeenCalledWith({
       title: "",
       description: "",
-      status: "todo",
+      status: "backlog",
       priority: "none",
       assigneeType: undefined,
       assigneeId: undefined,
@@ -405,40 +495,28 @@ describe("CreateIssueModal", () => {
     });
   });
 
-  // Manual → agent must also forward the picked squad. Without this branch
-  // the agent panel silently falls back to the persisted actor / first
-  // visible agent and the user loses the squad they just chose in manual.
-  it("forwards the picked squad when switching to agent mode", async () => {
-    mockDraftStore.draft.assigneeType = "squad";
-    mockDraftStore.draft.assigneeId = "squad-1";
+  it("forwards the selected workflow runtime strategy when creating an issue", async () => {
     const user = userEvent.setup();
-    const onSwitchMode = vi.fn();
+    // A project is required to create an issue (see require-project-on-issue-create).
+    renderModal(<CreateIssueModal onClose={vi.fn()} data={{ project_id: "proj-test" }} />);
 
-    renderModal(
-      <ManualCreatePanel
-        onClose={vi.fn()}
-        onSwitchMode={onSwitchMode}
-        isExpanded={false}
-        setIsExpanded={vi.fn()}
-        backlogHintIssueId={null}
-        setBacklogHintIssueId={vi.fn()}
-      />,
-    );
+    await user.type(screen.getByPlaceholderText("Issue title"), "Run release workflow");
+    await user.click(screen.getByRole("button", { name: "Select responsible member" }));
+    await user.click(screen.getByRole("button", { name: "Select workflow assignee" }));
+    await user.click(screen.getByRole("button", { name: "Create Issue" }));
 
-    await user.type(screen.getByPlaceholderText("Issue title"), "Refactor auth");
-    await user.click(screen.getByRole("button", { name: /Switch to Agent/i }));
-
-    expect(onSwitchMode).toHaveBeenCalledTimes(1);
-    const carry = onSwitchMode.mock.calls[0]?.[0];
-    expect(carry).toEqual(
-      expect.objectContaining({ prompt: "Refactor auth", squad_id: "squad-1" }),
-    );
-    expect(carry).not.toHaveProperty("agent_id");
+    await waitFor(() => {
+      expect(mockCreateIssue).toHaveBeenCalledWith(expect.objectContaining({
+        status: "todo",
+        responsible_user_id: "member-2",
+        assignee_type: "workflow",
+        assignee_id: "workflow-1",
+        runtime_selection_policy: "specified_runtime_first",
+        runtime_id: "runtime-1",
+      }));
+    });
   });
 
-  // Manual → agent must forward the picked project so the new modal pins to
-  // the same target. Without this the agent panel re-seeds from its own
-  // persisted `lastProjectId` and silently routes the issue to a stale one.
   // Reporter scenario: backend rejects same-titled create with a 409 +
   // structured duplicate body. The user should land on a duplicate toast
   // pointing at the existing issue, not a generic "create failed" message.
@@ -457,7 +535,7 @@ describe("CreateIssueModal", () => {
       }),
     );
 
-    renderModal(<CreateIssueModal onClose={onClose} />);
+    renderModal(<CreateIssueModal onClose={onClose} data={REQUIRED_CREATE_DATA} />);
     await user.type(screen.getByPlaceholderText("Issue title"), "Login bug");
     await user.click(screen.getByRole("button", { name: "Create Issue" }));
 
@@ -490,7 +568,7 @@ describe("CreateIssueModal", () => {
       }),
     );
 
-    renderModal(<CreateIssueModal onClose={vi.fn()} />);
+    renderModal(<CreateIssueModal onClose={vi.fn()} data={REQUIRED_CREATE_DATA} />);
     await user.type(screen.getByPlaceholderText("Issue title"), "Login bug");
     await user.click(screen.getByRole("button", { name: "Create Issue" }));
 
@@ -505,7 +583,7 @@ describe("CreateIssueModal", () => {
     const user = userEvent.setup();
     mockCreateIssue.mockRejectedValue(new Error("Server is overloaded, try again"));
 
-    renderModal(<CreateIssueModal onClose={vi.fn()} />);
+    renderModal(<CreateIssueModal onClose={vi.fn()} data={REQUIRED_CREATE_DATA} />);
     await user.type(screen.getByPlaceholderText("Issue title"), "Anything");
     await user.click(screen.getByRole("button", { name: "Create Issue" }));
 
@@ -519,67 +597,11 @@ describe("CreateIssueModal", () => {
     const user = userEvent.setup();
     mockCreateIssue.mockRejectedValue("network exploded");
 
-    renderModal(<CreateIssueModal onClose={vi.fn()} />);
+    renderModal(<CreateIssueModal onClose={vi.fn()} data={REQUIRED_CREATE_DATA} />);
     await user.type(screen.getByPlaceholderText("Issue title"), "Anything");
     await user.click(screen.getByRole("button", { name: "Create Issue" }));
 
     await waitFor(() => expect(mockToastError).toHaveBeenCalledTimes(1));
     expect(mockToastError).toHaveBeenCalledWith("Failed to create issue");
-  });
-
-  it("forwards the picked project when switching to agent mode", async () => {
-    const user = userEvent.setup();
-    const onSwitchMode = vi.fn();
-
-    renderModal(
-      <ManualCreatePanel
-        onClose={vi.fn()}
-        onSwitchMode={onSwitchMode}
-        data={{ project_id: "proj-1" }}
-        isExpanded={false}
-        setIsExpanded={vi.fn()}
-        backlogHintIssueId={null}
-        setBacklogHintIssueId={vi.fn()}
-      />,
-    );
-
-    await user.type(screen.getByPlaceholderText("Issue title"), "Refactor auth");
-
-    await user.click(screen.getByRole("button", { name: /Switch to Agent/i }));
-
-    expect(onSwitchMode).toHaveBeenCalledTimes(1);
-    expect(onSwitchMode.mock.calls[0]?.[0]).toEqual(
-      expect.objectContaining({
-        prompt: "Refactor auth",
-        project_id: "proj-1",
-      }),
-    );
-  });
-
-  // Title + description are packed into the agent prompt on switch; if we
-  // leave them in the shared draft store, the next agent→manual switch
-  // surfaces the stale manual draft on top of the prompt-as-description,
-  // duplicating the user's text on every round-trip.
-  it("clears the manual draft when packing title and description into the agent prompt", async () => {
-    const user = userEvent.setup();
-
-    renderModal(
-      <ManualCreatePanel
-        onClose={vi.fn()}
-        onSwitchMode={vi.fn()}
-        isExpanded={false}
-        setIsExpanded={vi.fn()}
-        backlogHintIssueId={null}
-        setBacklogHintIssueId={vi.fn()}
-      />,
-    );
-
-    await user.type(screen.getByPlaceholderText("Issue title"), "Update");
-    await user.type(screen.getByPlaceholderText("Add description..."), "Some body");
-
-    mockSetDraft.mockClear();
-    await user.click(screen.getByRole("button", { name: /Switch to Agent/i }));
-
-    expect(mockSetDraft).toHaveBeenCalledWith({ title: "", description: "" });
   });
 });

@@ -13,6 +13,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { useWorkspaceId } from "@multica/core/hooks";
+import { ApiError } from "@multica/core/api";
 import {
   workflowOverviewOptions,
   workflowStagesOptions,
@@ -32,11 +33,13 @@ import {
   useAssignNodeToStage,
   useDeleteStage,
   useReorderStages,
-  splitIssueWorkflowOptions,
 } from "@multica/core/workflows/queries";
 import { agentListOptions, builtinPluginListOptions } from "@multica/core/workspace/queries";
+import { runtimeListOptions } from "@multica/core/runtimes/queries";
 import { useActorName } from "@multica/core/workspace/hooks";
+import { useWorkspacePresenceMap, type AgentAvailability } from "@multica/core/agents";
 import { useWorkflowEditorStore } from "@multica/core/workflows/store";
+import { isEditableWorkflowNodeRunStatus } from "@multica/core/workflows/node-run-status";
 import { useNavigation } from "../../../navigation";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useT } from "../../../i18n";
@@ -61,18 +64,26 @@ import { getDeleteConflictMessage } from "../../../common/delete-conflict-error"
 
 import { WorkflowCanvasCore } from "../canvas/workflow-canvas-core";
 import {
+  MIN_NODE_HORIZONTAL_GAP,
+  workflowCanvasStages,
   workflowEdgesToReactFlowEdges,
   workflowNodesToReactFlowNodes,
 } from "../canvas/workflow-canvas-model";
 import { NodeConfigPanel } from "../node-config-panel";
 import { StageCreateDialog } from "./stage-create-dialog";
 import { panoramaNodeTypes } from "./reactflow-nodes";
+import { BOUNDARY_WIDTH } from "./reactflow-nodes/boundary-node";
 import { panoramaEdgeTypes } from "./reactflow-edges";
 import { computeLaneAutoLayout, computeStageTransferPositionX } from "../layout";
 import { PreflightBar } from "./preflight-bar";
-import { runAllPreflightChecks, type SplitIssueWorkflowPreflightContext } from "@multica/core/workflows/preflight-checks";
+import { runAllPreflightChecks } from "@multica/core/workflows/preflight-checks";
 import { NodeTemplatePicker } from "./node-template-picker";
 import { WorkflowEditorToolbar } from "./workflow-editor-toolbar";
+import {
+  WorkflowRuntimeStrategyDialog,
+  type WorkflowRuntimeStrategyValue,
+} from "../workflow-runtime-strategy-dialog";
+import { useUsableWorkflowRuntimes } from "../use-usable-workflow-runtimes";
 import {
   buildCreateNodeRequestFromTemplate,
   type NodeTemplate,
@@ -86,15 +97,63 @@ import {
   sortStagesForDisplay,
 } from "./constants";
 
-import type { WorkflowNode, WorkflowStage, WorkflowEdge, ReorderStagesItem, WorkflowStatus, Workflow, WorkflowNodeRun } from "@multica/core/types";
+import { isBoundaryNode, isEndNode, isInvalidBoundaryConnection, isStartNode, workerTypeToActorType, type WorkflowNode, type WorkflowStage, type WorkflowEdge, type ReorderStagesItem, type WorkflowStatus, type Workflow, type WorkflowNodeRun, type UpdateNodeRequest } from "@multica/core/types";
 import type { Agent } from "@multica/core/types";
 import type { BuiltinPlugin } from "@multica/core/api/schemas";
+import type { CriticType, WorkerType } from "@multica/core/types";
+import type {
+  WorkflowActorEntityType,
+  WorkflowActorIdentity,
+} from "../../../common/workflow-actor-slots";
 
 // ── Types ──
 
 export interface WorkflowPanoramaPageProps {
   workflowId: string;
   viewToggle?: ReactNode;
+}
+
+function buildEditorActorIdentity(input: {
+  type: WorkerType | CriticType;
+  id: string | null;
+  roleName?: string;
+  getActorName: (type: string, id: string) => string;
+  getActorInitials: (type: string, id: string) => string;
+  getActorAvatarUrl: (type: string, id: string) => string | null;
+  availability?: AgentAvailability;
+  labels: Record<WorkflowActorEntityType, string>;
+  availabilityLabels: { online: string; offline: string };
+}): WorkflowActorIdentity | null {
+  const { type, id, roleName, labels } = input;
+  if (type === "role") {
+    return roleName
+      ? { type: "role", id: null, name: roleName, typeLabel: labels.role }
+      : null;
+  }
+  if (type === "api") {
+    return roleName
+      ? { type: "api", id: null, name: roleName, typeLabel: labels.api }
+      : null;
+  }
+  if (!id) return null;
+
+  const actorType: Exclude<WorkflowActorEntityType, "role" | "api"> =
+    type === "human" ? "member" : type;
+  const identity: WorkflowActorIdentity = {
+    type: actorType,
+    id,
+    name: input.getActorName(actorType, id),
+    typeLabel: labels[actorType],
+    initials: input.getActorInitials(actorType, id),
+    avatarUrl: input.getActorAvatarUrl(actorType, id),
+  };
+  if (actorType === "agent" && input.availability) {
+    identity.availability = input.availability;
+    identity.availabilityLabel = input.availability === "online"
+      ? input.availabilityLabels.online
+      : input.availabilityLabels.offline;
+  }
+  return identity;
 }
 
 // ── Data conversion: API nodes → ReactFlow nodes ──
@@ -113,6 +172,15 @@ function findStageAtY(y: number, stages: WorkflowStage[]): WorkflowStage | undef
     if (y >= laneTop && y <= laneBottom) return stage;
   }
   return undefined;
+}
+
+export function isValidWorkflowConnection(
+  connection: Connection | Edge,
+  nodesById: Map<string, WorkflowNode>,
+): boolean {
+  const source = connection.source ? nodesById.get(connection.source) : undefined;
+  const target = connection.target ? nodesById.get(connection.target) : undefined;
+  return Boolean(source && target && !isInvalidBoundaryConnection(source, target));
 }
 
 // ── Skeleton ──
@@ -138,7 +206,6 @@ interface PanoramaContentProps {
   visibleNodes: WorkflowNode[];
   apiEdges: WorkflowEdge[];
   agentIds: Set<string>;
-  splitChildWorkflows: SplitIssueWorkflowPreflightContext[];
   workflow: Workflow;
   workflowId: string;
   wsId: string;
@@ -176,6 +243,8 @@ interface PanoramaContentProps {
   onSave: () => boolean | Promise<boolean>;
   onTestRun: () => Promise<void>;
   onOpenRunHistory: () => void;
+  onOpenRunSettings: () => void;
+  disabledBoundaryTemplateIds: Set<string>;
 }
 
 function PanoramaContent({
@@ -186,7 +255,6 @@ function PanoramaContent({
   visibleNodes,
   apiEdges,
   agentIds,
-  splitChildWorkflows,
   workflow,
   workflowId,
   wsId,
@@ -224,6 +292,8 @@ function PanoramaContent({
   onSave,
   onTestRun,
   onOpenRunHistory,
+  onOpenRunSettings,
+  disabledBoundaryTemplateIds,
 }: PanoramaContentProps) {
   const { t } = useT("workflows");
   const reactFlowInstance = useReactFlow();
@@ -233,6 +303,10 @@ function PanoramaContent({
   const redo = useWorkflowEditorStore((s) => s.redo);
   const hasUnsavedEdits = useWorkflowEditorStore((s) => Object.keys(s.nodeEdits).length > 0);
   const statusLabel = t(($) => $.status[workflow.status as keyof typeof $.status] ?? workflow.status);
+  const canvasStages = useMemo(
+    () => workflowCanvasStages(stages, visibleNodes, workflowId),
+    [stages, visibleNodes, workflowId],
+  );
 
   // Delete workflow dialog
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -249,9 +323,13 @@ function PanoramaContent({
       edges: apiEdges,
       stages,
       agentIds,
-      splitChildWorkflows,
     }),
-    [visibleNodes, apiEdges, stages, agentIds, splitChildWorkflows],
+    [visibleNodes, apiEdges, stages, agentIds],
+  );
+  const nodesById = useMemo(() => new Map(visibleNodes.map((node) => [node.id, node])), [visibleNodes]);
+  const validateConnection = useCallback(
+    (connection: Edge | Connection) => isValidWorkflowConnection(connection, nodesById),
+    [nodesById],
   );
 
   const handleNavigateToNode = useCallback((nodeId: string) => {
@@ -268,7 +346,6 @@ function PanoramaContent({
 
   // ── Onboarding guide state ──
   const rlNodesCount = rfNodes.filter(n => n.type !== "laneBg" && n.type !== "gradientBg").length;
-  const showFirstStageGuide = stages.length === 0;
   const showFirstStepGuide = stages.length > 0 && rlNodesCount === 0;
   const connectedNodePickerPosition = useMemo(() => {
     if (!connectedNodePickerSourceId) return null;
@@ -325,7 +402,7 @@ function PanoramaContent({
         canUndo={canUndo}
         canRedo={canRedo}
         hasUnsavedEdits={hasUnsavedEdits}
-        hasBlockingPreflightIssues={preflightResult.blockingCount > 0}
+        blockingPreflightIssueCount={preflightResult.blockingCount}
         onBackToWorkflows={onBackToWorkflows}
         onUpdateTitle={onUpdateTitle}
         onUndo={undo}
@@ -333,9 +410,12 @@ function PanoramaContent({
         onSave={onSave}
         onAutoLayout={onAutoLayout}
         onSelectTemplate={handleSelectTemplate}
+        disabledTemplateIds={disabledBoundaryTemplateIds}
         onTestRun={onTestRun}
         onToggleWorkflowStatus={onToggleWorkflowStatus}
+        onReviewIssues={() => setPreflightDismissed(false)}
         onOpenRunHistory={onOpenRunHistory}
+        onOpenRunSettings={onOpenRunSettings}
         onDeleteWorkflow={() => setDeleteDialogOpen(true)}
       />
 
@@ -343,7 +423,7 @@ function PanoramaContent({
         <WorkflowCanvasCore
             nodes={rfNodes}
             edges={rfEdges}
-          stages={stages}
+          stages={canvasStages}
             nodeTypes={panoramaNodeTypes}
             edgeTypes={panoramaEdgeTypes}
             onNodeClick={onNodeClick}
@@ -351,6 +431,7 @@ function PanoramaContent({
             onPaneClick={onPaneClick}
             onNodeDragStop={onNodeDragStop}
             onConnect={onConnect}
+            isValidConnection={validateConnection}
             onEdgesDelete={onEdgeDelete}
             defaultViewport={{ x: 0, y: 24, zoom: 0.95 }}
           viewportY={viewportY}
@@ -369,7 +450,10 @@ function PanoramaContent({
                 top: Math.min(connectedNodePickerPosition.y, window.innerHeight - 420),
               }}
             >
-              <NodeTemplatePicker onSelect={onConnectedTemplateSelect} />
+              <NodeTemplatePicker
+                onSelect={onConnectedTemplateSelect}
+                disabledTemplateIds={disabledBoundaryTemplateIds}
+              />
             </div>
           )}
 
@@ -419,7 +503,7 @@ function PanoramaContent({
               nodes={apiNodes}
               stages={stages}
               recentNodeRun={recentNodeRun}
-						preflightIssues={preflightResult.issues.filter((issue) => issue.nodeId === selectedNode.id)}
+              disabled={!isEditableWorkflowNodeRunStatus(recentNodeRun?.status)}
 						incomingCount={apiEdges.filter((edge) => edge.target_node_id === selectedNode.id).length}
 						outgoingCount={apiEdges.filter((edge) => edge.source_node_id === selectedNode.id).length}
 						onTrialRun={() => void onTestRun()}
@@ -435,7 +519,7 @@ function PanoramaContent({
       </div>
 
       {/* Preflight bar */}
-      {!showFirstStageGuide && visibleNodes.length > 0 && (!preflightDismissed || preflightResult.passed) && (
+      {visibleNodes.length > 0 && (!preflightDismissed || preflightResult.passed) && (
         <PreflightBar
           result={preflightResult}
           hasUnsavedEdits={hasUnsavedEdits}
@@ -541,10 +625,28 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     enabled: !!latestRunId,
   });
   const { data: agents = [] } = useQuery(agentListOptions(wsId));
+  const { data: runtimes = [], isLoading: runtimesLoading } = useQuery(runtimeListOptions(wsId));
+  const usableWorkflowRuntimes = useUsableWorkflowRuntimes(runtimes);
   const { data: pluginsData } = useQuery(builtinPluginListOptions());
   const { data: workflowRoles = [] } = useQuery(workflowRolesOptions(wsId));
-  const { data: childWorkflows = [] } = useQuery(splitIssueWorkflowOptions(wsId, workflowId));
-  const { getActorName } = useActorName();
+  const {
+    getActorName,
+    getActorInitials,
+    getActorAvatarUrl,
+    getMemberName,
+  } = useActorName();
+  const { byAgent: presenceByAgent } = useWorkspacePresenceMap(wsId);
+  const actorTypeLabels = useMemo<Record<WorkflowActorEntityType, string>>(() => ({
+    agent: t(($) => $.panorama.card.actor_type_agent),
+    member: t(($) => $.panorama.card.actor_type_member),
+    squad: t(($) => $.panorama.card.actor_type_squad),
+    role: t(($) => $.panorama.card.actor_type_role),
+    api: t(($) => $.panorama.card.actor_type_api),
+  }), [t]);
+  const actorAvailabilityLabels = useMemo(() => ({
+    online: t(($) => $.panorama.card.actor_online),
+    offline: t(($) => $.panorama.card.actor_offline),
+  }), [t]);
   const roleById = useMemo(
     () => new Map(workflowRoles.map((role) => [role.id, role])),
     [workflowRoles],
@@ -584,6 +686,8 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const [viewportZoom, setViewportZoom] = useState(1);
   const [configPanelOpen, setConfigPanelOpen] = useState(false);
   const [showStageDialog, setShowStageDialog] = useState(false);
+  const [showRuntimeDialog, setShowRuntimeDialog] = useState(false);
+  const [showRuntimeSettingsDialog, setShowRuntimeSettingsDialog] = useState(false);
   const [editingStage, setEditingStage] = useState<WorkflowStage | null>(null);
   const [emptyStatePickerOpen, setEmptyStatePickerOpen] = useState(false);
   const [selectedEdgeAnchor, setSelectedEdgeAnchor] = useState<{ x: number; y: number } | null>(null);
@@ -665,11 +769,6 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     return map;
   }, [pluginsData]);
 
-  const splitChildWorkflowContexts = useMemo<SplitIssueWorkflowPreflightContext[]>(
-    () => (childWorkflows ?? []).map((wf) => ({ id: wf.id, status: wf.status, nodes: [] })),
-    [childWorkflows],
-  );
-
   // ── ReactFlow nodes/edges ──
   const visibleNodes = useMemo(
     () => apiNodes
@@ -679,6 +778,18 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         ...(nodeEdits[node.id] ?? {}),
       })),
     [apiNodes, deletedNodeIds, nodeEdits],
+  );
+  const apiNodesById = useMemo(
+    () => new Map(apiNodes.map((node) => [node.id, node])),
+    [apiNodes],
+  );
+  const disabledBoundaryTemplateIds = useMemo(() => new Set([
+    ...(visibleNodes.some(isStartNode) ? ["workflow-start"] : []),
+    ...(visibleNodes.some(isEndNode) ? ["workflow-end"] : []),
+  ]), [visibleNodes]);
+  const visibleNodesById = useMemo(
+    () => new Map(visibleNodes.map((node) => [node.id, node])),
+    [visibleNodes],
   );
 
   const handleOpenConnectedNodePicker = useCallback((sourceNodeId: string) => {
@@ -723,6 +834,43 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
           (node.format_schema as Record<string, unknown>).type === "annotation",
         );
         const workerAgent = node.worker_id ? agentLookup.get(node.worker_id) : null;
+        const workerRoleName = node.worker_role_id
+          ? renderRoleName(roleById.get(node.worker_role_id)) ?? node.worker_role_id
+          : node.worker_role
+            ? renderRoleName(undefined, node.worker_role)
+            : undefined;
+        const criticRoleName = node.critic_role_id
+          ? renderRoleName(roleById.get(node.critic_role_id)) ?? node.critic_role_id
+          : node.critic_role
+            ? renderRoleName(undefined, node.critic_role)
+            : undefined;
+        const workerIdentity = buildEditorActorIdentity({
+          type: workerRoleName ? "role" : node.worker_type,
+          id: workerRoleName ? null : node.worker_id,
+          roleName: workerRoleName,
+          getActorName,
+          getActorInitials,
+          getActorAvatarUrl,
+          availability: node.worker_type === "agent" && node.worker_id
+            ? presenceByAgent.get(node.worker_id)?.availability
+            : undefined,
+          labels: actorTypeLabels,
+          availabilityLabels: actorAvailabilityLabels,
+        });
+        const criticApiName = node.critic_api_url?.trim() ? "API review" : undefined;
+        const criticIdentity = buildEditorActorIdentity({
+          type: criticRoleName ? "role" : criticApiName ? "api" : node.critic_type,
+          id: criticRoleName || criticApiName ? null : node.critic_id,
+          roleName: criticRoleName ?? criticApiName,
+          getActorName,
+          getActorInitials,
+          getActorAvatarUrl,
+          availability: node.critic_type === "agent" && node.critic_id
+            ? presenceByAgent.get(node.critic_id)?.availability
+            : undefined,
+          labels: actorTypeLabels,
+          availabilityLabels: actorAvailabilityLabels,
+        });
         return {
           node,
           stage_id: context.stage_id,
@@ -730,20 +878,15 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
           pluginName: workerAgent?.plugin_id
             ? pluginLookup.get(workerAgent.plugin_id)?.name
             : undefined,
-          workerName: node.worker_role_id
-            ? renderRoleName(roleById.get(node.worker_role_id)) ?? node.worker_role_id
-            : node.worker_role
-              ? renderRoleName(undefined, node.worker_role)
-              : node.worker_id ? getActorName(node.worker_type ?? "agent", node.worker_id) ?? undefined : undefined,
-          criticName: node.critic_role_id
-            ? renderRoleName(roleById.get(node.critic_role_id)) ?? node.critic_role_id
-            : node.critic_role
-              ? renderRoleName(undefined, node.critic_role)
+          workerName: workerRoleName
+            ?? (node.worker_id ? getActorName(workerTypeToActorType(node.worker_type), node.worker_id) ?? undefined : undefined),
+          criticName: criticRoleName
+              ? criticRoleName
               : node.critic_id
-                ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined
-                : node.critic_api_url
-                  ? "API review"
-                  : undefined,
+                ? getActorName(workerTypeToActorType(node.critic_type), node.critic_id) ?? undefined
+                : criticApiName,
+          workerIdentity,
+          criticIdentity,
           workerConfigured: isAnnotation ? true : Boolean(node.worker_id || node.worker_role_id || node.worker_role),
           criticConfigured: isAnnotation
             ? false
@@ -755,9 +898,9 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         };
       },
       includeCriticBadges: false,
-      makeCriticName: (node) => node.critic_role_id ? renderRoleName(roleById.get(node.critic_role_id)) ?? node.critic_role_id : node.critic_role ? renderRoleName(undefined, node.critic_role) : node.critic_id ? getActorName(node.critic_type ?? "agent", node.critic_id) ?? undefined : undefined,
+      makeCriticName: (node) => node.critic_role_id ? renderRoleName(roleById.get(node.critic_role_id)) ?? node.critic_role_id : node.critic_role ? renderRoleName(undefined, node.critic_role) : node.critic_id ? getActorName(workerTypeToActorType(node.critic_type), node.critic_id) ?? undefined : undefined,
     }),
-    [stages, visibleNodes, agentLookup, pluginLookup, getActorName, openNodePanel, handleOpenConnectedNodePicker, roleById, renderRoleName, t],
+    [stages, visibleNodes, agentLookup, pluginLookup, getActorName, getActorInitials, getActorAvatarUrl, presenceByAgent, actorTypeLabels, actorAvailabilityLabels, openNodePanel, handleOpenConnectedNodePicker, roleById, renderRoleName, t],
   );
 
   const handleInlineEdgeDelete = useCallback(
@@ -781,7 +924,6 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     }),
     [apiEdges, visibleNodes, stages, handleInlineEdgeDelete, selectedEdgeId, selectedEdgeAnchor],
   );
-
   // ── Selected node for config panel ──
   const selectedNode = useMemo(
     () => visibleNodes.find((n) => n.id === selectedNodeId) ?? null,
@@ -825,7 +967,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
 
   const handleNodeDragStop = useCallback(
     (_event: MouseEvent | TouchEvent, node: Node) => {
-      if (node.type !== "compactWorker") return;
+      if (node.type !== "compactWorker" && node.type !== "boundary") return;
 
       const nodeData = node.data as Record<string, unknown>;
       const nodeId = (nodeData.node as { id: string } | undefined)?.id;
@@ -856,6 +998,10 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
   const handleConnect = useCallback(
     (connection: Connection) => {
       if (!connection.source || !connection.target) return;
+      if (!isValidWorkflowConnection(connection, visibleNodesById)) {
+        toast.error(t(($) => $.panorama.node_picker.boundary_connection_invalid));
+        return;
+      }
       createEdgeMutation.mutate({
         source_node_id: connection.source,
         target_node_id: connection.target,
@@ -869,7 +1015,7 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         },
       });
     },
-    [createEdgeMutation, pushServerAction],
+    [createEdgeMutation, pushServerAction, t, visibleNodesById],
   );
 
   useEffect(() => {
@@ -899,7 +1045,11 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
       const sourceNode = sourceNodeId ? visibleNodes.find((node) => node.id === sourceNodeId) : undefined;
       const stage = sourceNode ? undefined : findStageAtY(position.y, stages);
       const nodeRequest = buildCreateNodeRequestFromTemplate(template, {
-        x: sourceNode ? (sourceNode.position_x ?? 0) + WORKER_WIDTH + 96 : position.x,
+        x: sourceNode
+          ? template.boundary_kind === "start"
+            ? (sourceNode.position_x ?? 0) - BOUNDARY_WIDTH - MIN_NODE_HORIZONTAL_GAP
+            : (sourceNode.position_x ?? 0) + WORKER_WIDTH + MIN_NODE_HORIZONTAL_GAP
+          : position.x,
         y: sourceNode ? sourceNode.position_y ?? 0 : position.y,
         stageId: sourceNode ? sourceNode.stage_id ?? null : stage?.id ?? null,
       });
@@ -908,9 +1058,11 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         onSuccess: (created) => {
           pushServerAction({ type: "create-node", nodeId: created.id, nodeRequest });
           if (!sourceNodeId) return;
+          const sourceId = template.boundary_kind === "start" ? created.id : sourceNodeId;
+          const targetId = template.boundary_kind === "start" ? sourceNodeId : created.id;
           createEdgeMutation.mutate({
-            source_node_id: sourceNodeId,
-            target_node_id: created.id,
+            source_node_id: sourceId,
+            target_node_id: targetId,
           } as Parameters<typeof createEdgeMutation.mutate>[0], {
             onSuccess: (_edge, vars) => {
               pushServerAction({
@@ -921,9 +1073,17 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
             },
           });
         },
+        onError: (error) => {
+          if (!template.boundary_kind || !(error instanceof ApiError)) return;
+          if (error.status === 409) {
+            toast.error(t(($) => $.panorama.node_picker.boundary_create_conflict));
+          } else if (error.status === 422) {
+            toast.error(t(($) => $.panorama.node_picker.boundary_create_invalid));
+          }
+        },
       });
     },
-    [createEdgeMutation, createNodeMutation, stages, pushServerAction, visibleNodes],
+    [createEdgeMutation, createNodeMutation, stages, pushServerAction, t, visibleNodes],
   );
 
   const handleConnectedTemplateSelect = useCallback(
@@ -1046,9 +1206,20 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
     if (activeEntries.length === 0) return true;
     try {
       await Promise.all(
-        activeEntries.map(([nodeId, edits]) =>
-          updateNodeMutation.mutateAsync({ nodeId, ...edits } as Parameters<typeof updateNodeMutation.mutateAsync>[0]),
-        ),
+        activeEntries.map(([nodeId, edits]) => {
+          let updates: Partial<UpdateNodeRequest> = edits;
+          const apiNode = apiNodesById.get(nodeId);
+          if (apiNode && isBoundaryNode(apiNode)) {
+            updates = {
+              ...(edits.title !== undefined ? { title: edits.title } : {}),
+              ...(edits.description !== undefined ? { description: edits.description } : {}),
+            };
+          }
+          return updateNodeMutation.mutateAsync({
+            nodeId,
+            ...updates,
+          } as Parameters<typeof updateNodeMutation.mutateAsync>[0]);
+        }),
       );
       activeEntries.forEach(([nodeId]) => clearNodeEdits(nodeId));
       toast.success(t(($) => $.detail.toast_saved));
@@ -1057,19 +1228,45 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
       toast.error(t(($) => $.detail.toast_save_failed));
       return false;
     }
-  }, [updateNodeMutation, clearNodeEdits, t]);
+  }, [apiNodesById, updateNodeMutation, clearNodeEdits, t]);
 
   const handleTestRun = useCallback(async () => {
     const saved = await handleSave();
     if (!saved) return;
+    setShowRuntimeDialog(true);
+  }, [handleSave]);
+
+  const startTestRun = useCallback(async ({ policy, runtimeId }: WorkflowRuntimeStrategyValue) => {
+    setShowRuntimeDialog(false);
     try {
-      const run = await startWorkflowRunMutation.mutateAsync({ workflowId });
+      const run = await startWorkflowRunMutation.mutateAsync({
+        workflowId,
+        runtimeSelectionPolicy: policy,
+        ...(runtimeId ? { runtimeId } : {}),
+      });
       toast.success(t(($) => $.detail.toast_run_started));
       navigation.push(wsPaths.workflowRunDetail(workflowId, run.id));
     } catch {
       toast.error(t(($) => $.detail.toast_run_failed));
     }
-  }, [handleSave, startWorkflowRunMutation, workflowId, navigation, wsPaths, t]);
+  }, [startWorkflowRunMutation, workflowId, navigation, wsPaths, t]);
+
+  const saveDefaultRuntimeStrategy = useCallback(async ({
+    policy,
+    runtimeId,
+  }: WorkflowRuntimeStrategyValue) => {
+    try {
+      await updateWorkflowMutation.mutateAsync({
+        id: workflowId,
+        default_runtime_selection_policy: policy,
+        default_runtime_id: runtimeId,
+      });
+      setShowRuntimeSettingsDialog(false);
+      toast.success(t(($) => $.runtime_strategy.toast_default_saved));
+    } catch {
+      toast.error(t(($) => $.runtime_strategy.toast_default_failed));
+    }
+  }, [updateWorkflowMutation, workflowId, t]);
 
   const handleViewportChange = useCallback((viewport: Viewport) => {
     setViewportY(viewport.y);
@@ -1210,7 +1407,6 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         visibleNodes={visibleNodes}
         apiEdges={apiEdges}
         agentIds={new Set(agentLookup.keys())}
-        splitChildWorkflows={splitChildWorkflowContexts}
         workflow={workflow}
         workflowId={workflowId}
         wsId={wsId}
@@ -1252,7 +1448,41 @@ export function WorkflowPanoramaPage({ workflowId, viewToggle }: WorkflowPanoram
         onSave={handleSave}
         onTestRun={handleTestRun}
         onOpenRunHistory={() => navigation.push(wsPaths.workflowRuns(workflowId))}
+        onOpenRunSettings={() => setShowRuntimeSettingsDialog(true)}
+        disabledBoundaryTemplateIds={disabledBoundaryTemplateIds}
       />
+      {showRuntimeDialog && (
+        <WorkflowRuntimeStrategyDialog
+          mode="run"
+          workflowTitle={workflow.title}
+          initialValue={{
+            policy: workflow.default_runtime_selection_policy,
+            runtimeId: workflow.default_runtime_id,
+          }}
+          runtimes={usableWorkflowRuntimes.runtimes}
+          loading={runtimesLoading || usableWorkflowRuntimes.isLoading}
+          directRun
+          getMemberName={getMemberName}
+          onConfirm={startTestRun}
+          onClose={() => setShowRuntimeDialog(false)}
+        />
+      )}
+      {showRuntimeSettingsDialog && (
+        <WorkflowRuntimeStrategyDialog
+          mode="default"
+          workflowTitle={workflow.title}
+          initialValue={{
+            policy: workflow.default_runtime_selection_policy,
+            runtimeId: workflow.default_runtime_id,
+          }}
+          runtimes={usableWorkflowRuntimes.runtimes}
+          loading={runtimesLoading || usableWorkflowRuntimes.isLoading}
+          saving={updateWorkflowMutation.isPending}
+          getMemberName={getMemberName}
+          onConfirm={saveDefaultRuntimeStrategy}
+          onClose={() => setShowRuntimeSettingsDialog(false)}
+        />
+      )}
       <AlertDialog open={configPanelCloseDialogOpen} onOpenChange={(open) => {
         if (!open) handleCancelCloseConfigPanel();
       }}>
