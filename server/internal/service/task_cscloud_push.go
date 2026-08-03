@@ -295,12 +295,13 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	if phase == "worker" {
 		deliverables = s.deliverableSpecsForTask(ctx, task)
 	}
-	// Every workflow worker node gets the Gitea wf repo + inst branch context.
+	requiresGiteaEnv := workflowNodeTaskRequiresGiteaEnv(task)
+	// Every workflow node runtime task gets the Gitea wf repo + inst branch context.
 	// Idempotent — re-running initWorkflowNamespace on an already-provisioned
 	// workspace is a no-op.
 	// If the repo env still cannot be built after this, payload construction
 	// fails below so cs-cloud never receives an un-submittable task.
-	if phase == "worker" && task.WorkflowNodeRunID.Valid && s.teamNamespaceConfigured() && s.settingsLackGiteaData(ctx, runtime.WorkspaceID) {
+	if requiresGiteaEnv && s.teamNamespaceConfigured() && s.settingsLackGiteaData(ctx, runtime.WorkspaceID) {
 		if err := s.ensureDeliveryRepo(ctx, task); err != nil {
 			slog.Warn("cs-cloud dispatch: ensure delivery repo",
 				"task_id", util.UUIDToString(task.ID), "error", err)
@@ -320,16 +321,27 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	}
 	// Gitea document-deliverable context (CS_CLOUD_REPO_*) + node-run/issue ids,
 	// so the cs-cloud agent can run `cs-cloud workflow deliverable submit` /
-	// `gitea fetch` inside the task. Dormant (no env injected) when Gitea isn't
-	// configured or the node has no deliverables — matches the
-	// claim-time context. Runs AFTER the safety net so it picks up freshly
-	// provisioned settings on the triggering dispatch.
+	// `gitea fetch` inside the task. Dormant (no env injected) only when Gitea
+	// is not configured; nodes without deliverables still get an empty list.
+	// Runs AFTER the safety net so it picks up freshly provisioned settings on
+	// the triggering dispatch.
 	repoEnv := s.repositoryDeliverableEnv(ctx, task)
-	if phase == "worker" && task.WorkflowNodeRunID.Valid && repoEnv == nil {
+	if requiresGiteaEnv && repoEnv == nil {
 		return csCloudTaskRunPayload{}, fmt.Errorf("missing Gitea deliverable env for workflow node run %s", util.UUIDToString(task.WorkflowNodeRunID))
 	}
 	for k, v := range repoEnv {
 		env[k] = v
+	}
+	if workerType, criticType, actorType := s.workflowActorTypes(ctx, task, phase); workerType != "" || criticType != "" || actorType != "" {
+		if workerType != "" {
+			env["CS_CLOUD_WORKFLOW_WORKER_TYPE"] = workerType
+		}
+		if criticType != "" {
+			env["CS_CLOUD_WORKFLOW_CRITIC_TYPE"] = criticType
+		}
+		if actorType != "" {
+			env["CS_CLOUD_ACTOR_TYPE"] = actorType
+		}
 	}
 	if task.IssueID.Valid {
 		env["CS_CLOUD_ISSUE_ID"] = util.UUIDToString(task.IssueID)
@@ -783,6 +795,29 @@ func workflowPhaseFromTask(task db.MulticaAgentTaskQueue) string {
 		return ""
 	}
 	return strings.TrimSpace(payload.Phase)
+}
+
+func workflowNodeTaskRequiresGiteaEnv(task db.MulticaAgentTaskQueue) bool {
+	return task.WorkflowNodeRunID.Valid
+}
+
+func (s *TaskService) workflowActorTypes(ctx context.Context, task db.MulticaAgentTaskQueue, phase string) (workerType, criticType, actorType string) {
+	if !task.WorkflowNodeRunID.Valid {
+		return "", "", ""
+	}
+	nr, err := s.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID)
+	if err != nil {
+		return "", "", ""
+	}
+	workerType = strings.TrimSpace(nr.WorkerType)
+	criticType = strings.TrimSpace(nr.CriticType)
+	switch phase {
+	case "worker":
+		actorType = workerType
+	case "critic":
+		actorType = criticType
+	}
+	return workerType, criticType, actorType
 }
 
 // repositoryDeliverableRefJSON is the per-deliverable shape cs-cloud's

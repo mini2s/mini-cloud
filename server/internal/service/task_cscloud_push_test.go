@@ -2345,6 +2345,58 @@ func TestBuildCSCloudPayload_FailsWhenWorkflowWorkerLacksGiteaEnv(t *testing.T) 
 	}
 }
 
+func TestBuildCSCloudPayload_FailsWhenWorkflowCriticLacksGiteaEnv(t *testing.T) {
+	mdb := newEnsureRepoTestDB()
+	svc := &TaskService{
+		Queries: db.New(mdb),
+		Bus:     events.New(),
+	}
+
+	task := db.MulticaAgentTaskQueue{
+		ID:                testUUID(11),
+		AgentID:           mdb.agent.ID,
+		IssueID:           mdb.issue.ID,
+		RuntimeID:         mdb.runtime.ID,
+		WorkflowNodeRunID: mdb.nodeRun.ID,
+		Status:            "queued",
+		Context:           []byte(`{"phase":"critic"}`),
+	}
+
+	_, err := svc.buildCSCloudPayload(context.Background(), task, mdb.runtime)
+	if err == nil {
+		t.Fatalf("expected buildCSCloudPayload to fail instead of dispatching a workflow critic without Gitea env")
+	}
+	if !strings.Contains(err.Error(), "missing Gitea deliverable env") {
+		t.Fatalf("error = %v, want missing Gitea deliverable env", err)
+	}
+}
+
+func TestBuildCSCloudPayload_FailsWhenWorkflowNodeTaskLacksGiteaEnvRegardlessOfPhase(t *testing.T) {
+	mdb := newEnsureRepoTestDB()
+	svc := &TaskService{
+		Queries: db.New(mdb),
+		Bus:     events.New(),
+	}
+
+	task := db.MulticaAgentTaskQueue{
+		ID:                testUUID(11),
+		AgentID:           mdb.agent.ID,
+		IssueID:           mdb.issue.ID,
+		RuntimeID:         mdb.runtime.ID,
+		WorkflowNodeRunID: mdb.nodeRun.ID,
+		Status:            "queued",
+		Context:           []byte(`{"phase":"format_checking"}`),
+	}
+
+	_, err := svc.buildCSCloudPayload(context.Background(), task, mdb.runtime)
+	if err == nil {
+		t.Fatalf("expected buildCSCloudPayload to fail for a workflow node runtime task without Gitea env")
+	}
+	if !strings.Contains(err.Error(), "missing Gitea deliverable env") {
+		t.Fatalf("error = %v, want missing Gitea deliverable env", err)
+	}
+}
+
 // --- buildCSCloudPayload delivery repo + RepoAlias (M2.5 Task 3) tests ---
 //
 // When the workspace settings carry the Gitea provisioning bundle, the payload
@@ -2545,6 +2597,9 @@ func TestBuildCSCloudPayload_AddsDeliveryRepoAfterSafetyNet(t *testing.T) {
 // block). Non-worker (critic) phases MUST keep Deliverables empty — critic tasks
 // don't submit, they review. Also no delivery repo should be emitted for them.
 func TestBuildCSCloudPayload_NonWorkerPhaseHasNoDeliverables(t *testing.T) {
+	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://gitea.test")
+
 	srv, _ := newTeamNamespaceTestServer(t)
 	defer srv.Close()
 
@@ -2584,10 +2639,76 @@ func TestBuildCSCloudPayload_NonWorkerPhaseHasNoDeliverables(t *testing.T) {
 	if len(payload.Deliverables) != 0 {
 		t.Errorf("critic phase must not emit deliverables; got %+v", payload.Deliverables)
 	}
+	for _, key := range []string{
+		"CS_CLOUD_GITEA_OWNER",
+		"CS_CLOUD_GITEA_TOKEN",
+		"CS_CLOUD_GITEA_DELIVERABLES",
+	} {
+		if payload.Env[key] == "" {
+			t.Errorf("critic phase missing %s in env: %+v", key, payload.Env)
+		}
+	}
 	for _, r := range payload.Repos {
 		if r.Role == "delivery" {
 			t.Errorf("critic phase must not emit a delivery repo; got %+v", r)
 		}
+	}
+}
+
+func TestBuildCSCloudPayload_WorkflowActorTypeEnv(t *testing.T) {
+	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://gitea.test")
+
+	tests := []struct {
+		name      string
+		phase     string
+		worker    string
+		critic    string
+		wantActor string
+	}{
+		{name: "worker uses worker type", phase: "worker", worker: "agent", critic: "human", wantActor: "agent"},
+		{name: "critic uses critic type", phase: "critic", worker: "agent", critic: "api", wantActor: "api"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mdb := newEnsureRepoTestDB()
+			mdb.nodeRun.WorkerType = tc.worker
+			mdb.nodeRun.CriticType = tc.critic
+			mdb.workspace.Settings = []byte(`{` +
+				`"gitea_clone_url":"https://gitea.test/t-ws/wf-x.git",` +
+				`"last_instance_branch":"inst-x",` +
+				`"gitea_pat":"pat-x",` +
+				`"gitea_bot_username":"bot-x"}`)
+
+			svc := &TaskService{
+				Queries: db.New(mdb),
+				Bus:     events.New(),
+			}
+
+			task := db.MulticaAgentTaskQueue{
+				ID:                testUUID(11),
+				AgentID:           mdb.agent.ID,
+				IssueID:           mdb.issue.ID,
+				RuntimeID:         mdb.runtime.ID,
+				WorkflowNodeRunID: mdb.nodeRun.ID,
+				Status:            "queued",
+				Context:           []byte(`{"phase":"` + tc.phase + `"}`),
+			}
+
+			payload, err := svc.buildCSCloudPayload(context.Background(), task, mdb.runtime)
+			if err != nil {
+				t.Fatalf("buildCSCloudPayload: %v", err)
+			}
+			if got := payload.Env["CS_CLOUD_ACTOR_TYPE"]; got != tc.wantActor {
+				t.Fatalf("CS_CLOUD_ACTOR_TYPE = %q, want %q", got, tc.wantActor)
+			}
+			if got := payload.Env["CS_CLOUD_WORKFLOW_WORKER_TYPE"]; got != tc.worker {
+				t.Fatalf("CS_CLOUD_WORKFLOW_WORKER_TYPE = %q, want %q", got, tc.worker)
+			}
+			if got := payload.Env["CS_CLOUD_WORKFLOW_CRITIC_TYPE"]; got != tc.critic {
+				t.Fatalf("CS_CLOUD_WORKFLOW_CRITIC_TYPE = %q, want %q", got, tc.critic)
+			}
+		})
 	}
 }
 
