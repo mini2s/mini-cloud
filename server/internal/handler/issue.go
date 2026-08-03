@@ -2711,6 +2711,11 @@ func (h *Handler) stopIssueExecutionForStatus(ctx context.Context, prevIssue, is
 			slog.Warn("failed to complete workflow run after issue moved to done",
 				"issue_id", uuidToString(issue.ID), "workflow_run_id", uuidToString(runID), "error", err)
 		}
+	case "in_review":
+		if err := h.WorkflowService.TransitionWorkingToCritic(ctx, runID); err != nil {
+			slog.Warn("failed to push working nodes to critic after issue moved to in_review",
+				"issue_id", uuidToString(issue.ID), "workflow_run_id", uuidToString(runID), "error", err)
+		}
 	default:
 		if err := h.WorkflowService.CancelRun(ctx, runID); err != nil {
 			slog.Warn("failed to cancel workflow run after issue left in_progress",

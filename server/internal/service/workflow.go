@@ -821,6 +821,56 @@ func (s *WorkflowService) CompleteRunManually(ctx context.Context, runID pgtype.
 	return nil
 }
 
+// TransitionWorkingToCritic is the in_review side effect: when a member moves
+// an issue to "in review", every node run that is currently working is
+// interrupted and pushed straight into the critic (review) phase — without
+// requiring worker output, since the worker was force-stopped mid-flight. The
+// critic then reviews whatever (possibly partial) state the worker was in and
+// decides approve/rework. Other node statuses (pending / worker_assigned /
+// already in critic / completed / ...) are left untouched. The worker agent
+// task is assumed already cancelled by the caller (stopIssueExecutionForStatus
+// cancels issue-level tasks before this runs). The run itself is NOT terminal
+// after this — it keeps executing, now in the critic phase.
+func (s *WorkflowService) TransitionWorkingToCritic(ctx context.Context, runID pgtype.UUID) error {
+	changedNodeRuns := make([]db.MulticaWorkflowNodeRun, 0)
+	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		nodeRuns, err := qtx.ListWorkflowNodeRunsByRun(ctx, runID)
+		if err != nil {
+			return fmt.Errorf("list node runs: %w", err)
+		}
+		for _, nr := range nodeRuns {
+			if nr.Status != NodeRunStatusWorking {
+				continue
+			}
+			updated, err := qtx.SetWorkflowNodeRunWorkerOutput(ctx, db.SetWorkflowNodeRunWorkerOutputParams{
+				ID:           nr.ID,
+				WorkerOutput: nil,
+				Status:       NodeRunStatusAwaitingCritic,
+			})
+			if err != nil {
+				return fmt.Errorf("transition working node to critic: %w", err)
+			}
+			generation, err := NextWorkflowDispatchGeneration(ctx, qtx, nr.ID, "critic")
+			if err != nil {
+				return err
+			}
+			if err := EnqueueWorkflowDispatch(ctx, qtx, nr.ID, "critic", generation); err != nil {
+				return fmt.Errorf("enqueue critic dispatch: %w", err)
+			}
+			changedNodeRuns = append(changedNodeRuns, updated)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	for _, nodeRun := range changedNodeRuns {
+		if s.OnNodeStatusChanged != nil {
+			s.OnNodeStatusChanged(ctx, nodeRun)
+		}
+	}
+	return nil
+}
+
 // TransitionNodeRun validates the transition and updates the node run status.
 func (s *WorkflowService) TransitionNodeRun(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, newStatus string) (*db.MulticaWorkflowNodeRun, error) {
 	if !isValidTransition(nodeRun.Status, newStatus) {
