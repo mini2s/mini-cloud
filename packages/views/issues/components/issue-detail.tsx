@@ -845,7 +845,8 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
 
   const workflowAssigneeId = issue?.assignee_type === "workflow" ? issue.assignee_id : null;
   const shouldUseDefaultWorkflow =
-    issue?.status === "todo" &&
+    !!issue &&
+    issue.status !== "backlog" &&
     issue.assignee_type !== "workflow" &&
     !!issue.assignee_type &&
     !!issue.assignee_id &&
@@ -859,8 +860,8 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   const effectiveWorkflowRunId = issue?.workflow_run_id ?? null;
 
   // Issues that will run through a workflow should use the same surface before
-  // and after the run starts. Todo issues may need the workspace default
-  // workflow as a preview target; in-progress issues already carry run fields.
+  // and after the run starts. Assigned non-backlog issues may need the
+  // workspace default workflow as a preview target before a run exists.
   const hasWorkflow = !!effectiveWorkflowId;
   const hasWorkflowRun = !!effectiveWorkflowId && !!effectiveWorkflowRunId;
   const [isFullscreen, setIsFullscreen] = useState(true);

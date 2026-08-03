@@ -465,7 +465,7 @@ const mockIssue: Issue = {
   identifier: "TES-1",
   title: "Implement authentication",
   description: "Add JWT auth to the backend",
-  status: "in_progress",
+  status: "backlog",
   priority: "high",
   assignee_type: "member",
   assignee_id: "user-1",
@@ -773,6 +773,57 @@ describe("IssueDetail (shared)", () => {
     expect(mockExecutionPanoramaProps.latest?.onPendingWorkerUpdate).toEqual(expect.any(Function));
     expect(mockExecutionPanoramaProps.latest?.onPendingCriticUpdate).toEqual(expect.any(Function));
     expect(mockApiObj.getDefaultWorkflow).toHaveBeenCalledWith("ws-1");
+  });
+
+  it.each(["in_progress", "done", "blocked", "cancelled"] as const)(
+    "renders the workflow panorama for %s member issues before a run starts",
+    async (status) => {
+      mockApiObj.getIssue.mockResolvedValue({
+        ...mockIssue,
+        status,
+        assignee_type: "member",
+        assignee_id: "user-1",
+        responsible_user_id: "user-1",
+        workflow_id: null,
+        workflow_run_id: null,
+      });
+
+      renderIssueDetail();
+
+      await screen.findByTestId("execution-panorama-props");
+
+      expect(mockExecutionPanoramaProps.latest).toMatchObject({
+        workflowId: "default-wf-1",
+        runId: null,
+        wsId: "ws-1",
+        issueId: "issue-1",
+        issueAssigneeType: "member",
+        issueAssigneeId: "user-1",
+        issueResponsibleUserId: "user-1",
+      });
+      expect(mockApiObj.getDefaultWorkflow).toHaveBeenCalledWith("ws-1");
+    },
+  );
+
+  it("does not render the workflow panorama for backlog member issues before a run starts", async () => {
+    mockApiObj.getIssue.mockResolvedValue({
+      ...mockIssue,
+      status: "backlog",
+      assignee_type: "member",
+      assignee_id: "user-1",
+      responsible_user_id: "user-1",
+      workflow_id: null,
+      workflow_run_id: null,
+    });
+
+    renderIssueDetail();
+
+    await waitFor(() => {
+      expect(mockApiObj.getIssue).toHaveBeenCalled();
+    });
+
+    expect(screen.queryByTestId("execution-panorama-props")).not.toBeInTheDocument();
+    expect(mockApiObj.getDefaultWorkflow).not.toHaveBeenCalled();
   });
 
   it("renders the execution panorama for direct member issues with a default workflow run", async () => {
