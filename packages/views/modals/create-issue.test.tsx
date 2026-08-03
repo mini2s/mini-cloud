@@ -192,7 +192,6 @@ vi.mock("../editor", () => {
 
 vi.mock("../issues/components", () => ({
   StatusIcon: ({ status }: { status: string }) => <span data-testid="status-icon">{status}</span>,
-  StatusPicker: () => <div data-testid="status-picker" />,
   PriorityPicker: () => <div data-testid="priority-picker" />,
   AssigneePicker: ({
     onUpdate,
