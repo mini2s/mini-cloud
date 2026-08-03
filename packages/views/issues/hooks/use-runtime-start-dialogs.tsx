@@ -6,7 +6,6 @@ import { runtimeListOptions } from "@multica/core/runtimes/queries";
 import { agentListOptions } from "@multica/core/workspace/queries";
 import { workflowActiveListOptions } from "@multica/core/workflows/queries";
 import type { IssueAssigneeType, WorkflowRuntimeSelectionPolicy } from "@multica/core/types";
-import { RuntimeSelectDialog } from "../../agents/components/runtime-select-dialog";
 import {
   WorkflowRuntimeStrategyDialog,
   type WorkflowRuntimeStrategyValue,
@@ -29,8 +28,7 @@ export type RuntimeExtras = {
 type PendingStart = {
   basePayload: Record<string, unknown>;
   commit: (payload: Record<string, unknown>) => void;
-  kind: "agent" | "workflow";
-  agentName?: string;
+  kind: "agent" | "workflow" | "squad";
   workflowTitle?: string;
   initialValue?: WorkflowRuntimeStrategyValue;
 };
@@ -74,25 +72,25 @@ export function useRuntimeStartDialogs(wsId: string) {
     if (assigneeType === "agent" && assigneeId) {
       const agent = agents.find((a) => a.id === assigneeId);
       if (agent?.is_builtin) {
-        const online = runtimes.filter((r) => r.status === "online");
-        if (online.length === 0) {
-          // No runtimes: proceed without one (backend auto-selects / falls back).
-          commit(basePayload);
-          return true;
-        }
-        if (online.length === 1) {
-          // Single runtime: auto-select, no dialog.
-          commit({ ...basePayload, runtime_id: online[0]!.id });
-          return true;
-        }
         setPending({
           basePayload: loosePayload,
           commit: looseCommit,
           kind: "agent",
-          agentName: agent.name,
+          workflowTitle: agent.name,
+          initialValue: { policy: "idle_first", runtimeId: null },
         });
         return false;
       }
+    }
+    if (assigneeType === "squad" && assigneeId) {
+      setPending({
+        basePayload: loosePayload,
+        commit: looseCommit,
+        kind: "squad",
+        workflowTitle: "",
+        initialValue: { policy: "idle_first", runtimeId: null },
+      });
+      return false;
     }
     commit(basePayload);
     return true;
@@ -100,21 +98,7 @@ export function useRuntimeStartDialogs(wsId: string) {
 
   const dialogs: ReactNode = (
     <>
-      {pending?.kind === "agent" && (
-        <RuntimeSelectDialog
-          agentName={pending.agentName ?? ""}
-          runtimes={runtimes.filter((r) => r.status === "online")}
-          loading={runtimesLoading}
-          allowAuto
-          onClose={() => setPending(null)}
-          onConfirm={(runtimeId: string | null) => {
-            if (!runtimeId) return;
-            pending.commit({ ...pending.basePayload, runtime_id: runtimeId });
-            setPending(null);
-          }}
-        />
-      )}
-      {pending?.kind === "workflow" && (
+      {(pending?.kind === "workflow" || pending?.kind === "agent" || pending?.kind === "squad") && (
         <WorkflowRuntimeStrategyDialog
           mode="run"
           workflowTitle={pending.workflowTitle ?? ""}
