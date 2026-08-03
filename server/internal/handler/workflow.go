@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/platformadmin"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/internal/workflowmeta"
@@ -418,6 +419,19 @@ func (h *Handler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"workflows": resp})
+}
+
+func (h *Handler) GetDefaultWorkflow(w http.ResponseWriter, r *http.Request) {
+	workspaceID := h.resolveWorkspaceID(r)
+	wsUUID := parseUUID(workspaceID)
+
+	wf, err := h.WorkflowService.EnsureDefaultWorkflow(r.Context(), wsUUID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get default workflow")
+		return
+	}
+	count, _ := h.Queries.CountWorkflowNodes(r.Context(), wf.ID)
+	writeJSON(w, http.StatusOK, map[string]any{"workflow": workflowToResponse(wf, count)})
 }
 
 func (h *Handler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
@@ -1819,7 +1833,8 @@ func (h *Handler) validateWorkflowHumanActor(ctx context.Context, actorType stri
 }
 
 // ToggleWorkflowTemplate toggles a workflow's is_template flag.
-// Only members with can_manage_workflows can toggle.
+// Only platform admins (or users with can_manage_workflows in local deployments)
+// can toggle.
 func (h *Handler) ToggleWorkflowTemplate(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	wf, ok := h.loadWorkflowInWorkspace(w, r, id)
@@ -1831,10 +1846,11 @@ func (h *Handler) ToggleWorkflowTemplate(w http.ResponseWriter, r *http.Request)
 	userID, _ := requireUserID(w, r)
 	userUUID := parseUUID(userID)
 
-	// Check can_manage_workflows permission on the user (global, not workspace-scoped).
+	// Effective workflow-admin permission: platform_admin role in
+	// costrict-integrated deployments, local flag otherwise.
 	currentUser, err := h.Queries.GetUser(r.Context(), userUUID)
-	if err != nil || !currentUser.CanManageWorkflows {
-		writeError(w, http.StatusForbidden, "only workflow admins can manage templates")
+	if err != nil || !h.effectiveCanManageWorkflows(r.Context(), currentUser) {
+		writeError(w, http.StatusForbidden, "only platform admins can manage templates")
 		return
 	}
 
@@ -1910,15 +1926,20 @@ func (h *Handler) ListWorkflowAdmins(w http.ResponseWriter, r *http.Request) {
 }
 
 // UpdateWorkflowAdmins sets can_manage_workflows for the specified users and
-// unsets it for all others. Only existing workflow admins can call this.
+// unsets it for all others. Only platform admins can call this; in
+// costrict-integrated deployments the endpoint is disabled because the role is
+// managed externally.
 func (h *Handler) UpdateWorkflowAdmins(w http.ResponseWriter, r *http.Request) {
 	userID, _ := requireUserID(w, r)
 	userUUID := parseUUID(userID)
 
-	// Only existing workflow admins can manage workflow admins.
 	currentUser, err := h.Queries.GetUser(r.Context(), userUUID)
-	if err != nil || !currentUser.CanManageWorkflows {
-		writeError(w, http.StatusForbidden, "only workflow admins can manage workflow admins")
+	if err != nil || !h.effectiveCanManageWorkflows(r.Context(), currentUser) {
+		writeError(w, http.StatusForbidden, "only platform admins can manage workflow admins")
+		return
+	}
+	if h.AdminChecker.Source() == platformadmin.SourcePlatform {
+		writeError(w, http.StatusForbidden, "workflow admins are managed by the costrict platform admin role")
 		return
 	}
 
@@ -1968,6 +1989,20 @@ func (h *Handler) UpdateWorkflowAdmins(w http.ResponseWriter, r *http.Request) {
 
 // InviteWorkflowAdmin looks up a user by email and grants them workflow admin permission.
 func (h *Handler) InviteWorkflowAdmin(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	currentUser, err := h.Queries.GetUser(r.Context(), parseUUID(userID))
+	if err != nil || !h.effectiveCanManageWorkflows(r.Context(), currentUser) {
+		writeError(w, http.StatusForbidden, "only platform admins can manage workflow admins")
+		return
+	}
+	if h.AdminChecker.Source() == platformadmin.SourcePlatform {
+		writeError(w, http.StatusForbidden, "workflow admins are managed by the costrict platform admin role")
+		return
+	}
+
 	var req struct {
 		Email string `json:"email"`
 	}

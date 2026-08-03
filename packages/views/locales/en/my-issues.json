@@ -40,6 +40,7 @@
     "sort_manual": "Manual"
   },
   "errors": {
-    "move_failed": "Failed to move issue"
+    "move_failed": "Failed to move issue",
+    "assign_first": "Please assign the task first."
   }
 }

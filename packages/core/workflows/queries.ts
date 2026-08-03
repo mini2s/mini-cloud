@@ -34,6 +34,7 @@ import { chatKeys } from "../chat/queries";
 export const workflowKeys = {
   all: (wsId: string) => ["workflows", wsId] as const,
   list: (wsId: string) => [...workflowKeys.all(wsId), "list"] as const,
+  default: (wsId: string) => [...workflowKeys.all(wsId), "default"] as const,
   detail: (wsId: string, id: string) => [...workflowKeys.all(wsId), "detail", id] as const,
   nodes: (wsId: string, workflowId: string) => [...workflowKeys.detail(wsId, workflowId), "nodes"] as const,
   edges: (wsId: string, workflowId: string) => [...workflowKeys.detail(wsId, workflowId), "edges"] as const,
@@ -76,6 +77,13 @@ export function workflowActiveListOptions(wsId: string) {
     select: (data) => data.workflows.filter(
       (workflow) => workflow.status === "active" && workflow.is_template === false,
     ),
+  });
+}
+
+export function defaultWorkflowOptions(wsId: string) {
+  return queryOptions({
+    queryKey: workflowKeys.default(wsId),
+    queryFn: () => api.getDefaultWorkflow(wsId),
   });
 }
 

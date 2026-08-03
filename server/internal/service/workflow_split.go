@@ -2040,11 +2040,35 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 	}); err != nil {
 		return err
 	}
+	splitIssuePrefix := ""
+	if ws, werr := s.Queries.GetWorkspace(ctx, parentIssue.WorkspaceID); werr == nil {
+		splitIssuePrefix = ws.IssuePrefix
+	}
 	for _, child := range createdChildren {
 		s.publishSplitEvent(protocol.EventSplitChildIssueCreated, run, nodeRun, SplitLifecycleEventPayload{
 			SplitTaskID:  child.splitTaskID,
 			ChildIssueID: child.issueID,
 		})
+		// Also fire issue:created so the notification/subscriber/activity
+		// listeners process the new child — e.g. the responsible_user_id
+		// inherited from the parent produces a responsible_assigned inbox
+		// notification. Mirrors autopilot.go's post-create publish; without
+		// this the child is created silently via CreateIssueWithOrigin and the
+		// responsible owner never learns they own the split-off task.
+		if s.Bus != nil {
+			childUUID, perr := util.ParseUUID(child.issueID)
+			if perr == nil {
+				if childIssue, gerr := s.Queries.GetIssue(ctx, childUUID); gerr == nil {
+					s.Bus.Publish(events.Event{
+						Type:        protocol.EventIssueCreated,
+						WorkspaceID: util.UUIDToString(childIssue.WorkspaceID),
+						ActorType:   "member",
+						ActorID:     util.UUIDToString(actorUserID),
+						Payload:     map[string]any{"issue": issueToMap(childIssue, splitIssuePrefix)},
+					})
+				}
+			}
+		}
 	}
 	currentNodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, nodeRun.ID)
 	if err != nil {

@@ -135,6 +135,7 @@ export function BatchActionToolbar({
           triggerRender={<Button variant="ghost" size="sm" disabled={loading} />}
           trigger={t(($) => $.batch.assignee)}
           align="center"
+          skipRuntimeSelection
         />
 
         {/* Delete */}
@@ -177,4 +178,3 @@ export function BatchActionToolbar({
     </>
   );
 }
-

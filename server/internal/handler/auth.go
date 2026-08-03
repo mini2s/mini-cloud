@@ -62,6 +62,8 @@ type UserResponse struct {
 	ProfileDescription      string          `json:"profile_description"`
 	CreatedAt               string          `json:"created_at"`
 	UpdatedAt               string          `json:"updated_at"`
+	CanManageWorkflows      bool            `json:"can_manage_workflows"`
+	WorkflowAdminSource     string          `json:"workflow_admin_source"`
 }
 
 // MaxProfileDescriptionLen caps the user-supplied profile_description body.
@@ -92,6 +94,16 @@ func userToResponse(u db.MulticaUser) UserResponse {
 		CreatedAt:               timestampToString(u.CreatedAt),
 		UpdatedAt:               timestampToString(u.UpdatedAt),
 	}
+}
+
+// userResponseWithAdmin enriches the response with the effective
+// workflow-admin permission and its source so clients can gate admin UI
+// without fetching the admins list.
+func (h *Handler) userResponseWithAdmin(ctx context.Context, u db.MulticaUser) UserResponse {
+	resp := userToResponse(u)
+	resp.CanManageWorkflows = h.effectiveCanManageWorkflows(ctx, u)
+	resp.WorkflowAdminSource = string(h.AdminChecker.Source())
+	return resp
 }
 
 type LoginResponse struct {
@@ -417,7 +429,7 @@ func (h *Handler) VerifyCode(w http.ResponseWriter, r *http.Request) {
 	slog.Info("user logged in", append(logger.RequestAttrs(r), "user_id", uuidToString(user.ID), "email", user.Email)...)
 	writeJSON(w, http.StatusOK, LoginResponse{
 		Token: tokenString,
-		User:  userToResponse(user),
+		User:  h.userResponseWithAdmin(r.Context(), user),
 	})
 }
 
@@ -433,7 +445,7 @@ func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, userToResponse(user))
+	writeJSON(w, http.StatusOK, h.userResponseWithAdmin(r.Context(), user))
 }
 
 type UpdateMeRequest struct {
@@ -611,7 +623,7 @@ func (h *Handler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 	slog.Info("user logged in via google", append(logger.RequestAttrs(r), "user_id", uuidToString(user.ID), "email", user.Email)...)
 	writeJSON(w, http.StatusOK, LoginResponse{
 		Token: tokenString,
-		User:  userToResponse(user),
+		User:  h.userResponseWithAdmin(r.Context(), user),
 	})
 }
 
@@ -719,5 +731,5 @@ func (h *Handler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, userToResponse(updatedUser))
+	writeJSON(w, http.StatusOK, h.userResponseWithAdmin(r.Context(), updatedUser))
 }

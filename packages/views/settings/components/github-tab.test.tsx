@@ -10,7 +10,6 @@ const mockUpdateWorkspace = vi.hoisted(() => vi.fn());
 const mockDeleteInstallation = vi.hoisted(() => vi.fn());
 const mockGetConnectURL = vi.hoisted(() => vi.fn());
 const mockInvalidate = vi.hoisted(() => vi.fn());
-const mockNavPush = vi.hoisted(() => vi.fn());
 const mockSetQueryData = vi.hoisted(() => vi.fn());
 
 const workspaceRef = vi.hoisted(() => ({
@@ -97,7 +96,7 @@ vi.mock("@multica/core/auth", () => {
 
 vi.mock("../../navigation", () => ({
   useNavigation: () => ({
-    push: mockNavPush,
+    push: vi.fn(),
     replace: vi.fn(),
     back: vi.fn(),
     pathname: "/acme/settings",
@@ -140,56 +139,6 @@ function resetFixtures() {
 describe("GitHubTab", () => {
   beforeEach(resetFixtures);
 
-  it("folds the non-dev hint into the master switch description (no separate callout)", () => {
-    render(<GitHubTab />, { wrapper: I18nWrapper });
-    expect(screen.getByText(/Not a development team\? Just turn it off here\./)).toBeTruthy();
-    // The old standalone callout (title + dedicated "Turn GitHub off" button) is gone.
-    expect(screen.queryByRole("button", { name: /^Turn GitHub off$/ })).toBeNull();
-  });
-
-  it("does not show the hint once the master switch is off", () => {
-    workspaceRef.current.settings = { github_enabled: false };
-    render(<GitHubTab />, { wrapper: I18nWrapper });
-    expect(screen.queryByText(/Not a development team\?/)).toBeNull();
-  });
-
-  it("disables every feature switch when the master switch is off", () => {
-    workspaceRef.current.settings = { github_enabled: false };
-    render(<GitHubTab />, { wrapper: I18nWrapper });
-
-    const master = screen.getByRole("switch", { name: /enable github features/i });
-    expect(master.getAttribute("aria-checked")).toBe("false");
-
-    const switches = screen.getAllByRole("switch");
-    // First switch is master; remaining must be disabled (aria-disabled or disabled attr)
-    const features = switches.slice(1);
-    expect(features.length).toBeGreaterThan(0);
-    for (const sw of features) {
-      const ariaDisabled = sw.getAttribute("aria-disabled");
-      const disabled = sw.hasAttribute("disabled");
-      expect(ariaDisabled === "true" || disabled).toBe(true);
-    }
-  });
-
-  it("flipping the master switch off persists github_enabled=false and merges existing settings", async () => {
-    const user = userEvent.setup();
-    workspaceRef.current.settings = { co_authored_by_enabled: true };
-    mockUpdateWorkspace.mockResolvedValue({
-      ...workspaceRef.current,
-      settings: { co_authored_by_enabled: true, github_enabled: false },
-    });
-
-    render(<GitHubTab />, { wrapper: I18nWrapper });
-
-    await user.click(screen.getByRole("switch", { name: /enable github features/i }));
-
-    await waitFor(() => {
-      expect(mockUpdateWorkspace).toHaveBeenCalledWith("workspace-1", {
-        settings: { co_authored_by_enabled: true, github_enabled: false },
-      });
-    });
-  });
-
   it("clicking Disconnect opens the confirmation and only fires on confirm", async () => {
     const user = userEvent.setup();
     installationsRef.current = {
@@ -213,17 +162,6 @@ describe("GitHubTab", () => {
     await waitFor(() => {
       expect(mockDeleteInstallation).toHaveBeenCalledWith("workspace-1", "inst-42");
     });
-  });
-
-  it("Disconnect button is still visible when the master switch is off", () => {
-    workspaceRef.current.settings = { github_enabled: false };
-    installationsRef.current = {
-      configured: true,
-      can_manage: true,
-      installations: [{ id: "inst-1", account_login: "acme", installation_id: 1 }],
-    };
-    render(<GitHubTab />, { wrapper: I18nWrapper });
-    expect(screen.getByRole("button", { name: /^Disconnect$/ })).toBeTruthy();
   });
 
   it("non-admin sees the existing connection but no Connect/Disconnect controls", () => {
@@ -271,10 +209,12 @@ describe("GitHubTab", () => {
     expect(screen.getByText(/Connected by Jiayuan/)).toBeTruthy();
   });
 
-  it("repositories shortcut navigates to the repositories tab", async () => {
-    const user = userEvent.setup();
+  it("embeds the GitHub repositories section instead of a shortcut link", () => {
     render(<GitHubTab />, { wrapper: I18nWrapper });
-    await user.click(screen.getByRole("button", { name: /Manage repositories/ }));
-    expect(mockNavPush).toHaveBeenCalledWith("/acme/settings?tab=repositories");
+    // Shortcut link is gone.
+    expect(screen.queryByRole("button", { name: /Manage repositories/ })).toBeNull();
+    // The section's add button is present.
+    expect(screen.getByRole("button", { name: /Add repository/ })).toBeTruthy();
   });
+
 });

@@ -1474,3 +1474,24 @@ func TestWebhook_MergedPR_ChildWithParent_NotifiesParent(t *testing.T) {
 		}
 	}
 }
+
+func TestGithubAutoLinkFromSettings(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{"empty settings -> on (default on)", ``, true},
+		{"sub-flag on, master off -> still on (master no longer short-circuits)", `{"github_enabled":false,"github_auto_link_prs_enabled":true}`, true},
+		{"sub-flag off -> off", `{"github_auto_link_prs_enabled":false}`, false},
+		{"sub-flag absent -> on (default on)", `{"github_enabled":false}`, true},
+		{"garbage json -> on", `{not json`, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := githubAutoLinkFromSettings([]byte(tc.raw)); got != tc.want {
+				t.Errorf("githubAutoLinkFromSettings(%s) = %v, want %v", tc.raw, got, tc.want)
+			}
+		})
+	}
+}

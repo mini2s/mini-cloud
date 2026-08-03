@@ -7,6 +7,8 @@ import { IssuePeopleBadges } from "./issue-people-badges";
 const mockedAssigneePickers: Array<{
   allowedTypes?: string[];
   allowUnassigned?: boolean;
+  skipRuntimeSelection?: boolean;
+  triggerElementType?: unknown;
   onUpdate: (updates: Record<string, unknown>) => void;
 }> = [];
 
@@ -35,15 +37,23 @@ vi.mock("./pickers", () => ({
     triggerRender,
     allowedTypes,
     allowUnassigned,
+    skipRuntimeSelection,
     onUpdate,
   }: {
     trigger: ReactNode;
     triggerRender?: ReactElement<{ className?: string }>;
     allowedTypes?: string[];
     allowUnassigned?: boolean;
+    skipRuntimeSelection?: boolean;
     onUpdate: (updates: Record<string, unknown>) => void;
   }) => {
-    mockedAssigneePickers.push({ allowedTypes, allowUnassigned, onUpdate });
+    mockedAssigneePickers.push({
+      allowedTypes,
+      allowUnassigned,
+      skipRuntimeSelection,
+      triggerElementType: triggerRender?.type,
+      onUpdate,
+    });
     return (
       <span
         data-testid="assignee-picker"
@@ -277,5 +287,42 @@ describe("IssuePeopleBadges", () => {
       responsible_user_id: "user-2",
     });
     expect(onAssigneeUpdate).not.toHaveBeenCalled();
+  });
+
+  it("skips runtime selection when editing the card assignee", () => {
+    render(
+      <IssuePeopleBadges
+        issue={baseIssue}
+        responsibleLabel="Owner"
+        assigneeLabel="Assignee"
+        editableResponsible
+        editableAssignee
+        onResponsibleUpdate={vi.fn()}
+        onAssigneeUpdate={vi.fn()}
+      />,
+    );
+
+    expect(mockedAssigneePickers).toHaveLength(2);
+    expect(mockedAssigneePickers[1]).toMatchObject({
+      skipRuntimeSelection: true,
+    });
+  });
+
+  it("uses native buttons for editable picker triggers", () => {
+    render(
+      <IssuePeopleBadges
+        issue={baseIssue}
+        responsibleLabel="Owner"
+        assigneeLabel="Assignee"
+        editableResponsible
+        editableAssignee
+        onResponsibleUpdate={vi.fn()}
+        onAssigneeUpdate={vi.fn()}
+      />,
+    );
+
+    expect(mockedAssigneePickers).toHaveLength(2);
+    expect(mockedAssigneePickers[0]?.triggerElementType).toBe("button");
+    expect(mockedAssigneePickers[1]?.triggerElementType).toBe("button");
   });
 });

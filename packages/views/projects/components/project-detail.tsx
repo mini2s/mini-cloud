@@ -6,7 +6,7 @@ import { Check, ChevronRight, Link2, ListTodo, MoreHorizontal, PanelRight, Pin, 
 import { useQuery, type QueryKey } from "@tanstack/react-query";
 import { cn } from "@multica/ui/lib/utils";
 import { toast } from "sonner";
-import type { Issue, IssueAssigneeGroup, ProjectStatus, ProjectPriority, UpdateIssueRequest } from "@multica/core/types";
+import type { Issue, IssueAssigneeGroup, ProjectStatus, ProjectPriority } from "@multica/core/types";
 import { useAuthStore } from "@multica/core/auth";
 import { projectDetailOptions } from "@multica/core/projects/queries";
 import { useUpdateProject, useDeleteProject } from "@multica/core/projects/mutations";
@@ -41,6 +41,7 @@ import { PriorityIcon } from "../../issues/components/priority-icon";
 import { ProjectResourcesSection } from "./project-resources-section";
 import { IssuesHeader } from "../../issues/components/issues-header";
 import { BoardView } from "../../issues/components/board-view";
+import { useBoardMoveIssue, type BoardMoveUpdates, type RuntimeExtras } from "../../issues/hooks/use-board-move-issue";
 import { ListView } from "../../issues/components/list-view";
 import { GanttView } from "../../issues/components/gantt-view";
 import { BatchActionToolbar } from "../../issues/components/batch-action-toolbar";
@@ -170,8 +171,8 @@ function ProjectIssuesContent({
   );
 
   const updateIssueMutation = useUpdateIssue();
-  const handleMoveIssue = useCallback(
-    (issueId: string, updates: Pick<UpdateIssueRequest, "status" | "assignee_type" | "assignee_id" | "position">) => {
+  const commitMove = useCallback(
+    (issueId: string, updates: BoardMoveUpdates & Partial<RuntimeExtras>) => {
       updateIssueMutation.mutate(
         { id: issueId, ...updates },
         {
@@ -186,6 +187,16 @@ function ProjectIssuesContent({
     },
     [updateIssueMutation, t],
   );
+  const findIssueForMove = useCallback(
+    (id: string) => projectIssues.find((item) => item.id === id),
+    [projectIssues],
+  );
+  const { handleMoveIssue, runtimeDialogs } = useBoardMoveIssue({
+    wsId,
+    findIssue: findIssueForMove,
+    commitMove,
+    assignFirstMessage: t(($) => $.detail.assign_first),
+  });
 
   // Gantt has its own data source (scheduled-only) and its own empty axis —
   // we never short-circuit it here, otherwise an unscheduled-but-non-empty
@@ -215,6 +226,7 @@ function ProjectIssuesContent({
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
+      {runtimeDialogs}
       {viewMode === "board" && (
         <BoardView
           issues={assigneeGroups ? projectIssues : issues}

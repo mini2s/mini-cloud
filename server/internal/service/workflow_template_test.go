@@ -483,63 +483,6 @@ func TestDeleteWorkflowWithTemplateCheck_AllowsWithNoDerivedWorkflows(t *testing
 	}
 }
 
-// TestCanManageWorkflows verifies the CanManageWorkflows helper correctly reads
-// the user.can_manage_workflows flag.
-func TestCanManageWorkflows(t *testing.T) {
-	pool := openTestPool(t)
-	defer pool.Close()
-
-	_, _ = setupTemplateFixtures(t, pool)
-	q := db.New(pool)
-	ctx := context.Background()
-
-	// Create a user with can_manage_workflows flag set.
-	var userID string
-	err := pool.QueryRow(ctx, `
-		INSERT INTO multica_user (name, email, can_manage_workflows)
-		VALUES ('WF Admin User', 'wf-admin-test@multica.ai', TRUE)
-		RETURNING id
-	`).Scan(&userID)
-	if err != nil {
-		t.Fatalf("create admin user: %v", err)
-	}
-	defer pool.Exec(ctx, `DELETE FROM multica_user WHERE email = 'wf-admin-test@multica.ai'`)
-
-	userUUID, _ := util.ParseUUID(userID)
-
-	svc := NewWorkflowService(q, pool, nil, nil)
-
-	can, err := svc.CanManageWorkflows(ctx, userUUID)
-	if err != nil {
-		t.Fatalf("CanManageWorkflows: %v", err)
-	}
-	if !can {
-		t.Fatal("expected can_manage_workflows=true for admin user")
-	}
-
-	// Create a non-admin user.
-	var regularUserID string
-	err = pool.QueryRow(ctx, `
-		INSERT INTO multica_user (name, email, can_manage_workflows)
-		VALUES ('Regular User', 'regular-test@multica.ai', FALSE)
-		RETURNING id
-	`).Scan(&regularUserID)
-	if err != nil {
-		t.Fatalf("create regular user: %v", err)
-	}
-	defer pool.Exec(ctx, `DELETE FROM multica_user WHERE email = 'regular-test@multica.ai'`)
-
-	regularUUID, _ := util.ParseUUID(regularUserID)
-
-	can, err = svc.CanManageWorkflows(ctx, regularUUID)
-	if err != nil {
-		t.Fatalf("CanManageWorkflows(regular): %v", err)
-	}
-	if can {
-		t.Fatal("expected can_manage_workflows=false for regular user")
-	}
-}
-
 // TestCloneWorkflowFromTemplate_RemapRolesToTargetWorkspace verifies that when
 // a template node carries a worker/critic role, cloning into a different
 // workspace remaps the role to the target workspace's role with the same

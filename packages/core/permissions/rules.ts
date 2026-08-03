@@ -272,7 +272,7 @@ export function canPromoteAgent(
   if (!canManageWorkflows) {
     return deny(
       "not_admin_role",
-      "Only workflow admins can promote agents to built-in.",
+      "Only platform admins can promote agents to built-in.",
     );
   }
   return ALLOW;

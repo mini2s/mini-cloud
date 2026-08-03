@@ -3,20 +3,18 @@ import type { IssueStatus } from "./issue";
 export type InboxSeverity = "action_required" | "attention" | "info";
 
 export type InboxItemType =
+  | "responsible_assigned"
+  | "responsible_unassigned"
   | "issue_assigned"
   | "unassigned"
   | "assignee_changed"
+  | "workflow_executor_assigned"
+  | "workflow_reviewer_assigned"
+  | "workflow_node_status_changed"
   | "status_changed"
-  | "priority_changed"
-  | "start_date_changed"
-  | "due_date_changed"
   | "new_comment"
   | "mentioned"
   | "review_requested"
-  | "task_completed"
-  | "task_failed"
-  | "agent_blocked"
-  | "agent_completed"
   | "reaction_added"
   | "quick_create_done"
   | "quick_create_failed";

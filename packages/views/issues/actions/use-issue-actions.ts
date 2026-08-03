@@ -83,7 +83,13 @@ export function useIssueActions(issue: Issue | null): UseIssueActionsResult {
         typeof window !== "undefined" &&
         localStorage.getItem(BACKLOG_HINT_LS_KEY) !== "true"
       ) {
-        openModal("issue-backlog-agent-hint", { issueId });
+        openModal("issue-backlog-agent-hint", {
+          issueId,
+          // The newly-assigned agent (from `updates`, not the issue's prior
+          // assignee) so the hint's "move to in_progress" can pick a runtime.
+          assigneeType: updates.assignee_type ?? null,
+          assigneeId: updates.assignee_id ?? null,
+        });
       }
     },
     [issueId, issueStatus, updateIssue, openModal, t],

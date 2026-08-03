@@ -225,8 +225,12 @@ export function IssuePeopleBadges({
               }
               trigger={responsiblePerson}
               triggerRender={
-                <span className="inline-flex cursor-pointer overflow-visible rounded px-1 -mx-1 transition-colors hover:bg-accent/30" />
+                <button
+                  type="button"
+                  className="inline-flex cursor-pointer overflow-visible rounded border-0 bg-transparent px-1 -mx-1 text-inherit transition-colors hover:bg-accent/30"
+                />
               }
+              skipRuntimeSelection
               allowedTypes={["member"]}
               allowUnassigned={false}
             />
@@ -243,8 +247,12 @@ export function IssuePeopleBadges({
               onUpdate={onAssigneeUpdate}
               trigger={assigneePerson}
               triggerRender={
-                <span className="inline-flex cursor-pointer overflow-visible rounded px-1 -mx-1 transition-colors hover:bg-accent/30" />
+                <button
+                  type="button"
+                  className="inline-flex cursor-pointer overflow-visible rounded border-0 bg-transparent px-1 -mx-1 text-inherit transition-colors hover:bg-accent/30"
+                />
               }
+              skipRuntimeSelection
             />
           </PickerWrapper>
         ) : (

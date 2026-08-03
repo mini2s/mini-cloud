@@ -75,7 +75,7 @@ import { ProjectIcon } from "../../projects/components/project-icon";
 import { issueLabelsOptions } from "@multica/core/labels";
 import { memberListOptions, agentListOptions } from "@multica/core/workspace/queries";
 import { isActiveWorkspaceMember } from "@multica/core/workspace/members";
-import { workflowNodeRunsOptions } from "@multica/core/workflows/queries";
+import { defaultWorkflowOptions, workflowNodeRunsOptions } from "@multica/core/workflows/queries";
 import type { WorkflowNodeRun } from "@multica/core/types";
 import { NodeRunControlActions } from "../../workflows/components/node-run-control-actions";
 import { useRecentIssuesStore } from "@multica/core/issues/stores";
@@ -84,6 +84,8 @@ import { BatchActionToolbar } from "./batch-action-toolbar";
 import { useIssueTimeline } from "../hooks/use-issue-timeline";
 import { useIssueReactions } from "../hooks/use-issue-reactions";
 import { useIssueSubscribers } from "../hooks/use-issue-subscribers";
+import { useIssueStatusChange } from "../hooks/use-issue-status-change";
+import type { BoardMoveUpdates } from "../hooks/use-board-move-issue";
 import { ReactionBar } from "@multica/ui/components/common/reaction-bar";
 import { useFileUpload } from "@multica/core/hooks/use-file-upload";
 import { api } from "@multica/core/api";
@@ -663,6 +665,7 @@ function SubIssueRow({
         assigneeId={child.assignee_id}
         onUpdate={handleUpdate}
         align="end"
+        skipRuntimeSelection
         trigger={
           child.assignee_type && child.assignee_id ? (
             <ActorAvatar
@@ -844,13 +847,26 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   });
 
   const workflowAssigneeId = issue?.assignee_type === "workflow" ? issue.assignee_id : null;
-  const effectiveWorkflowId = issue?.workflow_id ?? workflowAssigneeId;
+  const shouldUseDefaultWorkflow =
+    !!issue &&
+    issue.status !== "backlog" &&
+    issue.assignee_type !== "workflow" &&
+    !!issue.assignee_type &&
+    !!issue.assignee_id &&
+    !issue.workflow_id &&
+    !issue.workflow_run_id;
+  const { data: defaultWorkflow = null } = useQuery({
+    ...defaultWorkflowOptions(wsId),
+    enabled: shouldUseDefaultWorkflow,
+  });
+  const effectiveWorkflowId = issue?.workflow_id ?? workflowAssigneeId ?? (shouldUseDefaultWorkflow ? defaultWorkflow?.id : null);
   const effectiveWorkflowRunId = issue?.workflow_run_id ?? null;
 
-  // Issues backed by a workflow run can toggle between detail mode and
-  // fullscreen mode. This includes direct member/agent issues routed through
-  // the default archive workflow.
-  const hasWorkflow = !!effectiveWorkflowId && !!effectiveWorkflowRunId;
+  // Issues that will run through a workflow should use the same surface before
+  // and after the run starts. Assigned non-backlog issues may need the
+  // workspace default workflow as a preview target before a run exists.
+  const hasWorkflow = !!effectiveWorkflowId;
+  const hasWorkflowRun = !!effectiveWorkflowId && !!effectiveWorkflowRunId;
   const [isFullscreen, setIsFullscreen] = useState(true);
   // Only activate fullscreen when the issue actually has a workflow assigned.
   const effectiveFullscreen = isFullscreen && hasWorkflow;
@@ -869,7 +885,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // Two observers on the same key with refetchInterval would double-poll.
   const { data: workflowNodeRuns } = useQuery({
     ...workflowNodeRunsOptions(wsId, effectiveWorkflowId ?? "", effectiveWorkflowRunId ?? ""),
-    enabled: hasWorkflow,
+    enabled: hasWorkflowRun,
     refetchInterval: false,
   });
   const isWorkflowRunning = useMemo(() => {
@@ -1250,6 +1266,15 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // Called before the `if (!issue)` early return so hook order stays stable.
   const actions = useIssueActions(issue);
   const handleUpdateField = actions.updateField;
+  // Status changes go through the same three rules as the board (runtime
+  // dialog on in_progress, backlog guard, clear-assignee on backlog) so the
+  // detail StatusPicker matches dragging a card.
+  const { requestChange: requestStatusChange, runtimeDialogs: statusRuntimeDialogs } = useIssueStatusChange({
+    wsId,
+    issue,
+    commit: (updates) => actions.updateField(updates),
+    assignFirstMessage: t(($) => $.page.assign_first),
+  });
 
   // Labels live in their own query (not on the issue body) — fetch the count
   // here so seeding can decide whether the "Labels" optional row should be
@@ -1398,10 +1423,10 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           {t(($) => $.detail.section_properties)}
           <ChevronRight className={`!size-3 shrink-0 stroke-[2.5] text-muted-foreground transition-transform ${propertiesOpen ? "rotate-90" : ""}`} />
         </button>
-        {propertiesOpen && <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 pl-2">
+        {propertiesOpen && <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 pl-2" data-testid="issue-detail-properties">
           {/* Core props — always rendered. */}
           <PropRow label={t(($) => $.detail.prop_status)}>
-            <StatusPicker status={issue.status} onUpdate={handleUpdateField} align="start" />
+            <StatusPicker status={issue.status} onUpdate={(updates) => requestStatusChange(updates as BoardMoveUpdates)} align="start" />
           </PropRow>
           <PropRow label={t(($) => $.detail.prop_responsible)}>
             <AssigneePicker
@@ -1411,10 +1436,11 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
               align="start"
               allowedTypes={["member"]}
               allowUnassigned={false}
+              skipRuntimeSelection
             />
           </PropRow>
           <PropRow label={t(($) => $.detail.prop_assignee)}>
-            <AssigneePicker assigneeType={issue.assignee_type} assigneeId={issue.assignee_id} isWorkflowRunning={isWorkflowRunning} onUpdate={handleUpdateField} align="start" />
+            <AssigneePicker assigneeType={issue.assignee_type} assigneeId={issue.assignee_id} isWorkflowRunning={isWorkflowRunning} onUpdate={handleUpdateField} align="start" skipRuntimeSelection />
           </PropRow>
           <PropRow label={t(($) => $.detail.prop_project)}>
             <ProjectPicker
@@ -1992,6 +2018,15 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                   issueId={issue.id}
                   issueCreatorType={issue.creator_type}
                   issueCreatorId={issue.creator_id}
+                  {...(shouldUseDefaultWorkflow
+                    ? {
+                        issueAssigneeType: issue.assignee_type,
+                        issueAssigneeId: issue.assignee_id,
+                        issueResponsibleUserId: issue.responsible_user_id,
+                        onPendingWorkerUpdate: handleUpdateField,
+                        onPendingCriticUpdate: handleUpdateField,
+                      }
+                    : {})}
                   fillAvailableHeight={effectiveFullscreen}
                 />
               </div>
@@ -2248,6 +2283,8 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   }
 
   return (
+    <>
+    {statusRuntimeDialogs}
     <ResizablePanelGroup orientation="horizontal" className="flex-1 min-h-0" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged}>
       <ResizablePanel id="content" minSize="50%">
         {detailContent}
@@ -2270,5 +2307,6 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
       </div>
       </ResizablePanel>
     </ResizablePanelGroup>
+    </>
   );
 }

@@ -17,7 +17,7 @@ import {
   Trash2,
   UserMinus,
 } from "lucide-react";
-import type { AgentTask, Issue } from "@multica/core/types";
+import type { AgentTask, Issue, IssueStatus } from "@multica/core/types";
 import { api } from "@multica/core/api";
 import {
   ALL_STATUSES,
@@ -85,6 +85,10 @@ interface IssueActionsMenuItemsProps {
   onOpenAssignee: () => void;
   /** If set, navigate here after the issue is deleted (used by the detail page). */
   onDeletedNavigateTo?: string;
+  /** When set, status changes route through here so the parent can apply the
+   *  shared board rules (runtime dialog on in_progress, backlog guard, clear
+   *  assignee on backlog). Falls back to `updateField({ status })` when unset. */
+  onStatusChange?: (status: IssueStatus) => void;
 }
 
 export function IssueActionsMenuItems({
@@ -93,6 +97,7 @@ export function IssueActionsMenuItems({
   primitives: P,
   onOpenAssignee,
   onDeletedNavigateTo,
+  onStatusChange,
 }: IssueActionsMenuItemsProps) {
   const { t } = useT("issues");
   const {
@@ -154,7 +159,7 @@ export function IssueActionsMenuItems({
         </P.SubTrigger>
         <P.SubContent>
           {ALL_STATUSES.map((s) => (
-            <P.Item key={s} onClick={() => updateField({ status: s })}>
+            <P.Item key={s} onClick={() => (onStatusChange ? onStatusChange(s) : updateField({ status: s }))}>
               <StatusIcon status={s} className="h-3.5 w-3.5" />
               {t(($) => $.status[s])}
               {issue.status === s && (

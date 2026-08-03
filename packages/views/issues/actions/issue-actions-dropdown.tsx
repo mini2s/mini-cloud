@@ -2,6 +2,7 @@
 
 import { useState, type ReactElement } from "react";
 import type { Issue } from "@multica/core/types";
+import { useWorkspaceId } from "@multica/core/hooks";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -13,6 +14,9 @@ import {
   dropdownPrimitives,
 } from "./issue-actions-menu-items";
 import { AssigneePicker } from "../components/pickers";
+import { useIssueStatusChange } from "../hooks/use-issue-status-change";
+import type { BoardMoveUpdates } from "../hooks/use-board-move-issue";
+import { useT } from "../../i18n";
 
 interface IssueActionsDropdownProps {
   issue: Issue;
@@ -30,6 +34,14 @@ export function IssueActionsDropdown({
   onDeletedNavigateTo,
 }: IssueActionsDropdownProps) {
   const actions = useIssueActions(issue);
+  const { t } = useT("issues");
+  const wsId = useWorkspaceId();
+  const { requestChange: requestStatusChange, runtimeDialogs: statusRuntimeDialogs } = useIssueStatusChange({
+    wsId,
+    issue,
+    commit: (updates) => actions.updateField(updates),
+    assignFirstMessage: t(($) => $.page.assign_first),
+  });
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const [assigneeMounted, setAssigneeMounted] = useState(false);
 
@@ -51,6 +63,7 @@ export function IssueActionsDropdown({
               setAssigneeOpen(true);
             }}
             onDeletedNavigateTo={onDeletedNavigateTo}
+            onStatusChange={(s) => requestStatusChange({ status: s } as BoardMoveUpdates)}
           />
         </DropdownMenuContent>
       </DropdownMenu>
@@ -59,6 +72,7 @@ export function IssueActionsDropdown({
           closes: RuntimeSelectDialog is portalled outside the popover, so a
           click on a runtime closes the popover as an outside interaction.
           Unmounting here would also destroy the dialog before confirmation. */}
+      {statusRuntimeDialogs}
       {assigneeMounted && (
         <AssigneePicker
           assigneeType={issue.assignee_type}
@@ -74,6 +88,7 @@ export function IssueActionsDropdown({
           }
           trigger={<span />}
           align={align}
+          skipRuntimeSelection
         />
       )}
     </span>
