@@ -10,8 +10,11 @@ import {
   type WorkflowDeliverableSubmissionStatus,
   type IssueAssigneeType,
   type UpdateIssueRequest,
+  type WorkerType,
 } from "@multica/core/types";
-import { useSessionPermission } from "@multica/core/workflows/queries";
+import { useSessionPermission, useUpdateNodeRunAssignees } from "@multica/core/workflows/queries";
+import { useWorkspaceId } from "@multica/core/hooks";
+import { isNodeRunAssigneeEditable } from "@multica/core/workflows/node-run-status";
 import { isEmbeddedInCostrict } from "@multica/core/platform";
 import { cn } from "@multica/ui/lib/utils";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
@@ -521,14 +524,20 @@ export function RuntimeNodeCard({
     canEnterSession;
   const primaryDeliverable = !isGateway && !isSplit ? deliverables[0] : undefined;
   const remainingDeliverableCount = Math.max(0, deliverables.length - 1);
+  const wsId = useWorkspaceId();
+  const updateNodeRunAssignees = useUpdateNodeRunAssignees(wsId);
   const canEditPendingWorker = !nodeRun && !!onPendingWorkerUpdate;
   const canEditPendingCritic = !nodeRun && !!onPendingCriticUpdate;
+  const canEditNodeRunWorker = !!nodeRun && isNodeRunAssigneeEditable(nodeRun.status, "worker");
+  const canEditNodeRunCritic = !!nodeRun && isNodeRunAssigneeEditable(nodeRun.status, "critic");
+  const canEditWorker = canEditPendingWorker || canEditNodeRunWorker;
+  const canEditCritic = canEditPendingCritic || canEditNodeRunCritic;
   const hasInlineAction =
     canToggleSplitChildren ||
     canOpenSession ||
     !!primaryDeliverable?.pullRequestUrl ||
-    canEditPendingWorker ||
-    canEditPendingCritic;
+    canEditWorker ||
+    canEditCritic;
   const splitChildLabel = splitChildCountLabel(t, splitChildCount || (splitProgress?.total ?? 0));
   const splitChildSummaryParts = splitProgress ? splitProgressSummaryParts(t, splitProgress) : [];
   const splitChildSummaryLabel = splitChildSummaryParts.length > 0
@@ -593,13 +602,33 @@ export function RuntimeNodeCard({
       />
     );
 
-    if (slot === "worker" && canEditPendingWorker) {
+    if (slot === "worker" && canEditWorker) {
+      const isNodeRun = !!nodeRun;
+      const nodeRunWorkerType: IssueAssigneeType | null = isNodeRun
+        ? nodeRun!.worker_type === "human"
+          ? "member"
+          : ((nodeRun!.worker_type as IssueAssigneeType | null) ?? null)
+        : null;
       return (
         <span className="contents" onClick={(event) => event.stopPropagation()}>
           <AssigneePicker
-            assigneeType={pendingWorkerAssigneeType ?? null}
-            assigneeId={pendingWorkerAssigneeId ?? null}
-            onUpdate={(updates) => onPendingWorkerUpdate?.(updates)}
+            assigneeType={isNodeRun ? nodeRunWorkerType : (pendingWorkerAssigneeType ?? null)}
+            assigneeId={isNodeRun ? (nodeRun!.worker_id ?? null) : (pendingWorkerAssigneeId ?? null)}
+            onUpdate={(updates) => {
+              if (isNodeRun && nodeRun) {
+                updateNodeRunAssignees.mutate({
+                  nodeRunId: nodeRun.id,
+                  worker_type: (updates.assignee_type
+                    ? updates.assignee_type === "member"
+                      ? "human"
+                      : updates.assignee_type
+                    : undefined) as WorkerType | undefined,
+                  worker_id: updates.assignee_id ?? null,
+                });
+              } else {
+                onPendingWorkerUpdate?.(updates);
+              }
+            }}
             trigger={actorSlot}
             triggerRender={
               <button
@@ -616,15 +645,33 @@ export function RuntimeNodeCard({
       );
     }
 
-    if (slot === "critic" && canEditPendingCritic) {
+    if (slot === "critic" && canEditCritic) {
+      const isNodeRun = !!nodeRun;
+      const nodeRunCriticType: IssueAssigneeType | null = isNodeRun
+        ? nodeRun!.critic_type === "human"
+          ? "member"
+          : ((nodeRun!.critic_type as IssueAssigneeType | null) ?? null)
+        : null;
       return (
         <span className="contents" onClick={(event) => event.stopPropagation()}>
           <AssigneePicker
-            assigneeType={pendingCriticUserId ? "member" : null}
-            assigneeId={pendingCriticUserId ?? null}
-            onUpdate={(updates) =>
-              onPendingCriticUpdate?.({ responsible_user_id: updates.assignee_id ?? null })
-            }
+            assigneeType={isNodeRun ? nodeRunCriticType : (pendingCriticUserId ? "member" : null)}
+            assigneeId={isNodeRun ? (nodeRun!.critic_id ?? null) : (pendingCriticUserId ?? null)}
+            onUpdate={(updates) => {
+              if (isNodeRun && nodeRun) {
+                updateNodeRunAssignees.mutate({
+                  nodeRunId: nodeRun.id,
+                  critic_type: (updates.assignee_type
+                    ? updates.assignee_type === "member"
+                      ? "human"
+                      : updates.assignee_type
+                    : undefined) as WorkerType | undefined,
+                  critic_id: updates.assignee_id ?? null,
+                });
+              } else {
+                onPendingCriticUpdate?.({ responsible_user_id: updates.assignee_id ?? null });
+              }
+            }}
             trigger={actorSlot}
             triggerRender={
               <button

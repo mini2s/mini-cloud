@@ -120,7 +120,7 @@ func (q *Queries) GetWorkflowNodeDeliverableInWorkflow(ctx context.Context, arg 
 }
 
 const listNodeRunDeliverableSubmissions = `-- name: ListNodeRunDeliverableSubmissions :many
-SELECT id, workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id, status, content, attachment_id, pull_request_url, review_comment, submitted_at, reviewed_at, created_at, updated_at FROM multica_workflow_node_deliverable_submission
+SELECT id, workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id, status, content, attachment_id, pull_request_url, review_comment, submitted_at, reviewed_at, created_at, updated_at, pull_request_title FROM multica_workflow_node_deliverable_submission
 WHERE workflow_node_run_id = $1
 ORDER BY created_at ASC
 `
@@ -149,6 +149,7 @@ func (q *Queries) ListNodeRunDeliverableSubmissions(ctx context.Context, workflo
 			&i.ReviewedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.PullRequestTitle,
 		); err != nil {
 			return nil, err
 		}
@@ -206,7 +207,7 @@ UPDATE multica_workflow_node_deliverable_submission SET
     reviewed_at = now(),
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id, status, content, attachment_id, pull_request_url, review_comment, submitted_at, reviewed_at, created_at, updated_at
+RETURNING id, workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id, status, content, attachment_id, pull_request_url, review_comment, submitted_at, reviewed_at, created_at, updated_at, pull_request_title
 `
 
 type ReviewNodeRunDeliverableSubmissionParams struct {
@@ -233,6 +234,7 @@ func (q *Queries) ReviewNodeRunDeliverableSubmission(ctx context.Context, arg Re
 		&i.ReviewedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PullRequestTitle,
 	)
 	return i, err
 }
@@ -281,13 +283,13 @@ func (q *Queries) UpdateWorkflowNodeDeliverable(ctx context.Context, arg UpdateW
 const upsertNodeRunDeliverableSubmission = `-- name: UpsertNodeRunDeliverableSubmission :one
 INSERT INTO multica_workflow_node_deliverable_submission (
     workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id,
-    status, content, attachment_id, pull_request_url
+    status, content, attachment_id, pull_request_url, pull_request_title
 ) SELECT
     $1, requirement.id, $2,
     $3, 'submitted', $4,
-    $5, $6
+    $5, $6, $7
 FROM multica_workflow_node_run_deliverable requirement
-WHERE requirement.id = $7
+WHERE requirement.id = $8
   AND requirement.workflow_node_run_id = $1
 ON CONFLICT (workflow_node_run_id, deliverable_id, pull_request_url)
 DO UPDATE SET
@@ -297,9 +299,10 @@ DO UPDATE SET
     content = EXCLUDED.content,
     attachment_id = EXCLUDED.attachment_id,
     pull_request_url = EXCLUDED.pull_request_url,
+    pull_request_title = EXCLUDED.pull_request_title,
     submitted_at = now(),
     updated_at = now()
-RETURNING id, workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id, status, content, attachment_id, pull_request_url, review_comment, submitted_at, reviewed_at, created_at, updated_at
+RETURNING id, workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id, status, content, attachment_id, pull_request_url, review_comment, submitted_at, reviewed_at, created_at, updated_at, pull_request_title
 `
 
 type UpsertNodeRunDeliverableSubmissionParams struct {
@@ -309,6 +312,7 @@ type UpsertNodeRunDeliverableSubmissionParams struct {
 	Content           string      `json:"content"`
 	AttachmentID      pgtype.UUID `json:"attachment_id"`
 	PullRequestUrl    string      `json:"pull_request_url"`
+	PullRequestTitle  string      `json:"pull_request_title"`
 	DeliverableID     pgtype.UUID `json:"deliverable_id"`
 }
 
@@ -325,6 +329,7 @@ func (q *Queries) UpsertNodeRunDeliverableSubmission(ctx context.Context, arg Up
 		arg.Content,
 		arg.AttachmentID,
 		arg.PullRequestUrl,
+		arg.PullRequestTitle,
 		arg.DeliverableID,
 	)
 	var i MulticaWorkflowNodeDeliverableSubmission
@@ -343,6 +348,7 @@ func (q *Queries) UpsertNodeRunDeliverableSubmission(ctx context.Context, arg Up
 		&i.ReviewedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PullRequestTitle,
 	)
 	return i, err
 }

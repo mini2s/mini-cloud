@@ -31,6 +31,20 @@ func (s *WorkflowService) deliverableRepository() coderepo.RepositoryProvider {
 	return nil
 }
 
+// FetchPullRequestTitle resolves a PR/MR web URL to its title via the
+// workspace's deliverable repository provider. In production the
+// RepositoryProvider field is unset, so this builds a Gitea client from the
+// workspace's stored Gitea config (deliverableRepositoryForWorkspace). Used by
+// the deliverable-submission path to cache the PR title at submit time.
+// Best-effort: callers treat failure as an empty title.
+func (s *WorkflowService) FetchPullRequestTitle(ctx context.Context, workspaceID pgtype.UUID, prURL string) (string, error) {
+	provider, err := s.deliverableRepositoryForWorkspace(ctx, workspaceID)
+	if err != nil {
+		return "", err
+	}
+	return provider.FetchReviewRequestTitleByURL(ctx, prURL)
+}
+
 func (s *WorkflowService) deliverableRepositoryForWorkspace(ctx context.Context, workspaceID pgtype.UUID) (coderepo.RepositoryProvider, error) {
 	if repoProvider := s.deliverableRepository(); repoProvider != nil {
 		if !repoProvider.Configured() {

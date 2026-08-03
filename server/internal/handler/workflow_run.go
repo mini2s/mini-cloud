@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/service"
+	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
@@ -1049,6 +1050,7 @@ type WorkflowNodeDeliverableSubmissionResponse struct {
 	Content           string  `json:"content"`
 	AttachmentID      *string `json:"attachment_id"`
 	PullRequestURL    string  `json:"pull_request_url"`
+	PullRequestTitle  string  `json:"pull_request_title"`
 	ReviewComment     string  `json:"review_comment"`
 	SubmittedAt       string  `json:"submitted_at"`
 	ReviewedAt        *string `json:"reviewed_at"`
@@ -1067,6 +1069,7 @@ func workflowNodeDeliverableSubmissionToResponse(s db.MulticaWorkflowNodeDeliver
 		Content:           s.Content,
 		AttachmentID:      uuidToPtr(s.AttachmentID),
 		PullRequestURL:    service.RewriteGiteaHostToPublic(s.PullRequestUrl),
+		PullRequestTitle:  s.PullRequestTitle,
 		ReviewComment:     s.ReviewComment,
 		SubmittedAt:       timestampToString(s.SubmittedAt),
 		ReviewedAt:        timestampToPtr(s.ReviewedAt),
@@ -1161,6 +1164,17 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 	submittedByType := actorType
 	submittedByID := parseUUID(actorID)
 
+	// Best-effort: cache the PR title at submit time so the submissions list
+	// can render it without fanning out to the code host on every read. Build
+	// the provider from the workspace's Gitea config (production has no global
+	// RepositoryProvider).
+	var prTitle string
+	if req.PullRequestURL != "" {
+		if wsUUID, err := util.ParseUUID(workspaceID); err == nil {
+			prTitle, _ = h.WorkflowService.FetchPullRequestTitle(r.Context(), wsUUID, req.PullRequestURL)
+		}
+	}
+
 	submission, err := h.Queries.UpsertNodeRunDeliverableSubmission(r.Context(), db.UpsertNodeRunDeliverableSubmissionParams{
 		WorkflowNodeRunID: nrUUID,
 		DeliverableID:     dUUID,
@@ -1169,6 +1183,7 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 		Content:           req.Content,
 		AttachmentID:      ptrStrToUUID(req.AttachmentID),
 		PullRequestUrl:    req.PullRequestURL,
+		PullRequestTitle:  prTitle,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

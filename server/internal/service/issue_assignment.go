@@ -260,6 +260,7 @@ func (s *IssueAssignmentService) startDefaultWorkflow(ctx context.Context, issue
 func (s *IssueAssignmentService) stampWorkflowRun(ctx context.Context, issue db.MulticaIssue, workflowID, runID pgtype.UUID) error {
 	_, err := s.Queries.UpdateIssue(ctx, db.UpdateIssueParams{
 		ID: issue.ID, AssigneeType: issue.AssigneeType, AssigneeID: issue.AssigneeID,
+		ResponsibleUserID: issue.ResponsibleUserID,
 		StartDate: issue.StartDate, DueDate: issue.DueDate, ParentIssueID: issue.ParentIssueID,
 		ProjectID: issue.ProjectID, WorkflowID: workflowID, WorkflowRunID: runID,
 	})

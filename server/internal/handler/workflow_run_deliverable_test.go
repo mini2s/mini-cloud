@@ -245,6 +245,10 @@ func (s *handlerSpyRepoProvider) ListOrgMembers(ctx context.Context, org string)
 	return nil, nil
 }
 
+func (s *handlerSpyRepoProvider) FetchReviewRequestTitleByURL(ctx context.Context, prURL string) (string, error) {
+	return "", nil
+}
+
 func (s *handlerSpyRepoProvider) snapshot() []handlerSpyUpsert {
 	s.mu.Lock()
 	defer s.mu.Unlock()

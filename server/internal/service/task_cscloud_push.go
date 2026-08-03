@@ -286,7 +286,7 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 
 	// Hoist phase + deliverables so the Task-2 safety net can fire BEFORE
 	// env/repos[] assembly — that way the just-provisioned settings are visible
-	// to repositoryDeliverableEnv (CS_CLOUD_REPO_* env) and resolveDeliveryRepo
+	// to repositoryDeliverableEnv (CS_CLOUD_GITEA_* env) and resolveDeliveryRepo
 	// (repos[] role=delivery) on the CURRENT dispatch, not just the next one.
 	// Deliverables stays empty for non-worker (critic) phases: critic tasks
 	// review, they don't submit, so they must not emit a Deliverables slice.
@@ -319,7 +319,7 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 			}
 		}
 	}
-	// Gitea document-deliverable context (CS_CLOUD_REPO_*) + node-run/issue ids,
+	// Gitea document-deliverable context (CS_CLOUD_GITEA_*) + node-run/issue ids,
 	// so the cs-cloud agent can run `cs-cloud workflow deliverable submit` /
 	// `gitea fetch` inside the task. Dormant (no env injected) only when Gitea
 	// is not configured; nodes without deliverables still get an empty list.
@@ -332,16 +332,13 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	for k, v := range repoEnv {
 		env[k] = v
 	}
-	if task.IssueID.Valid {
-		env["CS_CLOUD_ISSUE_ID"] = util.UUIDToString(task.IssueID)
-	}
 	if phase == "critic" {
 		prompt = appendCriticReviewPrompt(prompt)
 	} else {
 		if phase == "worker" {
 			prompt = appendWorkerTaskPrompt(prompt)
 		}
-		if raw, ok := repoEnv["CS_CLOUD_REPO_DELIVERABLES"]; ok {
+		if raw, ok := repoEnv["CS_CLOUD_GITEA_DELIVERABLES"]; ok {
 			var refs []repositoryDeliverableRefJSON
 			if json.Unmarshal([]byte(raw), &refs) == nil && len(refs) > 0 {
 				prompt = appendDeliverablePrompt(prompt, refs)
@@ -368,6 +365,9 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		var codeTokens codeRepoTokens
 		repos, codeTokens, projectID = s.resolveCodeRepoAndProject(ctx, task, runtime.WorkspaceID)
 		if len(repos) > 0 {
+			if err := requireCodeRepoProviderEnv(repos, codeTokens); err != nil {
+				return csCloudTaskRunPayload{}, err
+			}
 			if codeTokens.GitlabToken != "" {
 				env["CS_CLOUD_GITLAB_TOKEN"] = codeTokens.GitlabToken
 				if base := codeRepoBaseURL(firstRepoURLForProvider(repos, "gitlab")); base != "" {
@@ -564,6 +564,31 @@ func codeRepoBaseURL(rawURL string) string {
 	return strings.TrimRight(u.String(), "/")
 }
 
+func requireCodeRepoProviderEnv(repos []csCloudRepoSpec, tokens codeRepoTokens) error {
+	needsGitlab := false
+	needsGithub := false
+	for _, r := range repos {
+		switch strings.ToLower(strings.TrimSpace(r.Provider)) {
+		case "gitlab":
+			needsGitlab = true
+		case "github":
+			needsGithub = true
+		}
+	}
+	if needsGitlab {
+		if strings.TrimSpace(tokens.GitlabToken) == "" {
+			return fmt.Errorf("missing GitLab token for cs-cloud code repository")
+		}
+		if codeRepoBaseURL(firstRepoURLForProvider(repos, "gitlab")) == "" {
+			return fmt.Errorf("missing GitLab base URL for cs-cloud code repository")
+		}
+	}
+	if needsGithub && strings.TrimSpace(tokens.GithubToken) == "" {
+		return fmt.Errorf("missing GitHub token for cs-cloud code repository")
+	}
+	return nil
+}
+
 // resolveDeliveryRepo reads the Gitea delivery repo bundle from workspace.settings
 // (gitea_clone_url + last_instance_branch + gitea_pat), written by the
 // team-namespace interface-8 InitWorkflow path, and assembles a csCloudRepoSpec
@@ -572,7 +597,7 @@ func codeRepoBaseURL(rawURL string) string {
 // is judged by giteaProvisioningBundle.complete, shared with settingsLackGiteaData
 // so the two helpers can never disagree on "Gitea data present".
 //
-// The agent authenticates via the CS_CLOUD_REPO_TOKEN env (already injected by
+// The agent authenticates via the CS_CLOUD_GITEA_TOKEN env (already injected by
 // repositoryDeliverableEnv from the same settings), so the URL stays plain
 // (no embedded creds) and gitea_bot_username is not needed here. BotToken is
 // populated in the spec for forward-compat — cs-cloud's RepoSpec currently
@@ -715,7 +740,7 @@ func appendCodeRepoPrompt(prompt string, _ []csCloudRepoSpec) string {
 	b.WriteString("\n---\n## Code Repositories\n\n")
 	b.WriteString("Repository names, URLs, branches, and purposes are in `.cs-cloud.repos` in your task root. Authentication is in `.cs-cloud.env` and is read by commands automatically. Do not copy tokens into replies, documents, commits, or prompts.\n")
 	b.WriteString("Clone code repositories on demand. Only clone a repository when the current task needs you to inspect or modify it. Do not clone every repository by default.\n")
-	b.WriteString("Use the code repositories listed there for source changes. After committing in the repository, run `cs-cloud workflow deliverable submit --repo <url> --deliverable <id>` from the repository directory to open the MR/PR and report it.\n")
+	b.WriteString("Use the code repositories listed there for source changes. After committing in the repository, run `cs-cloud workflow deliverable submit --repo <url> --deliverable <id> --title \"<PR title>\"` from the repository directory to open the MR/PR with your chosen title and report it.\n")
 	b.WriteString("\n---\n\n")
 	return b.String()
 }
@@ -740,7 +765,7 @@ func appendWorkerTaskPrompt(prompt string) string {
 // The delivery repository is accessed via a managed worktree created by
 // `cs-cloud repo checkout` (NOT a plain git clone): cs-cloud matches the
 // passed URL against payload.Repos[] to pick the role, injects the auth token
-// from $CS_CLOUD_REPO_TOKEN, and places the worktree on this node's branch.
+// from $CS_CLOUD_GITEA_TOKEN, and places the worktree on this node's branch.
 // The agent then writes each document into the worktree and finalizes via
 // `cs-cloud workflow deliverable submit`, which pushes the node branch, opens
 // the node->inst review PR, and registers the review URL back here.
@@ -753,7 +778,7 @@ func appendDeliverablePrompt(prompt string, _ []repositoryDeliverableRefJSON) st
 	b.WriteString("\n---\n## Document Deliverables\n\n")
 	b.WriteString("Delivery repository, node/inst branches, deliverable IDs, and target paths are in `.cs-cloud.repos`. Authentication is in `.cs-cloud.env` and is read by commands automatically. Do not copy tokens into replies, documents, commits, or prompts.\n")
 	b.WriteString("Before submitting, clone the delivery repository listed in `.cs-cloud.repos` into the task root using the credential source in `.cs-cloud.env`, check out the listed node branch, and `cd` into that repository. Do not print or copy credentialed URLs.\n")
-	b.WriteString("For each deliverable listed in `.cs-cloud.repos`, write the document to a local file, then run `cs-cloud workflow deliverable submit --deliverable <id> --file <path>` from inside the delivery repository. A deliverable is not considered submitted until its PR is registered.\n")
+	b.WriteString("For each deliverable listed in `.cs-cloud.repos`, write the document to a local file, then run `cs-cloud workflow deliverable submit --deliverable <id> --file <path> --title \"<PR title>\"` from inside the delivery repository, choosing a meaningful PR title yourself. A deliverable is not considered submitted until its PR is registered.\n")
 	b.WriteString("\n---\n\n")
 	return b.String()
 }
@@ -792,7 +817,7 @@ func workflowNodeTaskRequiresGiteaEnv(task db.MulticaAgentTaskQueue) bool {
 }
 
 // repositoryDeliverableRefJSON is the per-deliverable shape cs-cloud's
-// `repo submit` reads from CS_CLOUD_REPO_DELIVERABLES.
+// `repo submit` reads from CS_CLOUD_GITEA_DELIVERABLES.
 type repositoryDeliverableRefJSON struct {
 	ID    string `json:"deliverable_id"`
 	Title string `json:"title"`
@@ -807,8 +832,7 @@ type giteaDeliverableRefJSON = repositoryDeliverableRefJSON
 // Gitea is dormant. For workflow node tasks, the env is emitted even when the
 // node has no deliverable rows; CS_CLOUD_GITEA_DELIVERABLES is then "[]".
 func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.MulticaAgentTaskQueue) map[string]string {
-	base := strings.TrimSpace(os.Getenv("GITEA_BASE_URL"))
-	if base == "" || !task.WorkflowNodeRunID.Valid {
+	if !task.WorkflowNodeRunID.Valid {
 		return nil
 	}
 	nr, err := s.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID)
@@ -839,32 +863,18 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 			Path:  gitea.DeliverablePath(nodeSeq, nr.NodeTitle, nodeRunIDStr, d.Title),
 		})
 	}
-	publicBase := strings.TrimSpace(os.Getenv("GITEA_PUBLIC_BASE_URL"))
-	if publicBase == "" {
-		publicBase = base
-	}
-	owner := gitea.OrgName(util.UUIDToString(run.WorkspaceID))
-	snapshot, err := (WorkflowRuntimeRepository{Queries: s.Queries}).GetRunDefinitionSnapshot(ctx, run.ID)
-	if err != nil {
-		return nil
-	}
-	repo := DeliverableRepoName(run.WorkflowID, snapshot.Workflow.IsDefault)
 	refsJSON, _ := json.Marshal(refs)
 	// Bot PAT + Gitea base URL are pushed down so cs-cloud's `deliverable submit`
 	// can push the document + open a PR against Gitea directly, without relaying
 	// back through multica to fetch credentials. The PAT must come from this
 	// workspace's settings (minted by the team-namespace provisioning flow).
-	// We ALSO read gitea_clone_url / last_instance_branch / gitea_web_url from
-	// the SAME settings bundle and prefer them over the GITEA_PUBLIC_BASE_URL
-	// self-assembly below. This is a cross-repo contract: cs-cloud's lookupRepoRole
-	// matches the checkout URL against payload.Repos[].URL by EXACT equality, and
-	// resolveDeliveryRepo puts settings.gitea_clone_url into repos[].URL. If the
-	// env's CS_CLOUD_REPO_CLONE_URL diverges (e.g. GITEA_PUBLIC_BASE_URL points at
-	// a different host than the tenant-scoped Gitea), cs-cloud silently downgrades
-	// delivery → code → wrong token (GitLab PAT) → Gitea clone 401. Reading both
-	// URLs from the same settings field guarantees they stay identical.
+	// gitea_clone_url / last_instance_branch / gitea_web_url must come from the
+	// SAME settings bundle. This is a cross-repo contract: cs-cloud's
+	// lookupRepoRole matches the checkout URL against payload.Repos[].URL by
+	// EXACT equality, and resolveDeliveryRepo puts settings.gitea_clone_url into
+	// repos[].URL. If the env's CS_CLOUD_GITEA_CLONE_URL diverges, cs-cloud can
+	// misclassify the delivery repo as code and pick the wrong credential.
 	pat := ""
-	botUser := ""
 	settingsCloneURL := ""
 	settingsInstBranch := ""
 	settingsWebURL := ""
@@ -873,9 +883,6 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 		if json.Unmarshal(ws.Settings, &settingsMap) == nil {
 			if v, ok := settingsMap["gitea_pat"].(string); ok {
 				pat = strings.TrimSpace(v)
-			}
-			if v, ok := settingsMap["gitea_bot_username"].(string); ok {
-				botUser = v
 			}
 			if v, ok := settingsMap["gitea_clone_url"].(string); ok {
 				settingsCloneURL = v
@@ -888,69 +895,43 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 			}
 		}
 	}
-	if pat == "" {
+	if pat == "" || strings.TrimSpace(settingsCloneURL) == "" || strings.TrimSpace(settingsInstBranch) == "" {
 		return nil
 	}
-	// Clone URL: prefer settings value (== repos[].URL) so cs-cloud's role lookup
-	// matches; fall back to self-assembly only when pre-provisioning.
-	var cloneURL string
-	if strings.TrimSpace(settingsCloneURL) != "" {
-		cloneURL = RewriteGiteaHostToPublic(settingsCloneURL)
-	} else {
-		cloneURL = strings.TrimRight(publicBase, "/") + "/" + owner + "/" + repo + ".git"
+	// Clone URL MUST come from the workflow provisioning bundle (== repos[].URL)
+	// so cs-cloud's role lookup and PR API both target the workflow's repo.
+	cloneURL := RewriteGiteaHostToPublic(settingsCloneURL)
+	owner, repo, ok := giteaOwnerRepoFromCloneURL(cloneURL)
+	if !ok {
+		return nil
 	}
 	// Base URL: prefer settings gitea_web_url, normalized to the Gitea server
 	// root (cs-cloud's PR API targets .../api/v1/repos/{owner}/{repo}/pulls, and
 	// gitea_web_url carries the repo web URL, not the server root); fall back to
-	// GITEA_PUBLIC_BASE_URL.
+	// the clone URL's server root.
 	var baseURL string
 	if strings.TrimSpace(settingsWebURL) != "" {
 		baseURL = giteaServerRoot(RewriteGiteaHostToPublic(settingsWebURL), cloneURL)
 	} else {
-		baseURL = strings.TrimRight(publicBase, "/")
+		baseURL = giteaCloneServerRoot(cloneURL)
 	}
-	authedCloneURL := injectGiteaToken(cloneURL, botUser, pat)
-	// Inst branch: prefer settings last_instance_branch (matches repos[].BaseBranch);
-	// fall back to the deterministic run-ID derivation.
-	var instBranch string
-	if strings.TrimSpace(settingsInstBranch) != "" {
-		instBranch = strings.TrimSpace(settingsInstBranch)
-	} else {
-		instBranch = gitea.InstBranch(util.UUIDToString(run.ID))
+	if baseURL == "" {
+		return nil
 	}
+	// Inst branch comes from workflow provisioning and matches repos[].BaseBranch.
+	instBranch := strings.TrimSpace(settingsInstBranch)
 	nodeBranch := gitea.NodeBranch(nodeSeq, nodeRunIDStr)
-	out := map[string]string{
-		"CS_CLOUD_NODE_RUN_ID":           nodeRunIDStr,
-		"CS_CLOUD_REPO_PROVIDER":         "gitea",
-		"CS_CLOUD_REPO_OWNER":            owner,
-		"CS_CLOUD_REPO_NAME":             repo,
-		"CS_CLOUD_REPO_BASE_URL":         baseURL,
-		"CS_CLOUD_REPO_TOKEN":            pat,
-		"CS_CLOUD_REPO_CLONE_URL":        cloneURL,
-		"CS_CLOUD_REPO_CLONE_URL_AUTHED": authedCloneURL,
-		"CS_CLOUD_REPO_INST_BRANCH":      instBranch,
-		"CS_CLOUD_REPO_NODE_BRANCH":      nodeBranch,
-		"CS_CLOUD_REPO_DELIVERABLES":     string(refsJSON),
+	return map[string]string{
+		"CS_CLOUD_NODE_RUN_ID":        nodeRunIDStr,
+		"CS_CLOUD_GITEA_OWNER":        owner,
+		"CS_CLOUD_GITEA_REPO":         repo,
+		"CS_CLOUD_GITEA_BASE_URL":     baseURL,
+		"CS_CLOUD_GITEA_TOKEN":        pat,
+		"CS_CLOUD_GITEA_CLONE_URL":    cloneURL,
+		"CS_CLOUD_GITEA_INST_BRANCH":  instBranch,
+		"CS_CLOUD_GITEA_NODE_BRANCH":  nodeBranch,
+		"CS_CLOUD_GITEA_DELIVERABLES": string(refsJSON),
 	}
-	// CROSS-REPO CONTRACT: cs-cloud's deliverable-submit CLI (internal/cli/gitea.go
-	// readGiteaContext) reads ONLY the legacy CS_CLOUD_GITEA_* names; the aliasing
-	// below is the sole bridge between the renamed CS_CLOUD_REPO_* env and that
-	// legacy reader. Do NOT remove this aliasing without migrating cs-cloud to
-	// read CS_CLOUD_REPO_* directly.
-	for oldKey, newKey := range map[string]string{
-		"CS_CLOUD_GITEA_OWNER":            "CS_CLOUD_REPO_OWNER",
-		"CS_CLOUD_GITEA_REPO":             "CS_CLOUD_REPO_NAME",
-		"CS_CLOUD_GITEA_BASE_URL":         "CS_CLOUD_REPO_BASE_URL",
-		"CS_CLOUD_GITEA_TOKEN":            "CS_CLOUD_REPO_TOKEN",
-		"CS_CLOUD_GITEA_CLONE_URL":        "CS_CLOUD_REPO_CLONE_URL",
-		"CS_CLOUD_GITEA_CLONE_URL_AUTHED": "CS_CLOUD_REPO_CLONE_URL_AUTHED",
-		"CS_CLOUD_GITEA_INST_BRANCH":      "CS_CLOUD_REPO_INST_BRANCH",
-		"CS_CLOUD_GITEA_NODE_BRANCH":      "CS_CLOUD_REPO_NODE_BRANCH",
-		"CS_CLOUD_GITEA_DELIVERABLES":     "CS_CLOUD_REPO_DELIVERABLES",
-	} {
-		out[oldKey] = out[newKey]
-	}
-	return out
 }
 
 func (s *TaskService) giteaDeliverableEnv(ctx context.Context, task db.MulticaAgentTaskQueue) map[string]string {
@@ -1009,6 +990,42 @@ func giteaServerRoot(webURL, cloneURL string) string {
 	return b
 }
 
+func giteaCloneServerRoot(cloneURL string) string {
+	u, err := url.Parse(strings.TrimSpace(cloneURL))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	u.User = nil
+	u.Path = ""
+	u.RawPath = ""
+	u.RawQuery = ""
+	u.Fragment = ""
+	return strings.TrimRight(u.String(), "/")
+}
+
+func giteaOwnerRepoFromCloneURL(cloneURL string) (owner, repo string, ok bool) {
+	u, err := url.Parse(strings.TrimSpace(cloneURL))
+	if err != nil || u.Path == "" {
+		return "", "", false
+	}
+	path := strings.TrimSuffix(strings.TrimRight(u.Path, "/"), ".git")
+	segs := strings.Split(path, "/")
+	if len(segs) < 3 {
+		return "", "", false
+	}
+	owner, err = url.PathUnescape(segs[len(segs)-2])
+	if err != nil {
+		return "", "", false
+	}
+	repo, err = url.PathUnescape(segs[len(segs)-1])
+	if err != nil {
+		return "", "", false
+	}
+	owner = strings.TrimSpace(owner)
+	repo = strings.TrimSpace(repo)
+	return owner, repo, owner != "" && repo != ""
+}
+
 // RewriteGiteaHostToPublic swaps a Gitea URL's scheme+host+port from the
 // container-internal GITEA_BASE_URL to the caller-reachable
 // GITEA_PUBLIC_BASE_URL, preserving the path. costrict-web's team-namespace
@@ -1023,7 +1040,7 @@ func giteaServerRoot(webURL, cloneURL string) string {
 // input unchanged when GITEA_PUBLIC_BASE_URL is unset (single-host deploy),
 // when GITEA_BASE_URL is unset (nothing to match), or on any parse failure.
 // Both resolveDeliveryRepo (repos[].URL) and repositoryDeliverableEnv
-// (CS_CLOUD_REPO_CLONE_URL) run settings.gitea_clone_url through this helper,
+// (CS_CLOUD_GITEA_CLONE_URL) run settings.gitea_clone_url through this helper,
 // so the cross-repo EXACT-equality contract (cs-cloud lookupRepoRole) is
 // preserved: both sides get the SAME rewritten public URL.
 func RewriteGiteaHostToPublic(rawURL string) string {
@@ -1331,7 +1348,7 @@ type giteaProvisioningBundle struct {
 
 // complete reports whether the bundle carries all three fields needed to act.
 // A delivery repo without a PAT is useless — the agent authenticates via
-// CS_CLOUD_REPO_TOKEN=pat — so PAT presence is required even though the spec's
+// CS_CLOUD_GITEA_TOKEN=pat — so PAT presence is required even though the spec's
 // URL/BaseBranch/Alias don't directly carry it.
 func (b giteaProvisioningBundle) complete() bool {
 	return strings.TrimSpace(b.GiteaCloneURL) != "" &&
@@ -1372,7 +1389,7 @@ func (s *TaskService) settingsLackGiteaData(ctx context.Context, workspaceID pgt
 //
 // Timing: buildCSCloudPayload runs the safety net BEFORE env/repos[] assembly,
 // so when provisioning succeeds here, the current dispatch's repositoryDeliverableEnv
-// (CS_CLOUD_REPO_* env) and resolveDeliveryRepo (repos[] role=delivery) read the
+// (CS_CLOUD_GITEA_* env) and resolveDeliveryRepo (repos[] role=delivery) read the
 // just-persisted settings on the SAME dispatch — no stale-credentials gap. The
 // idempotent re-run on retry / next round is a harmless no-op.
 func (s *TaskService) ensureDeliveryRepo(ctx context.Context, task db.MulticaAgentTaskQueue) error {

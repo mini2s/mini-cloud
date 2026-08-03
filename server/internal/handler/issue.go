@@ -2677,6 +2677,7 @@ func (h *Handler) startDefaultWorkflowRunForIssue(ctx context.Context, issue db.
 		ID:            issue.ID,
 		AssigneeType:  issue.AssigneeType,
 		AssigneeID:    issue.AssigneeID,
+		ResponsibleUserID: issue.ResponsibleUserID,
 		StartDate:     issue.StartDate,
 		DueDate:       issue.DueDate,
 		ParentIssueID: issue.ParentIssueID,
@@ -2708,6 +2709,11 @@ func (h *Handler) stopIssueExecutionForStatus(ctx context.Context, prevIssue, is
 	case "done":
 		if err := h.WorkflowService.CompleteRunManually(ctx, runID); err != nil {
 			slog.Warn("failed to complete workflow run after issue moved to done",
+				"issue_id", uuidToString(issue.ID), "workflow_run_id", uuidToString(runID), "error", err)
+		}
+	case "in_review":
+		if err := h.WorkflowService.TransitionWorkingToCritic(ctx, runID); err != nil {
+			slog.Warn("failed to push working nodes to critic after issue moved to in_review",
 				"issue_id", uuidToString(issue.ID), "workflow_run_id", uuidToString(runID), "error", err)
 		}
 	default:
@@ -2937,16 +2943,17 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 		}
 
 		params := db.UpdateIssueParams{
-			ID:            prevIssue.ID,
-			AssigneeType:  prevIssue.AssigneeType,
-			AssigneeID:    prevIssue.AssigneeID,
-			StartDate:     prevIssue.StartDate,
-			DueDate:       prevIssue.DueDate,
-			ParentIssueID: prevIssue.ParentIssueID,
-			ProjectID:     prevIssue.ProjectID,
-			WorkflowID:    prevIssue.WorkflowID,
-			WorkflowRunID: prevIssue.WorkflowRunID,
-			StageID:       prevIssue.StageID,
+			ID:                prevIssue.ID,
+			AssigneeType:      prevIssue.AssigneeType,
+			AssigneeID:        prevIssue.AssigneeID,
+			ResponsibleUserID: prevIssue.ResponsibleUserID,
+			StartDate:         prevIssue.StartDate,
+			DueDate:           prevIssue.DueDate,
+			ParentIssueID:     prevIssue.ParentIssueID,
+			ProjectID:         prevIssue.ProjectID,
+			WorkflowID:        prevIssue.WorkflowID,
+			WorkflowRunID:     prevIssue.WorkflowRunID,
+			StageID:           prevIssue.StageID,
 		}
 
 		if req.Updates.Title != nil {
@@ -3496,6 +3503,7 @@ func (h *Handler) injectDownstreamContext(ctx context.Context, run db.MulticaWor
 			Priority:      pgtype.Text{String: issue.Priority, Valid: true},
 			AssigneeType:  issue.AssigneeType,
 			AssigneeID:    issue.AssigneeID,
+			ResponsibleUserID: issue.ResponsibleUserID,
 			Position:      pgtype.Float8{Float64: issue.Position, Valid: true},
 			StartDate:     issue.StartDate,
 			DueDate:       issue.DueDate,

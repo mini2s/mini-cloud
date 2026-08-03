@@ -849,7 +849,6 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   const workflowAssigneeId = issue?.assignee_type === "workflow" ? issue.assignee_id : null;
   const shouldUseDefaultWorkflow =
     !!issue &&
-    issue.status !== "backlog" &&
     issue.assignee_type !== "workflow" &&
     !!issue.assignee_type &&
     !!issue.assignee_id &&

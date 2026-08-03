@@ -639,6 +639,17 @@ export interface UpdateNodeRequest {
   sort_order?: number;
 }
 
+// Patches a node run's worker/critic in place. Only the fields you pass are
+// changed; an omitted field keeps the existing value, an explicit null clears
+// it. Only valid while the node run is in the pre-execution window for that
+// role (see isNodeRunAssigneeEditable).
+export interface UpdateNodeRunAssigneesRequest {
+  worker_type?: WorkerType;
+  worker_id?: string | null;
+  critic_type?: CriticType;
+  critic_id?: string | null;
+}
+
 export interface CreateEdgeRequest {
   source_node_id: string;
   target_node_id: string;

@@ -130,6 +130,7 @@ import type {
   UpdateWorkflowRequest,
   CreateNodeRequest,
   UpdateNodeRequest,
+  UpdateNodeRunAssigneesRequest,
   CreateEdgeRequest,
   CreateStageRequest,
   UpdateStageRequest,
@@ -2316,6 +2317,13 @@ export class ApiClient {
 
   async updateWorkflowNode(workflowId: string, nodeId: string, req: UpdateNodeRequest): Promise<WorkflowNode> {
     return this.fetch(`/api/workflows/${workflowId}/nodes/${nodeId}`, {
+      method: "PUT",
+      body: JSON.stringify(req),
+    });
+  }
+
+  async updateNodeRunAssignees(nodeRunId: string, req: UpdateNodeRunAssigneesRequest): Promise<WorkflowNodeRun> {
+    return this.fetch(`/api/node-runs/${nodeRunId}/assignees`, {
       method: "PUT",
       body: JSON.stringify(req),
     });

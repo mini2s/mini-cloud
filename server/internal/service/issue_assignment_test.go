@@ -70,3 +70,53 @@ func TestIssueAssignmentServiceStampsFailedWorkflowRun(t *testing.T) {
 		t.Fatalf("workflow_run_id=%v, want failed run %v", updated.WorkflowRunID, invalid.RunID)
 	}
 }
+
+// TestStampWorkflowRunPreservesResponsibleUser guards the regression where
+// stampWorkflowRun's UpdateIssue call forgot to carry ResponsibleUserID:
+// because the UpdateIssue SQL assigns responsible_user_id from a bare
+// sqlc.narg (no COALESCE), omitting it writes NULL, wiping the field whenever
+// a member dragged an issue to in_progress and the default workflow fired.
+func TestStampWorkflowRunPreservesResponsibleUser(t *testing.T) {
+	fixture := newWorkflowPrepareFixture(t, false)
+	defer fixture.cleanup(t)
+
+	queries := db.New(fixture.pool)
+	issue, err := queries.CreateIssue(fixture.ctx, db.CreateIssueParams{
+		WorkspaceID:       fixture.workspaceID,
+		Title:             "preserve responsible on stamp",
+		Status:            "in_progress",
+		Priority:          "none",
+		AssigneeType:      pgtype.Text{String: "workflow", Valid: true},
+		AssigneeID:        fixture.workflowID,
+		ResponsibleUserID: fixture.userID,
+		CreatorType:       "member",
+		CreatorID:         fixture.userID,
+		Number:            1,
+		WorkflowID:        fixture.workflowID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assignment := &IssueAssignmentService{
+		Queries:   queries,
+		Tasks:     &TaskService{Queries: queries},
+		Workflows: fixture.service,
+	}
+	_ = assignment.AfterIssueAssigned(
+		fixture.ctx,
+		db.MulticaIssue{},
+		issue,
+		AssignmentActor{Type: "member", ID: fixture.userID},
+		RuntimeSelection{},
+	)
+
+	updated, err := queries.GetIssue(fixture.ctx, issue.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ResponsibleUserID != issue.ResponsibleUserID {
+		t.Fatalf("responsible_user_id = %v, want %v (stampWorkflowRun cleared it)",
+			updated.ResponsibleUserID, issue.ResponsibleUserID)
+	}
+}

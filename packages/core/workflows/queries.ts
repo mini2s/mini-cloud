@@ -5,6 +5,7 @@ import type {
   UpdateWorkflowRequest,
   CreateNodeRequest,
   UpdateNodeRequest,
+  UpdateNodeRunAssigneesRequest,
   CreateEdgeRequest,
   CreateStageRequest,
   UpdateStageRequest,
@@ -336,6 +337,17 @@ export function useUpdateNode(wsId: string, workflowId: string) {
       api.updateWorkflowNode(workflowId, nodeId, req),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workflowKeys.nodes(wsId, workflowId) });
+    },
+  });
+}
+
+export function useUpdateNodeRunAssignees(wsId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeRunId, ...req }: UpdateNodeRunAssigneesRequest & { nodeRunId: string }) =>
+      api.updateNodeRunAssignees(nodeRunId, req),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: workflowKeys.all(wsId) });
     },
   });
 }
