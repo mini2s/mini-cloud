@@ -1099,3 +1099,13 @@ type UserAuthIdentity struct {
 	DeletedAt         pgtype.Timestamptz `json:"deleted_at"`
 	ExplicitlyUnbound bool               `json:"explicitly_unbound"`
 }
+
+type UserSystemRole struct {
+	ID        string             `json:"id"`
+	UserID    string             `json:"user_id"`
+	Role      string             `json:"role"`
+	GrantedBy pgtype.Text        `json:"granted_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+}

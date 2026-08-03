@@ -74,6 +74,7 @@ export function IssueActionsDropdown({
           }
           trigger={<span />}
           align={align}
+          skipRuntimeSelection
         />
       )}
     </span>

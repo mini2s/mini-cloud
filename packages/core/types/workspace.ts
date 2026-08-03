@@ -57,6 +57,14 @@ export interface User {
   profile_description: string;
   /** Pinned IANA tz; null means "use browser-detected tz at render time". */
   timezone: string | null;
+  /**
+   * Effective workflow-admin permission, resolved server-side: the costrict
+   * platform_admin role in integrated deployments, the legacy local flag
+   * otherwise. Defaults to false against older backends (fail closed).
+   */
+  can_manage_workflows: boolean;
+  /** "platform" = costrict user_system_roles; "local" = multica fallback. */
+  workflow_admin_source: string;
   created_at: string;
   updated_at: string;
 }

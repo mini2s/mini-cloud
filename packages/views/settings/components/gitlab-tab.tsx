@@ -3,25 +3,20 @@
 import { useState, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Copy, Eye, EyeOff, GitBranch, RefreshCw } from "lucide-react";
+import { Copy, Eye, EyeOff, RefreshCw } from "lucide-react";
 import { Button } from "@multica/ui/components/ui/button";
 import { Card, CardContent } from "@multica/ui/components/ui/card";
 import { Input } from "@multica/ui/components/ui/input";
 import { Label } from "@multica/ui/components/ui/label";
-import { Switch } from "@multica/ui/components/ui/switch";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useCurrentWorkspace } from "@multica/core/paths";
 import { useAuthStore } from "@multica/core/auth";
 import { memberListOptions, workspaceKeys } from "@multica/core/workspace/queries";
-import {
-  deriveGitlabSettings,
-  gitlabSettingsOptions,
-} from "@multica/core/gitlab";
+import { gitlabSettingsOptions } from "@multica/core/gitlab";
 import { api } from "@multica/core/api";
 import type { Workspace } from "@multica/core/types";
 import { useT } from "../../i18n";
-
-type SettingsKey = "gitlab_enabled";
+import { RepositoriesSection } from "./repositories-section";
 
 export function GitlabTab() {
   const { t } = useT("settings");
@@ -40,9 +35,6 @@ export function GitlabTab() {
   });
   // Fallback to workspace role when backend response lacks can_manage
   const canManage = gitlabSettings?.canManage === true || hasAdminRole;
-
-  const flags = deriveGitlabSettings(workspace);
-  const [savingKey, setSavingKey] = useState<SettingsKey | null>(null);
 
   // Webhook token from workspace settings
   const webhookToken =
@@ -75,28 +67,7 @@ export function GitlabTab() {
   const hasAccessToken =
     ((workspace?.settings as Record<string, unknown>)?.gitlab_access_token as string)?.length > 0;
 
-  const configured =
-    gitlabSettings?.configured === true ||
-    (flags.enabled && hasAccessToken);
-
-  async function persistSetting(key: SettingsKey, next: boolean) {
-    if (!workspace || savingKey) return;
-    setSavingKey(key);
-    try {
-      const merged = {
-        ...((workspace.settings as Record<string, unknown>) ?? {}),
-        [key]: next,
-      };
-      const updated = await api.updateWorkspace(workspace.id, { settings: merged });
-      qc.setQueryData(workspaceKeys.list(), (old: Workspace[] | undefined) =>
-        old?.map((ws) => (ws.id === updated.id ? updated : ws)),
-      );
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t(($) => $.gitlab.toast_failed));
-    } finally {
-      setSavingKey(null);
-    }
-  }
+  const configured = gitlabSettings?.configured === true || hasAccessToken;
 
   async function handleRegenerateToken() {
     if (regenerating || !workspace) return;
@@ -158,36 +129,6 @@ export function GitlabTab() {
         <p className="text-sm text-muted-foreground">
           {t(($) => $.gitlab.page_description)}
         </p>
-      </section>
-
-      <section className="space-y-3">
-        <Card>
-          <CardContent>
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className="rounded-md border bg-muted/50 p-2 text-muted-foreground">
-                  <GitBranch className="h-4 w-4" />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="gitlab-master" className="text-sm font-medium">
-                    {t(($) => $.gitlab.section_master)}
-                  </Label>
-                  <p className="text-sm text-muted-foreground">
-                    {flags.enabled
-                      ? t(($) => $.gitlab.master_description_on)
-                      : t(($) => $.gitlab.master_description_off)}
-                  </p>
-                </div>
-              </div>
-              <Switch
-                id="gitlab-master"
-                checked={flags.enabled}
-                onCheckedChange={(v) => persistSetting("gitlab_enabled", v)}
-                disabled={!canManage || savingKey === "gitlab_enabled"}
-              />
-            </div>
-          </CardContent>
-        </Card>
       </section>
 
       <section className="space-y-3">
@@ -335,6 +276,8 @@ export function GitlabTab() {
           </CardContent>
         </Card>
       </section>
+
+      <RepositoriesSection host="other" />
     </div>
   );
 }

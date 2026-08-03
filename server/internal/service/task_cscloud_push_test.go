@@ -209,7 +209,7 @@ func scanAgent(a *db.MulticaAgent, dest []any) error {
 func scanIssue(i *db.MulticaIssue, dest []any) error {
 	vals := []any{
 		&i.ID, &i.WorkspaceID, &i.Title, &i.Description, &i.Status,
-		&i.Priority, &i.AssigneeType, &i.AssigneeID, &i.ResponsibleUserID, &i.CreatorType,
+		&i.Priority, &i.AssigneeType, &i.AssigneeID, &i.CreatorType,
 		&i.CreatorID, &i.ParentIssueID, &i.AcceptanceCriteria,
 		&i.ContextRefs, &i.Position, &i.DueDate, &i.CreatedAt,
 		&i.UpdatedAt,
@@ -641,7 +641,7 @@ func scanWorkspaceFull(w *db.MulticaWorkspace, dest []any) error {
 func scanIssueFull(i *db.MulticaIssue, dest []any) error {
 	vals := []any{
 		&i.ID, &i.WorkspaceID, &i.Title, &i.Description, &i.Status,
-		&i.Priority, &i.AssigneeType, &i.AssigneeID, &i.ResponsibleUserID, &i.CreatorType,
+		&i.Priority, &i.AssigneeType, &i.AssigneeID, &i.CreatorType,
 		&i.CreatorID, &i.ParentIssueID, &i.AcceptanceCriteria,
 		&i.ContextRefs, &i.Position, &i.DueDate, &i.CreatedAt,
 		&i.UpdatedAt, &i.Number, &i.ProjectID, &i.OriginType,
@@ -721,10 +721,13 @@ func TestResolveCodeRepo_FallbackAllWorkspaceRepos(t *testing.T) {
 	svc := &TaskService{Queries: db.New(mdb)}
 	task := db.MulticaAgentTaskQueue{IssueID: testUUID(5)}
 
-	repos, token, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
+	repos, tokens, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
 
-	if token != "tok-abc" {
-		t.Fatalf("gitlab token = %q, want tok-abc", token)
+	if tokens.GitlabToken != "tok-abc" {
+		t.Fatalf("gitlab token = %q, want tok-abc", tokens.GitlabToken)
+	}
+	if tokens.GithubToken != "" {
+		t.Fatalf("github token = %q, want empty", tokens.GithubToken)
 	}
 	if projectID != "" {
 		t.Fatalf("projectID = %q, want empty", projectID)
@@ -781,10 +784,13 @@ func TestResolveCodeRepo_ProjectResourcesOverrideWorkspace(t *testing.T) {
 	svc := &TaskService{Queries: db.New(mdb)}
 	task := db.MulticaAgentTaskQueue{IssueID: testUUID(5)}
 
-	repos, token, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
+	repos, tokens, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
 
-	if token != "tok-xyz" {
-		t.Fatalf("gitlab token = %q, want tok-xyz", token)
+	if tokens.GitlabToken != "tok-xyz" {
+		t.Fatalf("gitlab token = %q, want tok-xyz", tokens.GitlabToken)
+	}
+	if tokens.GithubToken != "" {
+		t.Fatalf("github token = %q, want empty", tokens.GithubToken)
 	}
 	if projectID != util.UUIDToString(projID) {
 		t.Fatalf("projectID = %q, want %s", projectID, util.UUIDToString(projID))
@@ -830,10 +836,10 @@ func TestResolveCodeRepo_ProjectNoGithubRepoFallsBackToWorkspace(t *testing.T) {
 	svc := &TaskService{Queries: db.New(mdb)}
 	task := db.MulticaAgentTaskQueue{IssueID: testUUID(5)}
 
-	repos, token, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
+	repos, tokens, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
 
-	if token != "tok-fb" {
-		t.Fatalf("gitlab token = %q, want tok-fb", token)
+	if tokens.GitlabToken != "tok-fb" {
+		t.Fatalf("gitlab token = %q, want tok-fb", tokens.GitlabToken)
 	}
 	if projectID != util.UUIDToString(projID) {
 		t.Fatalf("projectID = %q, want %s", projectID, util.UUIDToString(projID))
@@ -861,13 +867,16 @@ func TestResolveCodeRepo_NoIssueReturnsEmpty(t *testing.T) {
 	svc := &TaskService{Queries: db.New(mdb)}
 	task := db.MulticaAgentTaskQueue{} // IssueID not valid
 
-	repos, token, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
+	repos, tokens, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
 
 	if len(repos) != 1 {
 		t.Fatalf("repos count = %d, want 1", len(repos))
 	}
-	if token != "" {
-		t.Fatalf("token = %q, want empty", token)
+	if tokens.GitlabToken != "" {
+		t.Fatalf("gitlab token = %q, want empty", tokens.GitlabToken)
+	}
+	if tokens.GithubToken != "" {
+		t.Fatalf("github token = %q, want empty", tokens.GithubToken)
 	}
 	if projectID != "" {
 		t.Fatalf("projectID = %q, want empty", projectID)
@@ -888,8 +897,8 @@ func TestAppendCodeRepoPrompt_MultiRepo(t *testing.T) {
 	if !strings.Contains(got, "cs-cloud workflow deliverable submit --repo") {
 		t.Fatalf("prompt missing CLI submit instruction:\n%s", got)
 	}
-	if !strings.Contains(got, "--mr") {
-		t.Fatalf("prompt missing --mr flag:\n%s", got)
+	if strings.Contains(got, "--mr") {
+		t.Fatalf("prompt must not hardcode --mr (cs-cloud reads CS_CLOUD_CODE_PROVIDER):\n%s", got)
 	}
 	if strings.Contains(got, "平台会自动") || strings.Contains(got, "平台自动提交") {
 		t.Fatalf("prompt must NOT say platform auto-MR (old wording):\n%s", got)
@@ -903,6 +912,39 @@ func TestAppendCodeRepoPrompt_NoAliasFallsBackToURL(t *testing.T) {
 	got := appendCodeRepoPrompt("", repos)
 	if !strings.Contains(got, "https://gitlab.example.com/a/r.git") {
 		t.Fatalf("prompt missing URL when no alias:\n%s", got)
+	}
+}
+
+func TestAppendCodeRepoPrompt_GitlabAuth(t *testing.T) {
+	repos := []csCloudRepoSpec{
+		{URL: "https://gitlab.example.com/a/backend.git", Provider: "gitlab", Role: "code"},
+	}
+	got := appendCodeRepoPrompt("", repos)
+	if !strings.Contains(got, "oauth2:${CS_CLOUD_GITLAB_TOKEN}@") {
+		t.Fatalf("gitlab prompt missing oauth2 auth hint:\n%s", got)
+	}
+}
+
+func TestAppendCodeRepoPrompt_GithubAuth(t *testing.T) {
+	repos := []csCloudRepoSpec{
+		{URL: "https://github.com/org/repo.git", Provider: "github", Role: "code"},
+	}
+	got := appendCodeRepoPrompt("", repos)
+	if !strings.Contains(got, "x-access-token:${CS_CLOUD_GITHUB_TOKEN}@") {
+		t.Fatalf("github prompt missing x-access-token auth hint:\n%s", got)
+	}
+}
+
+func TestAppendCodeRepoPrompt_NoHardcodedMrFlag(t *testing.T) {
+	repos := []csCloudRepoSpec{
+		{URL: "https://github.com/org/repo.git", Provider: "github", Role: "code"},
+	}
+	got := appendCodeRepoPrompt("", repos)
+	if strings.Contains(got, "--mr") {
+		t.Fatalf("prompt must not hardcode --mr (cs-cloud reads CS_CLOUD_CODE_PROVIDER):\n%s", got)
+	}
+	if !strings.Contains(got, "cs-cloud workflow deliverable submit") {
+		t.Fatalf("prompt missing submit instruction:\n%s", got)
 	}
 }
 
@@ -2743,5 +2785,105 @@ func TestResolveCSCloudAddons_CloudSkillsPassedThrough(t *testing.T) {
 	}
 	if s.Install == nil || s.Install.Spec != "code-review" || s.Install.Method != "csc" || !s.Install.Verified {
 		t.Errorf("install metadata not passed through: %+v", s.Install)
+	}
+}
+
+func TestCodeRepoProvider(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{"github.com HTTPS", "https://github.com/org/repo.git", "github"},
+		{"github.com SSH scheme", "git@github.com:org/repo.git", "github"},
+		{"github.com uppercase", "HTTPS://GITHUB.COM/ORG/REPO.GIT", "github"},
+		{"gitlab.com", "https://gitlab.com/group/repo.git", "gitlab"},
+		{"self-hosted gitlab", "https://gitlab.example.com/group/repo.git", "gitlab"},
+		{"self-hosted gitea (code repo via github_repo resource)", "https://gitea.local/org/repo.git", "gitlab"},
+		{"empty", "", "gitlab"},
+		{"bare hostname", "github.com/org/r", "github"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := codeRepoProvider(tc.url); got != tc.want {
+				t.Errorf("codeRepoProvider(%q) = %q, want %q", tc.url, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveCodeRepo_GithubCodeRepoInfersGithubProvider(t *testing.T) {
+	wsRepos, _ := json.Marshal([]struct{ URL string }{
+		{URL: "https://github.com/org/backend.git"},
+	})
+	wsSettings, _ := json.Marshal(struct {
+		GitlabAccessToken string `json:"gitlab_access_token"`
+		GithubAccessToken string `json:"github_access_token"`
+	}{GitlabAccessToken: "tok-gl", GithubAccessToken: "tok-gh"})
+	mdb := &resolveTestDB{
+		workspace: &db.MulticaWorkspace{
+			ID:       testUUID(1),
+			Repos:    wsRepos,
+			Settings: wsSettings,
+		},
+		issue: &db.MulticaIssue{ID: testUUID(5), WorkspaceID: testUUID(1)},
+	}
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{IssueID: testUUID(5)}
+
+	repos, tokens, projectID := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
+
+	if tokens.GithubToken != "tok-gh" {
+		t.Fatalf("github token = %q, want tok-gh", tokens.GithubToken)
+	}
+	if tokens.GitlabToken != "tok-gl" {
+		t.Fatalf("gitlab token = %q, want tok-gl (still read even when repos are github)", tokens.GitlabToken)
+	}
+	if len(repos) != 1 {
+		t.Fatalf("repos count = %d, want 1", len(repos))
+	}
+	if repos[0].Provider != "github" {
+		t.Fatalf("repo provider = %q, want github", repos[0].Provider)
+	}
+	if projectID != "" {
+		t.Fatalf("projectID = %q, want empty", projectID)
+	}
+}
+
+func TestResolveCodeRepo_MixedProjectResourcesInferPerRepoProvider(t *testing.T) {
+	wsSettings, _ := json.Marshal(struct {
+		GitlabAccessToken string `json:"gitlab_access_token"`
+		GithubAccessToken string `json:"github_access_token"`
+	}{GitlabAccessToken: "tok-gl", GithubAccessToken: "tok-gh"})
+	mdb := &resolveTestDB{
+		workspace: &db.MulticaWorkspace{
+			ID:       testUUID(1),
+			Settings: wsSettings,
+		},
+		issue: &db.MulticaIssue{ID: testUUID(5), WorkspaceID: testUUID(1), ProjectID: testUUID(10)},
+		projResRows: []db.MulticaProjectResource{
+			{ResourceType: "github_repo", ResourceRef: []byte(`{"url":"https://github.com/org/repo-a.git"}`)},
+			{ResourceType: "github_repo", ResourceRef: []byte(`{"url":"https://gitlab.example.com/org/repo-b.git"}`)},
+		},
+	}
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{IssueID: testUUID(5)}
+
+	repos, tokens, _ := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
+
+	if tokens.GitlabToken != "tok-gl" {
+		t.Fatalf("gitlab token = %q, want tok-gl", tokens.GitlabToken)
+	}
+	if tokens.GithubToken != "tok-gh" {
+		t.Fatalf("github token = %q, want tok-gh", tokens.GithubToken)
+	}
+	if len(repos) != 2 {
+		t.Fatalf("repos count = %d, want 2", len(repos))
+	}
+	if repos[0].Provider != "github" {
+		t.Fatalf("repos[0] provider = %q, want github", repos[0].Provider)
+	}
+	if repos[1].Provider != "gitlab" {
+		t.Fatalf("repos[1] provider = %q, want gitlab", repos[1].Provider)
 	}
 }

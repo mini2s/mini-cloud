@@ -31,6 +31,10 @@ func registerSubscriberListeners(bus *events.Bus, queries *db.Queries) {
 			addSubscriber(bus, queries, e.WorkspaceID, issue.ID, "member", *issue.ResponsibleUserID, "responsible")
 		}
 
+		if issue.AssigneeType != nil && issue.AssigneeID != nil && *issue.AssigneeID != "" {
+			addSubscriber(bus, queries, e.WorkspaceID, issue.ID, *issue.AssigneeType, *issue.AssigneeID, "assignee")
+		}
+
 		// Subscribe @mentioned users in description
 		if issue.Description != nil && *issue.Description != "" {
 			for _, m := range parseMentions(*issue.Description) {
@@ -128,6 +132,9 @@ func extractIssueFields(v any) (handler.IssueResponse, bool) {
 	issue := handler.IssueResponse{}
 	issue.ID, _ = m["id"].(string)
 	issue.WorkspaceID, _ = m["workspace_id"].(string)
+	issue.Title, _ = m["title"].(string)
+	issue.Status, _ = m["status"].(string)
+	issue.Priority, _ = m["priority"].(string)
 	issue.CreatorType, _ = m["creator_type"].(string)
 	issue.CreatorID, _ = m["creator_id"].(string)
 	issue.AssigneeType = optionalString(m["assignee_type"])
@@ -140,15 +147,15 @@ func extractIssueFields(v any) (handler.IssueResponse, bool) {
 	return issue, true
 }
 
-func optionalString(v any) *string {
-	switch value := v.(type) {
+func optionalString(value any) *string {
+	switch v := value.(type) {
 	case *string:
-		return value
+		return v
 	case string:
-		if value == "" {
+		if v == "" {
 			return nil
 		}
-		return &value
+		return &v
 	default:
 		return nil
 	}

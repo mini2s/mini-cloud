@@ -143,7 +143,13 @@ func (s *IssueAssignmentService) AfterIssueAssigned(
 		if err != nil || agent.ArchivedAt.Valid || (!agent.RuntimeID.Valid && !agent.IsBuiltin) {
 			return nil
 		}
-		_, err = s.Tasks.EnqueueTaskForIssue(ctx, issue, pgtype.UUID{}, runtimeSelection.RuntimeID)
+		runtimeID := runtimeSelection.RuntimeID
+		if agent.IsBuiltin {
+			if resolved := s.resolveIssueRuntime(ctx, issue, actor, runtimeSelection.Policy, runtimeID); resolved.Valid {
+				runtimeID = resolved
+			}
+		}
+		_, err = s.Tasks.EnqueueTaskForIssue(ctx, issue, pgtype.UUID{}, runtimeID)
 		return err
 	case "squad":
 		squad, err := s.Queries.GetSquadInWorkspace(ctx, db.GetSquadInWorkspaceParams{ID: issue.AssigneeID, WorkspaceID: issue.WorkspaceID})
@@ -162,7 +168,13 @@ func (s *IssueAssignmentService) AfterIssueAssigned(
 		if err != nil || hasPending {
 			return err
 		}
-		_, err = s.Tasks.EnqueueTaskForSquadLeader(ctx, issue, squad.LeaderID, pgtype.UUID{})
+		runtimeID := runtimeSelection.RuntimeID
+		if leader.IsBuiltin {
+			if resolved := s.resolveIssueRuntime(ctx, issue, actor, runtimeSelection.Policy, runtimeID); resolved.Valid {
+				runtimeID = resolved
+			}
+		}
+		_, err = s.Tasks.EnqueueTaskForSquadLeader(ctx, issue, squad.LeaderID, pgtype.UUID{}, runtimeID)
 		return err
 	case "member":
 		s.startDefaultWorkflow(ctx, issue)
@@ -195,6 +207,39 @@ func (s *IssueAssignmentService) AfterIssueAssigned(
 		return s.stampWorkflowRun(ctx, issue, issue.AssigneeID, run.ID)
 	}
 	return nil
+}
+
+// resolveIssueRuntime resolves a concrete runtime for an issue's run-now
+// dispatch using the same policy semantics as workflow runtime selection. Used
+// for built-in agent and squad-leader dispatch. Returns an invalid UUID on any
+// failure so callers fall back to the task service's default runtime
+// resolution.
+func (s *IssueAssignmentService) resolveIssueRuntime(
+	ctx context.Context,
+	issue db.MulticaIssue,
+	actor AssignmentActor,
+	policy string,
+	specifiedRuntimeID pgtype.UUID,
+) pgtype.UUID {
+	if !IsWorkflowRuntimeSelectionPolicy(policy) {
+		return pgtype.UUID{}
+	}
+	candidates, err := s.Queries.ListWorkflowRuntimeCandidates(ctx, db.ListWorkflowRuntimeCandidatesParams{
+		WorkspaceID:       issue.WorkspaceID,
+		StaleSeconds:      workflowRuntimeStaleSeconds,
+		AuthorizerUserID:  actor.ID,
+		ResponsibleUserID: issue.ResponsibleUserID,
+	})
+	if err != nil {
+		slog.Warn("resolve issue runtime: list candidates failed", "issue_id", util.UUIDToString(issue.ID), "policy", policy, "error", err)
+		return pgtype.UUID{}
+	}
+	selection, err := chooseRuntimeByPolicy(policy, specifiedRuntimeID, issue.ResponsibleUserID, candidates)
+	if err != nil {
+		slog.Warn("resolve issue runtime: policy produced no runtime", "issue_id", util.UUIDToString(issue.ID), "policy", policy, "error", err)
+		return pgtype.UUID{}
+	}
+	return selection.RuntimeID
 }
 
 func (s *IssueAssignmentService) startDefaultWorkflow(ctx context.Context, issue db.MulticaIssue) bool {

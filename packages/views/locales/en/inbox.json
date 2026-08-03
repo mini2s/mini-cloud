@@ -35,9 +35,13 @@
     "view": "View"
   },
   "types": {
+    "responsible_assigned": "Responsible assigned",
     "issue_assigned": "Assigned",
     "unassigned": "Unassigned",
     "assignee_changed": "Assignee changed",
+    "workflow_executor_assigned": "Workflow executor assigned",
+    "workflow_reviewer_assigned": "Workflow reviewer assigned",
+    "workflow_node_status_changed": "Workflow node status changed",
     "status_changed": "Status changed",
     "priority_changed": "Priority changed",
     "start_date_changed": "Start date changed",
@@ -62,6 +66,7 @@
     "removed_start_date": "Removed start date",
     "set_due_date_to": "Set due date to {{date}}",
     "removed_due_date": "Removed due date",
+    "workflow_node_status_to": "Workflow node status changed to {{status}}",
     "reacted_to_comment": "Reacted {{emoji}} to your comment",
     "created_with_agent": "Created with digital human: {{identifier}}",
     "failed_with_detail": "Failed: {{detail}}"

@@ -82,7 +82,95 @@ func subscriberCount(t *testing.T, queries *db.Queries, issueID string) int {
 	return len(subs)
 }
 
-func TestSubscriberIssueCreated_ResponsibleUserSubscribed(t *testing.T) {
+func TestSubscriberIssueCreated_AssigneeSubscribed(t *testing.T) {
+	queries := db.New(testPool)
+	bus := events.New()
+	registerSubscriberListeners(bus, queries)
+
+	assigneeEmail := "subscriber-created-assignee-test@multica.ai"
+	assigneeID := createTestUser(t, assigneeEmail)
+	t.Cleanup(func() { cleanupTestUser(t, assigneeEmail) })
+
+	issueID := createTestIssue(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() { cleanupTestIssue(t, issueID) })
+
+	assigneeType := "member"
+	bus.Publish(events.Event{
+		Type:        protocol.EventIssueCreated,
+		WorkspaceID: testWorkspaceID,
+		ActorType:   "member",
+		ActorID:     testUserID,
+		Payload: map[string]any{
+			"issue": handler.IssueResponse{
+				ID:           issueID,
+				WorkspaceID:  testWorkspaceID,
+				Title:        "test issue",
+				Status:       "todo",
+				Priority:     "medium",
+				CreatorType:  "member",
+				CreatorID:    testUserID,
+				AssigneeType: &assigneeType,
+				AssigneeID:   &assigneeID,
+			},
+		},
+	})
+
+	if isSubscribed(t, queries, issueID, "member", testUserID) {
+		t.Fatal("did not expect creator to be subscribed after issue:created")
+	}
+	if !isSubscribed(t, queries, issueID, "member", assigneeID) {
+		t.Fatal("expected assignee to be subscribed after issue:created")
+	}
+	if count := subscriberCount(t, queries, issueID); count != 1 {
+		t.Fatalf("expected 1 subscriber, got %d", count)
+	}
+}
+
+func TestSubscriberIssueCreated_DoesNotSubscribeCreatorSeparately(t *testing.T) {
+	queries := db.New(testPool)
+	bus := events.New()
+	registerSubscriberListeners(bus, queries)
+
+	assigneeEmail := "subscriber-assignee-test@multica.ai"
+	assigneeID := createTestUser(t, assigneeEmail)
+	t.Cleanup(func() { cleanupTestUser(t, assigneeEmail) })
+
+	issueID := createTestIssue(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() { cleanupTestIssue(t, issueID) })
+
+	assigneeType := "member"
+	bus.Publish(events.Event{
+		Type:        protocol.EventIssueCreated,
+		WorkspaceID: testWorkspaceID,
+		ActorType:   "member",
+		ActorID:     testUserID,
+		Payload: map[string]any{
+			"issue": handler.IssueResponse{
+				ID:           issueID,
+				WorkspaceID:  testWorkspaceID,
+				Title:        "test issue",
+				Status:       "todo",
+				Priority:     "medium",
+				CreatorType:  "member",
+				CreatorID:    testUserID,
+				AssigneeType: &assigneeType,
+				AssigneeID:   &assigneeID,
+			},
+		},
+	})
+
+	if isSubscribed(t, queries, issueID, "member", testUserID) {
+		t.Fatal("did not expect creator to be subscribed")
+	}
+	if !isSubscribed(t, queries, issueID, "member", assigneeID) {
+		t.Fatal("expected assignee to be subscribed")
+	}
+	if count := subscriberCount(t, queries, issueID); count != 1 {
+		t.Fatalf("expected 1 subscriber, got %d", count)
+	}
+}
+
+func TestSubscriberIssueCreated_ResponsibleSubscribed(t *testing.T) {
 	queries := db.New(testPool)
 	bus := events.New()
 	registerSubscriberListeners(bus, queries)
@@ -113,59 +201,16 @@ func TestSubscriberIssueCreated_ResponsibleUserSubscribed(t *testing.T) {
 		},
 	})
 
-	if isSubscribed(t, queries, issueID, "member", testUserID) {
-		t.Fatal("did not expect creator to be subscribed after issue:created")
-	}
 	if !isSubscribed(t, queries, issueID, "member", responsibleID) {
 		t.Fatal("expected responsible user to be subscribed after issue:created")
 	}
-	if count := subscriberCount(t, queries, issueID); count != 1 {
-		t.Fatalf("expected 1 subscriber, got %d", count)
-	}
 }
 
-func TestSubscriberIssueCreated_DoesNotSubscribeCreatorSeparately(t *testing.T) {
-	queries := db.New(testPool)
-	bus := events.New()
-	registerSubscriberListeners(bus, queries)
-
-	responsibleEmail := "subscriber-responsible-test@multica.ai"
-	responsibleID := createTestUser(t, responsibleEmail)
-	t.Cleanup(func() { cleanupTestUser(t, responsibleEmail) })
-
-	issueID := createTestIssue(t, testWorkspaceID, testUserID)
-	t.Cleanup(func() { cleanupTestIssue(t, issueID) })
-
-	bus.Publish(events.Event{
-		Type:        protocol.EventIssueCreated,
-		WorkspaceID: testWorkspaceID,
-		ActorType:   "member",
-		ActorID:     testUserID,
-		Payload: map[string]any{
-			"issue": handler.IssueResponse{
-				ID:                issueID,
-				WorkspaceID:       testWorkspaceID,
-				Title:             "test issue",
-				Status:            "todo",
-				Priority:          "medium",
-				CreatorType:       "member",
-				CreatorID:         testUserID,
-				ResponsibleUserID: &responsibleID,
-			},
-		},
-	})
-
-	if isSubscribed(t, queries, issueID, "member", testUserID) {
-		t.Fatal("did not expect creator to be subscribed")
-	}
-	if !isSubscribed(t, queries, issueID, "member", responsibleID) {
-		t.Fatal("expected responsible user to be subscribed")
-	}
-	if count := subscriberCount(t, queries, issueID); count != 1 {
-		t.Fatalf("expected 1 subscriber, got %d", count)
-	}
-}
-
+// TestSubscriberIssueCreated_SelfResponsible verifies the responsible-user
+// subscription path when the creator is also the responsible user. The listener
+// has no self-skip, so the creator lands as a "responsible" subscriber — this
+// guards that boundary against a future self-skip optimization that would
+// silently drop the only subscriber on self-created issues.
 func TestSubscriberIssueCreated_SelfResponsible(t *testing.T) {
 	queries := db.New(testPool)
 	bus := events.New()
@@ -201,6 +246,46 @@ func TestSubscriberIssueCreated_SelfResponsible(t *testing.T) {
 	}
 	if !isSubscribed(t, queries, issueID, "member", testUserID) {
 		t.Fatal("expected responsible user to be subscribed")
+	}
+}
+
+func TestSubscriberIssueCreated_SelfAssign(t *testing.T) {
+	queries := db.New(testPool)
+	bus := events.New()
+	registerSubscriberListeners(bus, queries)
+
+	issueID := createTestIssue(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() { cleanupTestIssue(t, issueID) })
+
+	// Creator is also the assignee (self-assign)
+	assigneeType := "member"
+	assigneeID := testUserID
+	bus.Publish(events.Event{
+		Type:        protocol.EventIssueCreated,
+		WorkspaceID: testWorkspaceID,
+		ActorType:   "member",
+		ActorID:     testUserID,
+		Payload: map[string]any{
+			"issue": handler.IssueResponse{
+				ID:           issueID,
+				WorkspaceID:  testWorkspaceID,
+				Title:        "test issue",
+				Status:       "todo",
+				Priority:     "medium",
+				CreatorType:  "member",
+				CreatorID:    testUserID,
+				AssigneeType: &assigneeType,
+				AssigneeID:   &assigneeID,
+			},
+		},
+	})
+
+	// Should have the assignee subscriber record.
+	if count := subscriberCount(t, queries, issueID); count != 1 {
+		t.Fatalf("expected 1 subscriber for self-assign, got %d", count)
+	}
+	if !isSubscribed(t, queries, issueID, "member", testUserID) {
+		t.Fatal("expected assignee to be subscribed")
 	}
 }
 
@@ -317,9 +402,9 @@ func TestSubscriberAddedEventPublished(t *testing.T) {
 	bus := events.New()
 	registerSubscriberListeners(bus, queries)
 
-	responsibleEmail := "subscriber-event-responsible-test@multica.ai"
-	responsibleID := createTestUser(t, responsibleEmail)
-	t.Cleanup(func() { cleanupTestUser(t, responsibleEmail) })
+	assigneeEmail := "subscriber-event-assignee-test@multica.ai"
+	assigneeID := createTestUser(t, assigneeEmail)
+	t.Cleanup(func() { cleanupTestUser(t, assigneeEmail) })
 
 	issueID := createTestIssue(t, testWorkspaceID, testUserID)
 	t.Cleanup(func() { cleanupTestIssue(t, issueID) })
@@ -330,6 +415,7 @@ func TestSubscriberAddedEventPublished(t *testing.T) {
 		subscriberEvents = append(subscriberEvents, e)
 	})
 
+	assigneeType := "member"
 	bus.Publish(events.Event{
 		Type:        protocol.EventIssueCreated,
 		WorkspaceID: testWorkspaceID,
@@ -337,14 +423,15 @@ func TestSubscriberAddedEventPublished(t *testing.T) {
 		ActorID:     testUserID,
 		Payload: map[string]any{
 			"issue": handler.IssueResponse{
-				ID:                issueID,
-				WorkspaceID:       testWorkspaceID,
-				Title:             "test issue",
-				Status:            "todo",
-				Priority:          "medium",
-				CreatorType:       "member",
-				CreatorID:         testUserID,
-				ResponsibleUserID: &responsibleID,
+				ID:           issueID,
+				WorkspaceID:  testWorkspaceID,
+				Title:        "test issue",
+				Status:       "todo",
+				Priority:     "medium",
+				CreatorType:  "member",
+				CreatorID:    testUserID,
+				AssigneeType: &assigneeType,
+				AssigneeID:   &assigneeID,
 			},
 		},
 	})
@@ -363,13 +450,13 @@ func TestSubscriberAddedEventPublished(t *testing.T) {
 	if payload["issue_id"] != issueID {
 		t.Fatalf("expected issue_id %s, got %v", issueID, payload["issue_id"])
 	}
-	if payload["user_id"] != responsibleID {
-		t.Fatalf("expected user_id %s, got %v", responsibleID, payload["user_id"])
+	if payload["user_id"] != assigneeID {
+		t.Fatalf("expected user_id %s, got %v", assigneeID, payload["user_id"])
 	}
 }
 
 // Autopilot publishes EventIssueCreated with a map[string]any payload (not handler.IssueResponse).
-// The listener must still subscribe the responsible user.
+// The listener must still subscribe the assignee.
 func TestSubscriberIssueCreated_AutopilotMapPayload(t *testing.T) {
 	queries := db.New(testPool)
 	bus := events.New()
@@ -378,7 +465,8 @@ func TestSubscriberIssueCreated_AutopilotMapPayload(t *testing.T) {
 	issueID := createTestIssue(t, testWorkspaceID, testUserID)
 	t.Cleanup(func() { cleanupTestIssue(t, issueID) })
 
-	responsibleID := testUserID
+	assigneeType := "member"
+	assigneeID := testUserID
 	bus.Publish(events.Event{
 		Type:        protocol.EventIssueCreated,
 		WorkspaceID: testWorkspaceID,
@@ -386,20 +474,21 @@ func TestSubscriberIssueCreated_AutopilotMapPayload(t *testing.T) {
 		ActorID:     testUserID,
 		Payload: map[string]any{
 			"issue": map[string]any{
-				"id":                  issueID,
-				"workspace_id":        testWorkspaceID,
-				"title":               "autopilot test issue",
-				"status":              "todo",
-				"priority":            "medium",
-				"creator_type":        "member",
-				"creator_id":          testUserID,
-				"responsible_user_id": &responsibleID,
+				"id":            issueID,
+				"workspace_id":  testWorkspaceID,
+				"title":         "autopilot test issue",
+				"status":        "todo",
+				"priority":      "medium",
+				"creator_type":  "member",
+				"creator_id":    testUserID,
+				"assignee_type": &assigneeType,
+				"assignee_id":   &assigneeID,
 			},
 		},
 	})
 
 	if !isSubscribed(t, queries, issueID, "member", testUserID) {
-		t.Fatal("expected responsible user to be subscribed when autopilot publishes map payload")
+		t.Fatal("expected assignee to be subscribed when autopilot publishes map payload")
 	}
 }
 

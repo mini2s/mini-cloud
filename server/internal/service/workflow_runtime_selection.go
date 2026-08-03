@@ -121,9 +121,23 @@ func chooseWorkflowRuntime(
 			policy = RuntimeSelectionPolicyIdleFirst
 		}
 	}
-	if policy == RuntimeSelectionPolicySpecifiedRuntimeFirst && run.RuntimeID.Valid {
+	return chooseRuntimeByPolicy(policy, run.RuntimeID, run.ResponsibleUserID, candidates)
+}
+
+// chooseRuntimeByPolicy resolves a concrete runtime from candidates given a
+// selection policy. Extracted from chooseWorkflowRuntime so non-workflow
+// dispatch paths (issue run-now for built-in agents / squad leaders) reuse the
+// exact same semantics. specifiedRuntimeID is honored for
+// specified_runtime_first; responsibleUserID drives issue_creator_first.
+func chooseRuntimeByPolicy(
+	policy string,
+	specifiedRuntimeID pgtype.UUID,
+	responsibleUserID pgtype.UUID,
+	candidates []db.ListWorkflowRuntimeCandidatesRow,
+) (workflowRuntimeSelection, error) {
+	if policy == RuntimeSelectionPolicySpecifiedRuntimeFirst && specifiedRuntimeID.Valid {
 		for _, candidate := range candidates {
-			if candidate.ID == run.RuntimeID {
+			if candidate.ID == specifiedRuntimeID {
 				return workflowRuntimeSelection{
 					RuntimeID:       candidate.ID,
 					Reason:          RuntimeSelectionManual,
@@ -145,13 +159,13 @@ func chooseWorkflowRuntime(
 		return workflowRuntimeSelection{}, false
 	}
 	chooseIssueCreator := func() (workflowRuntimeSelection, bool) {
-		if !run.ResponsibleUserID.Valid {
+		if !responsibleUserID.Valid {
 			return workflowRuntimeSelection{}, false
 		}
 		var selected *db.ListWorkflowRuntimeCandidatesRow
 		for i := range candidates {
 			candidate := &candidates[i]
-			if !candidate.OwnerID.Valid || candidate.OwnerID != run.ResponsibleUserID {
+			if !candidate.OwnerID.Valid || candidate.OwnerID != responsibleUserID {
 				continue
 			}
 			if selected == nil || candidate.ActiveTaskCount < selected.ActiveTaskCount {

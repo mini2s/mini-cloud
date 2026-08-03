@@ -34,6 +34,10 @@
     "view": "查看"
   },
   "types": {
+    "responsible_assigned": "已指定负责人",
+    "workflow_executor_assigned": "已指定工作流执行者",
+    "workflow_reviewer_assigned": "已指定工作流审核者",
+    "workflow_node_status_changed": "工作流节点状态已变更",
     "issue_assigned": "已分配",
     "unassigned": "已取消分配",
     "assignee_changed": "分配人已更改",
@@ -53,6 +57,7 @@
     "quick_create_failed": "通过数智人创建失败"
   },
   "labels": {
+    "workflow_node_status_to": "工作流节点状态变为 {{status}}",
     "set_status_to": "状态设为",
     "set_priority_to": "优先级设为",
     "assigned_to": "分配给 {{name}}",

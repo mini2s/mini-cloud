@@ -564,10 +564,11 @@ func (h *Handler) GetAgent(w http.ResponseWriter, r *http.Request) {
 	// or unconditionally when the workspace opts into always_redact_env.
 	userID := requestUserID(r)
 	if agent.IsBuiltin {
-		// Built-in agents have no workspace context; only the user with
-		// can_manage_workflows can see the full config. Others see redacted.
+		// Built-in agents have no workspace context; only platform admins (or
+		// users with can_manage_workflows in local deployments) can see the full
+		// config. Others see redacted.
 		currentUser, err := h.Queries.GetUser(r.Context(), parseUUID(userID))
-		if err != nil || !currentUser.CanManageWorkflows {
+		if err != nil || !h.effectiveCanManageWorkflows(r.Context(), currentUser) {
 			redactEnv(&resp)
 			redactMcpConfig(&resp)
 			resp.CustomEnvRedactedReason = "role"
@@ -889,14 +890,15 @@ func redactMcpConfig(resp *AgentResponse) {
 // canManageAgent checks whether the current user can update or archive an agent.
 // Only the agent owner or workspace owner/admin can manage any agent,
 // regardless of whether it is public or private.
-// For built-in agents, the can_manage_workflows global permission is required.
+// For built-in agents, the platform_admin role (or can_manage_workflows in
+// local deployments) is required.
 func (h *Handler) canManageAgent(w http.ResponseWriter, r *http.Request, agent db.MulticaAgent) bool {
 	if agent.IsBuiltin {
 		userID, _ := requireUserID(w, r)
 		userUUID := parseUUID(userID)
 		currentUser, err := h.Queries.GetUser(r.Context(), userUUID)
-		if err != nil || !currentUser.CanManageWorkflows {
-			writeError(w, http.StatusForbidden, "only workflow admins can manage built-in agents")
+		if err != nil || !h.effectiveCanManageWorkflows(r.Context(), currentUser) {
+			writeError(w, http.StatusForbidden, "only platform admins can manage built-in agents")
 			return false
 		}
 		return true
@@ -1439,8 +1441,8 @@ func (h *Handler) ListWorkspaceAgentTaskSnapshot(w http.ResponseWriter, r *http.
 }
 
 // PromoteAgentToBuiltin promotes a workspace agent to a global built-in agent.
-// Only users with the can_manage_workflows permission can promote agents.
-// The agent must not already be built-in and must not be archived.
+// Only platform admins (or users with can_manage_workflows in local deployments)
+// can promote agents. The agent must not already be built-in and must not be archived.
 func (h *Handler) PromoteAgentToBuiltin(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	agent, ok := h.loadAgentForUser(w, r, id)
@@ -1451,10 +1453,9 @@ func (h *Handler) PromoteAgentToBuiltin(w http.ResponseWriter, r *http.Request) 
 	userID, _ := requireUserID(w, r)
 	userUUID := parseUUID(userID)
 
-	// Only workflow admins can manage built-in agents.
 	currentUser, err := h.Queries.GetUser(r.Context(), userUUID)
-	if err != nil || !currentUser.CanManageWorkflows {
-		writeError(w, http.StatusForbidden, "only workflow admins can manage built-in agents")
+	if err != nil || !h.effectiveCanManageWorkflows(r.Context(), currentUser) {
+		writeError(w, http.StatusForbidden, "only platform admins can manage built-in agents")
 		return
 	}
 
@@ -1482,8 +1483,8 @@ func (h *Handler) PromoteAgentToBuiltin(w http.ResponseWriter, r *http.Request) 
 }
 
 // DemoteAgentFromBuiltin demotes a built-in agent back to a workspace agent.
-// Only users with the can_manage_workflows permission can demote agents.
-// The agent must be built-in. The workspace_id from the request context is used
+// Only platform admins (or users with can_manage_workflows in local deployments)
+// can demote agents. The agent must be built-in. The workspace_id from the request context is used
 // to assign the agent back to a workspace.
 func (h *Handler) DemoteAgentFromBuiltin(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
@@ -1495,10 +1496,9 @@ func (h *Handler) DemoteAgentFromBuiltin(w http.ResponseWriter, r *http.Request)
 	userID, _ := requireUserID(w, r)
 	userUUID := parseUUID(userID)
 
-	// Only workflow admins can manage built-in agents.
 	currentUser, err := h.Queries.GetUser(r.Context(), userUUID)
-	if err != nil || !currentUser.CanManageWorkflows {
-		writeError(w, http.StatusForbidden, "only workflow admins can manage built-in agents")
+	if err != nil || !h.effectiveCanManageWorkflows(r.Context(), currentUser) {
+		writeError(w, http.StatusForbidden, "only platform admins can manage built-in agents")
 		return
 	}
 

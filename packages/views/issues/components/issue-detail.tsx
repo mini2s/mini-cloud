@@ -75,7 +75,7 @@ import { ProjectIcon } from "../../projects/components/project-icon";
 import { issueLabelsOptions } from "@multica/core/labels";
 import { memberListOptions, agentListOptions } from "@multica/core/workspace/queries";
 import { isActiveWorkspaceMember } from "@multica/core/workspace/members";
-import { workflowNodeRunsOptions } from "@multica/core/workflows/queries";
+import { defaultWorkflowOptions, workflowNodeRunsOptions } from "@multica/core/workflows/queries";
 import type { WorkflowNodeRun } from "@multica/core/types";
 import { NodeRunControlActions } from "../../workflows/components/node-run-control-actions";
 import { useRecentIssuesStore } from "@multica/core/issues/stores";
@@ -663,6 +663,7 @@ function SubIssueRow({
         assigneeId={child.assignee_id}
         onUpdate={handleUpdate}
         align="end"
+        skipRuntimeSelection
         trigger={
           child.assignee_type && child.assignee_id ? (
             <ActorAvatar
@@ -844,13 +845,26 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   });
 
   const workflowAssigneeId = issue?.assignee_type === "workflow" ? issue.assignee_id : null;
-  const effectiveWorkflowId = issue?.workflow_id ?? workflowAssigneeId;
+  const shouldUseDefaultWorkflow =
+    !!issue &&
+    issue.status !== "backlog" &&
+    issue.assignee_type !== "workflow" &&
+    !!issue.assignee_type &&
+    !!issue.assignee_id &&
+    !issue.workflow_id &&
+    !issue.workflow_run_id;
+  const { data: defaultWorkflow = null } = useQuery({
+    ...defaultWorkflowOptions(wsId),
+    enabled: shouldUseDefaultWorkflow,
+  });
+  const effectiveWorkflowId = issue?.workflow_id ?? workflowAssigneeId ?? (shouldUseDefaultWorkflow ? defaultWorkflow?.id : null);
   const effectiveWorkflowRunId = issue?.workflow_run_id ?? null;
 
-  // Issues backed by a workflow run can toggle between detail mode and
-  // fullscreen mode. This includes direct member/agent issues routed through
-  // the default archive workflow.
-  const hasWorkflow = !!effectiveWorkflowId && !!effectiveWorkflowRunId;
+  // Issues that will run through a workflow should use the same surface before
+  // and after the run starts. Assigned non-backlog issues may need the
+  // workspace default workflow as a preview target before a run exists.
+  const hasWorkflow = !!effectiveWorkflowId;
+  const hasWorkflowRun = !!effectiveWorkflowId && !!effectiveWorkflowRunId;
   const [isFullscreen, setIsFullscreen] = useState(true);
   // Only activate fullscreen when the issue actually has a workflow assigned.
   const effectiveFullscreen = isFullscreen && hasWorkflow;
@@ -869,7 +883,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // Two observers on the same key with refetchInterval would double-poll.
   const { data: workflowNodeRuns } = useQuery({
     ...workflowNodeRunsOptions(wsId, effectiveWorkflowId ?? "", effectiveWorkflowRunId ?? ""),
-    enabled: hasWorkflow,
+    enabled: hasWorkflowRun,
     refetchInterval: false,
   });
   const isWorkflowRunning = useMemo(() => {
@@ -1398,7 +1412,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           {t(($) => $.detail.section_properties)}
           <ChevronRight className={`!size-3 shrink-0 stroke-[2.5] text-muted-foreground transition-transform ${propertiesOpen ? "rotate-90" : ""}`} />
         </button>
-        {propertiesOpen && <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 pl-2">
+        {propertiesOpen && <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 pl-2" data-testid="issue-detail-properties">
           {/* Core props — always rendered. */}
           <PropRow label={t(($) => $.detail.prop_status)}>
             <StatusPicker status={issue.status} onUpdate={handleUpdateField} align="start" />
@@ -1411,10 +1425,11 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
               align="start"
               allowedTypes={["member"]}
               allowUnassigned={false}
+              skipRuntimeSelection
             />
           </PropRow>
           <PropRow label={t(($) => $.detail.prop_assignee)}>
-            <AssigneePicker assigneeType={issue.assignee_type} assigneeId={issue.assignee_id} isWorkflowRunning={isWorkflowRunning} onUpdate={handleUpdateField} align="start" />
+            <AssigneePicker assigneeType={issue.assignee_type} assigneeId={issue.assignee_id} isWorkflowRunning={isWorkflowRunning} onUpdate={handleUpdateField} align="start" skipRuntimeSelection />
           </PropRow>
           <PropRow label={t(($) => $.detail.prop_project)}>
             <ProjectPicker
@@ -1992,6 +2007,15 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                   issueId={issue.id}
                   issueCreatorType={issue.creator_type}
                   issueCreatorId={issue.creator_id}
+                  {...(shouldUseDefaultWorkflow
+                    ? {
+                        issueAssigneeType: issue.assignee_type,
+                        issueAssigneeId: issue.assignee_id,
+                        issueResponsibleUserId: issue.responsible_user_id,
+                        onPendingWorkerUpdate: handleUpdateField,
+                        onPendingCriticUpdate: handleUpdateField,
+                      }
+                    : {})}
                   fillAvailableHeight={effectiveFullscreen}
                 />
               </div>

@@ -19,7 +19,9 @@ import (
 // preferences.
 var validNotifGroups = map[string]bool{
 	"assignments":          true,
+	"workflow_roles":       true,
 	"status_changes":       true,
+	"workflow_node_status": true,
 	"comments":             true,
 	"updates":              true,
 	"agent_activity":       true,

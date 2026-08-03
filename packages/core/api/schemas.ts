@@ -725,6 +725,8 @@ export const UserSchema = z.object({
   language: z.string().nullable().default(null),
   profile_description: z.string().default(""),
   timezone: z.string().nullable().default(null),
+  can_manage_workflows: z.boolean().default(false),
+  workflow_admin_source: z.string().default("local"),
   created_at: z.string().default(""),
   updated_at: z.string().default(""),
 }).loose();
@@ -740,6 +742,8 @@ export const EMPTY_USER: User = {
   language: null,
   profile_description: "",
   timezone: null,
+  can_manage_workflows: false,
+  workflow_admin_source: "local",
   created_at: "",
   updated_at: "",
 };
@@ -778,6 +782,12 @@ export const ListWorkflowsResponseSchema = z.object({
 }).loose();
 
 export const EMPTY_LIST_WORKFLOWS_RESPONSE = { workflows: [], total: 0 };
+
+export const DefaultWorkflowResponseSchema = z.object({
+  workflow: WorkflowSchema.nullable().default(null),
+}).loose();
+
+export const EMPTY_DEFAULT_WORKFLOW_RESPONSE = { workflow: null };
 
 export const SplitIssueWorkflowOptionsSchema = z.array(WorkflowSchema).default([]);
 export const EMPTY_SPLIT_ISSUE_WORKFLOW_OPTIONS: Workflow[] = [];

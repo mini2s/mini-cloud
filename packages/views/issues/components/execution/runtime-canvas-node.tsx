@@ -8,6 +8,8 @@ import type {
   WorkflowNodeRun,
   WorkflowNodeRuntimeSummary,
   WorkflowRuntimeDisplayStatus,
+  IssueAssigneeType,
+  UpdateIssueRequest,
 } from "@multica/core/types";
 import { parseNodeFormat } from "@multica/core/types";
 import { BoundaryNode, CriticBadgeNode } from "../../../workflows/components/overview/reactflow-nodes";
@@ -51,6 +53,11 @@ export interface RuntimeCanvasNodeData extends Record<string, unknown> {
   isSplitExpanded?: boolean;
   splitChildCount?: number;
   onSplitNodeToggle?: (nodeId: string) => void;
+  pendingWorkerAssigneeType?: IssueAssigneeType | null;
+  pendingWorkerAssigneeId?: string | null;
+  pendingCriticUserId?: string | null;
+  onPendingWorkerUpdate?: (updates: Partial<UpdateIssueRequest>) => void;
+  onPendingCriticUpdate?: (updates: { responsible_user_id: string | null }) => void;
 }
 
 export interface RuntimeSplitSubflowChildIssue {
@@ -111,6 +118,11 @@ export const RuntimeCanvasNode = memo(function RuntimeCanvasNode({
         isSplitExpanded={nodeData.isSplitExpanded}
         splitChildCount={nodeData.splitChildCount}
         onSplitNodeToggle={nodeData.onSplitNodeToggle}
+        pendingWorkerAssigneeType={nodeData.pendingWorkerAssigneeType}
+        pendingWorkerAssigneeId={nodeData.pendingWorkerAssigneeId}
+        pendingCriticUserId={nodeData.pendingCriticUserId}
+        onPendingWorkerUpdate={nodeData.onPendingWorkerUpdate}
+        onPendingCriticUpdate={nodeData.onPendingCriticUpdate}
         handles={["left-target", "right-source", "bottom-source"]}
         lateralHandleTop={nodeHeight / 2}
       />

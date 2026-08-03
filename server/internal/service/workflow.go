@@ -543,7 +543,7 @@ func (s *WorkflowService) StartDefaultRunForIssue(ctx context.Context, issue db.
 		SourceIssueID: issue.ID, ResponsibleUserID: s.issueResponsibleUser(ctx, issue),
 		RuntimeAuthorizerID: s.issueResponsibleUser(ctx, issue),
 		defaultWorkerType:   defaultRunWorkerType(issue), defaultWorkerID: issue.AssigneeID,
-		defaultCriticType: defaultRunCriticType(issue), defaultCriticID: issue.AssigneeID,
+		defaultCriticType: "human", defaultCriticID: s.issueResponsibleUser(ctx, issue),
 	})
 	if err != nil {
 		return nil, db.MulticaWorkflowNodeRun{}, fmt.Errorf("start default run: %w", err)
@@ -572,15 +572,6 @@ func defaultRunWorkerType(issue db.MulticaIssue) string {
 	return issue.AssigneeType.String // "agent" | "squad"
 }
 
-// defaultRunCriticType maps an issue's assignee to a node-run critic type. The
-// critic type drives dispatchCritic's switch (human/agent/squad/api/role), so a
-// member assignee — who reviews via the multica UI — maps to "human".
-func defaultRunCriticType(issue db.MulticaIssue) string {
-	if issue.AssigneeType.Valid && issue.AssigneeType.String == "member" {
-		return "human"
-	}
-	return issue.AssigneeType.String // "agent" | "squad"
-}
 func (s *WorkflowService) StartRunForIssueWithDispatchKey(
 	ctx context.Context,
 	workflow db.MulticaWorkflow,
@@ -2465,14 +2456,4 @@ func (s *WorkflowService) DeleteWorkflowDefinition(ctx context.Context, workflow
 		}
 		return nil
 	})
-}
-
-// CanManageWorkflows checks whether the given user has the
-// can_manage_workflows permission bit set (global, not workspace-scoped).
-func (s *WorkflowService) CanManageWorkflows(ctx context.Context, userID pgtype.UUID) (bool, error) {
-	user, err := s.Queries.GetUser(ctx, userID)
-	if err != nil {
-		return false, fmt.Errorf("get user: %w", err)
-	}
-	return user.CanManageWorkflows, nil
 }
