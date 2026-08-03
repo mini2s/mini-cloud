@@ -160,6 +160,7 @@ describe("ApiClient schema fallback", () => {
       const res = await client.listChildIssues("issue-1");
       expect(res).toEqual({ issues: [] });
     });
+
   });
 
   describe("dept member lookup", () => {

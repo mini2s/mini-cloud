@@ -1,0 +1,15 @@
+# mise — project tool versions
+#
+# Versions are pinned to match the rest of the repo config:
+#   node  -> .github/workflows/*.yml (node-version: 22)
+#   pnpm  -> package.json "packageManager": "pnpm@10.28.2"
+#   go    -> server/go.mod "go 1.26.1"
+#
+# Install/activate with mise (auto-activates in a mise-enabled shell):
+#   mise install   # install any missing versions
+#   mise current   # show what's active in this directory
+
+[tools]
+node = "22"        # latest 22.x (LTS); matches CI
+pnpm = "10.28.2"   # must match package.json "packageManager"
+go = "1.26.1"      # must match server/go.mod go directive

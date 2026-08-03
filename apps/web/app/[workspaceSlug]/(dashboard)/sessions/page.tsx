@@ -1,8 +1,7 @@
 "use client";
 
-import { MessagesSquare } from "lucide-react";
-import { NavPlaceholderPage } from "@multica/views/placeholders";
+import { SessionsPage } from "@multica/views/sessions";
 
 export default function Page() {
-  return <NavPlaceholderPage navKey="sessions" icon={MessagesSquare} />;
+  return <SessionsPage />;
 }

@@ -1,0 +1,621 @@
+{
+  "format": "multica.cloud-proxy.tool-interaction-capture.v1",
+  "capturedAt": "2026-07-20",
+  "source": {
+    "agent": "build",
+    "model": {
+      "providerID": "costrict",
+      "modelID": "DeepSeek-V4-Flash"
+    },
+    "sanitized": true,
+    "notes": [
+      "Captured from authorized scenarios using read, glob, grep, AskUserQuestion, write, edit, Bash, WebSearch, and Agent tools.",
+      "A temporary untracked file and one marker in a clean tracked README were removed after capture.",
+      "Identifiers, paths, prompts, answers, tool output, diffs, reasoning, and timestamps are synthetic.",
+      "No cookies, authorization headers, proxy host, device identifier, workspace identifier, or conversation identifier are retained."
+    ]
+  },
+  "captureSummary": {
+    "eventsStatus": 200,
+    "eventCounts": {
+      "host.file.created": 2,
+      "host.file.renamed": 2,
+      "host.git.status.changed": 1,
+      "message.part.delta": 938,
+      "message.part.updated": 102,
+      "message.updated": 50,
+      "permission.asked": 4,
+      "permission.replied": 9,
+      "question.asked": 1,
+      "question.replied": 1,
+      "server.connected": 1,
+      "server.heartbeat": 24,
+      "session.diff": 4,
+      "session.idle": 4,
+      "session.info": 4,
+      "session.result": 4,
+      "session.status": 24,
+      "task.completed": 1,
+      "task.progress": 1,
+      "task.started": 1,
+      "tool.progress": 0
+    }
+  },
+  "toolPartTransitionShapes": [
+    {
+      "tool": "glob",
+      "statuses": [
+        "pending",
+        "running",
+        "completed"
+      ],
+      "inputKeys": [
+        "path",
+        "pattern"
+      ],
+      "completedStateKeys": [
+        "input",
+        "status",
+        "time",
+        "title"
+      ]
+    },
+    {
+      "tool": "grep",
+      "statuses": [
+        "pending",
+        "running",
+        "completed"
+      ],
+      "inputKeys": [
+        "output_mode",
+        "path",
+        "pattern"
+      ],
+      "completedStateKeys": [
+        "input",
+        "status",
+        "time",
+        "title"
+      ]
+    },
+    {
+      "tool": "read",
+      "statuses": [
+        "pending",
+        "running",
+        "completed"
+      ],
+      "inputKeys": [
+        "filePath",
+        "limit"
+      ],
+      "completedStateKeys": [
+        "input",
+        "status",
+        "time",
+        "title"
+      ]
+    },
+    {
+      "tool": "askuserquestion",
+      "statuses": [
+        "pending",
+        "running",
+        "completed"
+      ],
+      "inputKeys": [
+        "questions"
+      ],
+      "completedStateKeys": [
+        "input",
+        "status",
+        "time",
+        "title"
+      ]
+    },
+    {
+      "tool": "edit",
+      "scenario": "create-or-overwrite",
+      "statuses": [
+        "pending",
+        "running",
+        "completed"
+      ],
+      "inputKeys": [
+        "content",
+        "filePath"
+      ],
+      "metadataKeys": [
+        "filediff"
+      ],
+      "completedStateKeys": [
+        "input",
+        "metadata",
+        "status",
+        "time",
+        "title"
+      ]
+    },
+    {
+      "tool": "edit",
+      "scenario": "replace",
+      "statuses": [
+        "pending",
+        "running",
+        "completed"
+      ],
+      "inputKeys": [
+        "filePath",
+        "newString",
+        "oldString"
+      ],
+      "metadataKeys": [
+        "filediff"
+      ],
+      "completedStateKeys": [
+        "input",
+        "metadata",
+        "status",
+        "time",
+        "title"
+      ]
+    },
+    {
+      "tool": "bash",
+      "statuses": [
+        "pending",
+        "running",
+        "completed"
+      ],
+      "inputKeys": [
+        "command",
+        "description"
+      ],
+      "completedStateKeys": [
+        "input",
+        "status",
+        "time",
+        "title"
+      ]
+    },
+    {
+      "tool": "websearch",
+      "statuses": [
+        "pending",
+        "running",
+        "completed"
+      ],
+      "inputKeys": [
+        "query"
+      ],
+      "completedStateKeys": [
+        "input",
+        "status",
+        "time",
+        "title"
+      ]
+    },
+    {
+      "tool": "task",
+      "statuses": [
+        "pending",
+        "running",
+        "completed"
+      ],
+      "inputKeys": [
+        "description",
+        "prompt",
+        "subagent_type"
+      ],
+      "runningStateKeys": [
+        "input",
+        "progress",
+        "status",
+        "time",
+        "title"
+      ]
+    }
+  ],
+  "permissionEvents": {
+    "asked": [
+      {
+        "type": "permission.asked",
+        "properties": {
+          "type": "permission.asked",
+          "id": "permission-edit-create-1",
+          "sessionID": "conversation-1",
+          "session_id": "conversation-1",
+          "permission": "edit",
+          "patterns": [
+            "/workspace/PROTOCOL_CAPTURE.md"
+          ],
+          "always": [],
+          "metadata": {
+            "input": {
+              "filePath": "/workspace/PROTOCOL_CAPTURE.md",
+              "content": "Fixture content"
+            }
+          },
+          "tool": {
+            "callID": "call-edit-create-1",
+            "messageID": "message-assistant-1"
+          }
+        }
+      },
+      {
+        "type": "permission.asked",
+        "properties": {
+          "type": "permission.asked",
+          "id": "permission-edit-replace-1",
+          "sessionID": "conversation-1",
+          "session_id": "conversation-1",
+          "permission": "edit",
+          "patterns": [
+            "/workspace/PROTOCOL_CAPTURE.md"
+          ],
+          "always": [],
+          "metadata": {
+            "input": {
+              "filePath": "/workspace/PROTOCOL_CAPTURE.md",
+              "oldString": "Fixture content",
+              "newString": "Edited fixture content"
+            }
+          },
+          "tool": {
+            "callID": "call-edit-replace-1",
+            "messageID": "message-assistant-2"
+          }
+        }
+      },
+      {
+        "type": "permission.asked",
+        "properties": {
+          "type": "permission.asked",
+          "id": "permission-bash-1",
+          "sessionID": "conversation-1",
+          "session_id": "conversation-1",
+          "permission": "bash",
+          "patterns": [
+            "fixture-progress-command"
+          ],
+          "always": [],
+          "metadata": {
+            "input": {
+              "command": "fixture-progress-command",
+              "description": "Emit fixture progress"
+            }
+          },
+          "tool": {
+            "callID": "call-bash-1",
+            "messageID": "message-assistant-2"
+          }
+        }
+      },
+      {
+        "type": "permission.asked",
+        "properties": {
+          "type": "permission.asked",
+          "id": "permission-websearch-1",
+          "sessionID": "conversation-1",
+          "session_id": "conversation-1",
+          "permission": "websearch",
+          "patterns": [],
+          "always": [],
+          "metadata": {
+            "input": {
+              "query": "Fixture search query"
+            }
+          },
+          "tool": {
+            "callID": "call-websearch-1",
+            "messageID": "message-assistant-3"
+          }
+        }
+      }
+    ],
+    "replied": [
+      {
+        "type": "permission.replied",
+        "properties": {
+          "type": "permission.replied",
+          "requestID": "permission-edit-create-1",
+          "sessionID": "conversation-1",
+          "session_id": "conversation-1"
+        }
+      }
+    ],
+    "notes": [
+      "permission.replied did not include the once, always, or reject decision in the captured SSE payload.",
+      "Some replies were also observed in a minimal shape containing only requestID and sessionID."
+    ]
+  },
+  "questionEvents": {
+    "asked": {
+      "type": "question.asked",
+      "properties": {
+        "type": "question.asked",
+        "id": "question-1",
+        "sessionID": "conversation-1",
+        "session_id": "conversation-1",
+        "questions": [
+          {
+            "header": "Continue",
+            "question": "Continue with the fixture write?",
+            "multiple": false,
+            "custom": false,
+            "options": [
+              {
+                "label": "Continue",
+                "description": "Continue to the write scenario."
+              },
+              {
+                "label": "Stop",
+                "description": "Stop without writing."
+              }
+            ]
+          }
+        ],
+        "tool": {
+          "callID": "call-question-1",
+          "messageID": "message-assistant-1"
+        }
+      }
+    },
+    "replied": {
+      "type": "question.replied",
+      "properties": {
+        "type": "question.replied",
+        "requestID": "question-1",
+        "sessionID": "conversation-1",
+        "session_id": "conversation-1"
+      }
+    },
+    "notes": [
+      "The selected answer was not included in the captured question.replied SSE payload."
+    ]
+  },
+  "progressEvents": {
+    "toolProgressObserved": false,
+    "attemptedScenarios": [
+      "Bash command emitting one line per second",
+      "WebSearch",
+      "Agent subtask"
+    ],
+    "bashObservation": {
+      "tool": "bash",
+      "outputTransport": "message.part.delta",
+      "toolProgressEventCount": 0
+    },
+    "taskEvents": [
+      {
+        "type": "task.started",
+        "properties": {
+          "type": "task.started",
+          "sessionID": "conversation-1",
+          "session_id": "conversation-1",
+          "taskID": "task-1",
+          "toolUseID": "call-task-1",
+          "taskType": "general-purpose",
+          "description": "Read a fixture file",
+          "prompt": "Read a fixture file and summarize it."
+        }
+      },
+      {
+        "type": "task.progress",
+        "properties": {
+          "type": "task.progress",
+          "sessionID": "conversation-1",
+          "session_id": "conversation-1",
+          "taskID": "task-1",
+          "description": "Read a fixture file",
+          "lastToolName": "Read",
+          "usage": {
+            "total_tokens": 100,
+            "tool_uses": 1,
+            "duration_ms": 1000
+          }
+        }
+      },
+      {
+        "type": "task.completed",
+        "properties": {
+          "type": "task.completed",
+          "sessionID": "conversation-1",
+          "session_id": "conversation-1",
+          "taskID": "task-1",
+          "toolUseID": "call-task-1",
+          "status": "completed",
+          "summary": "Fixture summary",
+          "outputFile": "/workspace/task-output.txt",
+          "usage": {
+            "total_tokens": 120,
+            "tool_uses": 1,
+            "duration_ms": 1200
+          }
+        }
+      }
+    ]
+  },
+  "diffProbe": {
+    "setup": {
+      "trackedFileWasClean": true,
+      "trackedFile": "/workspace/README.md",
+      "temporaryMarkerAdded": true,
+      "gitDiffWasNonEmpty": true,
+      "cleanupVerified": true
+    },
+    "sse": {
+      "type": "session.diff",
+      "properties": {
+        "sessionID": "conversation-1",
+        "session_id": "conversation-1",
+        "diff": []
+      }
+    },
+    "rest": {
+      "method": "GET",
+      "path": "/api/v1/conversations/conversation-1/diff",
+      "status": 501,
+      "body": {
+        "ok": false,
+        "data": null,
+        "error": {
+          "code": "FIXTURE_ERROR_CODE",
+          "message": "Fixture error message"
+        }
+      }
+    },
+    "conclusion": "The tested deployment does not expose a non-empty conversation diff even while the workspace Git diff is non-empty."
+  },
+  "browserRevalidation": {
+    "captureMethod": "A reviewed page-init script cloned the authenticated /events fetch response and parsed the cloned SSE stream without changing the request or the response consumed by the application.",
+    "selectedEventCounts": {
+      "permission.asked": 4,
+      "question.asked": 1,
+      "question.replied": 1,
+      "session.diff": 3,
+      "task.started": 1,
+      "task.progress": 1,
+      "task.completed": 1,
+      "tool.progress": 0
+    },
+    "sseToolNames": [
+      "askuserquestion",
+      "read",
+      "grep",
+      "edit",
+      "bash",
+      "task"
+    ],
+    "sseInputShapes": [
+      {
+        "scenario": "read",
+        "tool": "read",
+        "inputKeys": [
+          "filePath",
+          "limit"
+        ]
+      },
+      {
+        "scenario": "grep",
+        "tool": "grep",
+        "inputKeys": [
+          "output_mode",
+          "path",
+          "pattern"
+        ]
+      },
+      {
+        "scenario": "write-or-create",
+        "tool": "edit",
+        "inputKeys": [
+          "content",
+          "filePath"
+        ],
+        "metadataKeys": [
+          "filediff"
+        ]
+      },
+      {
+        "scenario": "edit-or-replace",
+        "tool": "edit",
+        "inputKeys": [
+          "filePath",
+          "newString",
+          "oldString"
+        ],
+        "metadataKeys": [
+          "filediff"
+        ]
+      },
+      {
+        "scenario": "bash",
+        "tool": "bash",
+        "inputKeys": [
+          "command",
+          "description"
+        ]
+      },
+      {
+        "scenario": "task",
+        "tool": "task",
+        "inputKeys": [
+          "description",
+          "prompt",
+          "subagent_type"
+        ]
+      }
+    ],
+    "historyInputShapes": [
+      {
+        "scenario": "read",
+        "tool": "read",
+        "inputKeys": [
+          "file_path",
+          "limit",
+          "offset"
+        ]
+      },
+      {
+        "scenario": "write-or-create",
+        "tool": "edit",
+        "inputKeys": [
+          "content",
+          "file_path"
+        ]
+      },
+      {
+        "scenario": "edit-or-replace",
+        "tool": "edit",
+        "inputKeys": [
+          "file_path",
+          "new_string",
+          "old_string"
+        ]
+      }
+    ],
+    "permissionAskedShapes": [
+      {
+        "permission": "edit",
+        "scenario": "write-or-create",
+        "metadataInputKeys": [
+          "content",
+          "filePath"
+        ]
+      },
+      {
+        "permission": "edit",
+        "scenario": "edit-or-replace",
+        "metadataInputKeys": [
+          "filePath",
+          "newString",
+          "oldString"
+        ]
+      },
+      {
+        "permission": "bash",
+        "scenario": "streaming-command",
+        "metadataInputKeys": [
+          "command",
+          "description"
+        ]
+      },
+      {
+        "permission": "bash",
+        "scenario": "cleanup-command",
+        "metadataInputKeys": [
+          "command",
+          "description"
+        ]
+      }
+    ],
+    "observations": [
+      "All three session.diff events contained an empty diff array, including the create, edit, and cleanup lifecycle.",
+      "A ten-second Bash command and an Agent subtask produced zero tool.progress events.",
+      "Bash output arrived through message.part.delta and Agent progress arrived through task.progress plus the running task ToolState progress field.",
+      "The REST history snapshot used snake_case file argument names where live SSE ToolState input used camelCase.",
+      "No standalone write tool name was observed; both requested write/create scenarios were normalized to edit."
+    ]
+  }
+}

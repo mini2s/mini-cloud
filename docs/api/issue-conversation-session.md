@@ -136,10 +136,9 @@ await client.conversation.abort(conversation_id);
 // 加载历史
 await client.conversation.messages(conversation_id, { limit: 50 });
 
-// todo 列表 / 会话详情 / diff
+// todo 列表 / 会话详情
 await client.conversation.todo(conversation_id);
 await client.conversation.get(conversation_id);
-await client.conversation.diff(conversation_id);
 ```
 
 ### 3. 连接实时事件流
