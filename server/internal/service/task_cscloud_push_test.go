@@ -53,6 +53,7 @@ func (f *fakePushClient) snapshot() []cloudruntime.Request {
 // the cs-cloud push tests. It only implements the exact subset needed.
 type pushTaskDB struct {
 	runtime          db.MulticaAgentRuntime
+	workspace        db.MulticaWorkspace
 	task             db.MulticaAgentTaskQueue
 	dispatchedCalled bool
 	dispatchedResult db.MulticaAgentTaskQueue
@@ -79,6 +80,8 @@ func (m *pushTaskDB) QueryRow(_ context.Context, sql string, args ...interface{}
 		return &pushMockRow{agent: &db.MulticaAgent{ID: m.task.AgentID, WorkspaceID: m.runtime.WorkspaceID, PluginID: m.agentPluginID, PluginName: m.agentPluginName}}
 	case strings.Contains(sql, "GetIssue"):
 		return &pushMockRow{issue: &db.MulticaIssue{ID: m.task.IssueID, WorkspaceID: m.runtime.WorkspaceID, Title: "Issue"}}
+	case strings.Contains(sql, "GetWorkspace"):
+		return &pushMockRow{workspace: &m.workspace}
 	case strings.Contains(sql, "GetComment"):
 		return &pushMockRow{err: pgx.ErrNoRows}
 	case strings.Contains(sql, "ListChatMessages"):
@@ -97,6 +100,8 @@ func (m *pushTaskDB) QueryRow(_ context.Context, sql string, args ...interface{}
 			return &pushMockRow{err: pgx.ErrNoRows}
 		}
 		return &pushMockRow{nodeRun: m.nodeRunRow}
+	case strings.Contains(sql, "GetWorkflowRunDefinitionSnapshot"):
+		return &pushMockRow{err: pgx.ErrNoRows}
 	case strings.Contains(sql, "GetWorkflowRun"):
 		// buildWorkflowSourceIssuePrompt (default-workflow prompt fallback)
 		// resolves the run after GetWorkflowNodeRun. nil => bare run with no
@@ -114,8 +119,20 @@ func (m *pushTaskDB) QueryRow(_ context.Context, sql string, args ...interface{}
 func (m *pushTaskDB) Exec(_ context.Context, _ string, _ ...interface{}) (pgconn.CommandTag, error) {
 	return pgconn.NewCommandTag(""), nil
 }
-func (m *pushTaskDB) Query(_ context.Context, _ string, _ ...interface{}) (pgx.Rows, error) {
-	return nil, pgx.ErrNoRows
+func (m *pushTaskDB) Query(_ context.Context, sql string, _ ...interface{}) (pgx.Rows, error) {
+	switch {
+	case strings.Contains(sql, "ListWorkflowNodeRunsByRun"):
+		if m.nodeRunRow == nil {
+			return &mockRowsNodeRuns{rows: nil, idx: -1}, nil
+		}
+		return &mockRowsNodeRuns{rows: []db.MulticaWorkflowNodeRun{*m.nodeRunRow}, idx: -1}, nil
+	case strings.Contains(sql, "ListWorkflowRunEdges"):
+		return &mockRowsWorkflowEdges{idx: -1}, nil
+	case strings.Contains(sql, "ListNodeRunDeliverableRequirements"):
+		return &mockRowsNodeRunDeliverables{rows: nil, idx: -1}, nil
+	default:
+		return nil, pgx.ErrNoRows
+	}
 }
 
 // pushMockRow is a test-only pgx.Row that can return different generated
@@ -123,6 +140,7 @@ func (m *pushTaskDB) Query(_ context.Context, _ string, _ ...interface{}) (pgx.R
 type pushMockRow struct {
 	task        *db.MulticaAgentTaskQueue
 	taskRuntime *db.MulticaAgentRuntime
+	workspace   *db.MulticaWorkspace
 	agent       *db.MulticaAgent
 	issue       *db.MulticaIssue
 	lastSession *db.GetLastTaskSessionRow  // GetLastTaskSession 命中时填
@@ -155,6 +173,9 @@ func (r *pushMockRow) Scan(dest ...any) error {
 	}
 	if r.taskRuntime != nil {
 		return scanRuntime(r.taskRuntime, dest)
+	}
+	if r.workspace != nil {
+		return scanWorkspaceFull(r.workspace, dest)
 	}
 	if r.agent != nil {
 		return scanAgent(r.agent, dest)
@@ -255,20 +276,42 @@ func (mockRowsChat) FieldDescriptions() []pgconn.FieldDescription { return nil }
 func (mockRowsChat) RawValues() [][]byte                          { return nil }
 
 func newPushTestDB(runtimeProvider, daemonID string) *pushTaskDB {
+	wsID := testUUID(2)
+	runtimeID := testUUID(1)
+	nodeRunID := testUUID(6)
+	runID := testUUID(7)
+	nodeID := testUUID(9)
 	return &pushTaskDB{
 		runtime: db.MulticaAgentRuntime{
-			ID:          testUUID(1),
-			WorkspaceID: testUUID(2),
+			ID:          runtimeID,
+			WorkspaceID: wsID,
 			DaemonID:    pgtype.Text{String: daemonID, Valid: true},
 			Provider:    runtimeProvider,
+		},
+		workspace: db.MulticaWorkspace{
+			ID: wsID,
+			Settings: []byte(`{` +
+				`"gitea_clone_url":"https://gitea.test/t-ws/wf-docworkflow.git",` +
+				`"last_instance_branch":"inst-run",` +
+				`"gitea_pat":"pat-workspace-bot"}`),
 		},
 		dispatchedResult: db.MulticaAgentTaskQueue{
 			ID:                testUUID(3),
 			AgentID:           testUUID(4),
-			RuntimeID:         testUUID(1),
+			RuntimeID:         runtimeID,
 			IssueID:           testUUID(5),
-			WorkflowNodeRunID: testUUID(6),
+			WorkflowNodeRunID: nodeRunID,
 			Status:            "queued",
+		},
+		nodeRunRow: &db.MulticaWorkflowNodeRun{
+			ID:             nodeRunID,
+			WorkflowRunID:  runID,
+			WorkflowNodeID: nodeID,
+			NodeTitle:      "Doc node",
+		},
+		workflowRunRow: &db.MulticaWorkflowRun{
+			ID:          runID,
+			WorkspaceID: wsID,
 		},
 	}
 }
@@ -1342,19 +1385,36 @@ func TestRepositoryDeliverableEnv_InjectedForAnyDeliverable(t *testing.T) {
 	}
 	// Verify the key Gitea env vars are present.
 	for _, key := range []string{
-		"CS_CLOUD_REPO_OWNER",
-		"CS_CLOUD_REPO_NAME",
-		"CS_CLOUD_REPO_TOKEN",
-		"CS_CLOUD_REPO_CLONE_URL",
-		"CS_CLOUD_REPO_CLONE_URL_AUTHED",
-		"CS_CLOUD_REPO_INST_BRANCH",
-		"CS_CLOUD_REPO_NODE_BRANCH",
-		"CS_CLOUD_GITEA_OWNER",     // legacy alias
-		"CS_CLOUD_GITEA_TOKEN",     // legacy alias
-		"CS_CLOUD_GITEA_CLONE_URL", // legacy alias
+		"CS_CLOUD_NODE_RUN_ID",
+		"CS_CLOUD_GITEA_OWNER",
+		"CS_CLOUD_GITEA_REPO",
+		"CS_CLOUD_GITEA_BASE_URL",
+		"CS_CLOUD_GITEA_TOKEN",
+		"CS_CLOUD_GITEA_CLONE_URL",
+		"CS_CLOUD_GITEA_INST_BRANCH",
+		"CS_CLOUD_GITEA_NODE_BRANCH",
+		"CS_CLOUD_GITEA_DELIVERABLES",
 	} {
 		if env[key] == "" {
 			t.Errorf("expected %s to be set, got empty", key)
+		}
+	}
+	for _, key := range []string{
+		"CS_CLOUD_ISSUE_ID",
+		"CS_CLOUD_REPO_PROVIDER",
+		"CS_CLOUD_REPO_OWNER",
+		"CS_CLOUD_REPO_NAME",
+		"CS_CLOUD_REPO_BASE_URL",
+		"CS_CLOUD_REPO_TOKEN",
+		"CS_CLOUD_REPO_CLONE_URL",
+		"CS_CLOUD_REPO_INST_BRANCH",
+		"CS_CLOUD_REPO_NODE_BRANCH",
+		"CS_CLOUD_REPO_DELIVERABLES",
+		"CS_CLOUD_REPO_CLONE_URL_AUTHED",
+		"CS_CLOUD_GITEA_CLONE_URL_AUTHED",
+	} {
+		if _, ok := env[key]; ok {
+			t.Errorf("expected %s to be omitted; credentialed clone URLs should not be dispatched", key)
 		}
 	}
 }
@@ -1377,9 +1437,6 @@ func TestRepositoryDeliverableEnv_UsesWorkspaceBotToken(t *testing.T) {
 	if env == nil {
 		t.Fatal("expected env when workspace bot token is configured")
 	}
-	if got := env["CS_CLOUD_REPO_TOKEN"]; got != "pat-workspace-bot" {
-		t.Errorf("CS_CLOUD_REPO_TOKEN = %q, want workspace bot token", got)
-	}
 	if got := env["CS_CLOUD_GITEA_TOKEN"]; got != "pat-workspace-bot" {
 		t.Errorf("CS_CLOUD_GITEA_TOKEN = %q, want workspace bot token", got)
 	}
@@ -1399,7 +1456,7 @@ func TestRepositoryDeliverableEnv_RequiresWorkspaceBotToken(t *testing.T) {
 	task := db.MulticaAgentTaskQueue{WorkflowNodeRunID: mdb.nodeRun.ID}
 
 	if env := svc.repositoryDeliverableEnv(context.Background(), task); env != nil {
-		t.Fatalf("expected nil env without workspace bot token; got CS_CLOUD_REPO_TOKEN=%q", env["CS_CLOUD_REPO_TOKEN"])
+		t.Fatalf("expected nil env without workspace bot token; got CS_CLOUD_GITEA_TOKEN=%q", env["CS_CLOUD_GITEA_TOKEN"])
 	}
 }
 
@@ -1421,9 +1478,6 @@ func TestRepositoryDeliverableEnv_IncludesEmptyDeliverableListForWorkflowNode(t 
 	env := svc.repositoryDeliverableEnv(context.Background(), task)
 	if env == nil {
 		t.Fatal("expected env for workflow node even when it has no deliverable rows")
-	}
-	if got := env["CS_CLOUD_REPO_DELIVERABLES"]; got != "[]" {
-		t.Errorf("CS_CLOUD_REPO_DELIVERABLES = %q, want []", got)
 	}
 	if got := env["CS_CLOUD_GITEA_DELIVERABLES"]; got != "[]" {
 		t.Errorf("CS_CLOUD_GITEA_DELIVERABLES = %q, want []", got)
@@ -2534,6 +2588,45 @@ func TestBuildCSCloudPayload_GitlabCodeRepoIncludesBaseURL(t *testing.T) {
 	}
 }
 
+func TestBuildCSCloudPayload_FailsWhenCodeProviderTokenMissing(t *testing.T) {
+	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://gitea.test")
+
+	mdb := newEnsureRepoTestDB()
+	wsRepos, _ := json.Marshal([]struct{ URL string }{
+		{URL: "https://gitlab.local/root/demo.git"},
+	})
+	mdb.workspace.Repos = wsRepos
+	mdb.workspace.Settings = []byte(`{` +
+		`"gitea_clone_url":"https://gitea.test/t-ws/wf-docworkflow.git",` +
+		`"last_instance_branch":"inst-run-abc",` +
+		`"gitea_pat":"pat-bot-xyz",` +
+		`"gitea_bot_username":"multica-bot-ws"}`)
+
+	svc := &TaskService{
+		Queries: db.New(mdb),
+		Bus:     events.New(),
+	}
+
+	task := db.MulticaAgentTaskQueue{
+		ID:                testUUID(11),
+		AgentID:           mdb.agent.ID,
+		IssueID:           mdb.issue.ID,
+		RuntimeID:         mdb.runtime.ID,
+		WorkflowNodeRunID: mdb.nodeRun.ID,
+		Status:            "queued",
+		Context:           []byte(`{"phase":"worker"}`),
+	}
+
+	_, err := svc.buildCSCloudPayload(context.Background(), task, mdb.runtime)
+	if err == nil {
+		t.Fatal("expected buildCSCloudPayload to fail when a GitLab code repo has no GitLab token")
+	}
+	if !strings.Contains(err.Error(), "missing GitLab token") {
+		t.Fatalf("error = %v, want missing GitLab token", err)
+	}
+}
+
 func TestBuildCSCloudPayload_AddsDeliveryRepoAfterSafetyNet(t *testing.T) {
 	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
 	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://gitea.test")
@@ -2683,7 +2776,7 @@ func TestBuildCSCloudPayload_NonWorkerPhaseHasRepoContextButNoDeliverables(t *te
 //
 // cs-cloud's lookupRepoRole matches the checkout URL against payload.Repos[].URL
 // by EXACT equality. repos[].URL comes from workspace.settings gitea_clone_url
-// (read by resolveDeliveryRepo); CS_CLOUD_REPO_CLONE_URL is what the agent passes
+// (read by resolveDeliveryRepo); CS_CLOUD_GITEA_CLONE_URL is what the agent passes
 // to `cs-cloud repo checkout`. If the two URLs diverge — e.g. GITEA_PUBLIC_BASE_URL
 // points at a different host than the tenant-scoped Gitea that wrote the settings —
 // cs-cloud silently downgrades delivery → code, picks the GitLab PAT, and the
@@ -2717,31 +2810,32 @@ func TestRepositoryDeliverableEnv_PrefersSettingsCloneURL(t *testing.T) {
 	// Clone URL MUST come from settings so it exactly equals repos[].URL
 	// (which resolveDeliveryRepo also reads from settings.gitea_clone_url).
 	// Self-assembly from GITEA_PUBLIC_BASE_URL would produce http://localhost:23000/...
-	if got, want := env["CS_CLOUD_REPO_CLONE_URL"], "https://gitea-tenant.example/x/wf-abc.git"; got != want {
-		t.Errorf("CS_CLOUD_REPO_CLONE_URL = %q, want settings value %q", got, want)
+	if got, want := env["CS_CLOUD_GITEA_CLONE_URL"], "https://gitea-tenant.example/x/wf-abc.git"; got != want {
+		t.Errorf("CS_CLOUD_GITEA_CLONE_URL = %q, want settings value %q", got, want)
 	}
 	// Inst branch MUST come from settings so it matches repos[].BaseBranch.
-	if got, want := env["CS_CLOUD_REPO_INST_BRANCH"], "inst-from-settings"; got != want {
-		t.Errorf("CS_CLOUD_REPO_INST_BRANCH = %q, want %q", got, want)
+	if got, want := env["CS_CLOUD_GITEA_INST_BRANCH"], "inst-from-settings"; got != want {
+		t.Errorf("CS_CLOUD_GITEA_INST_BRANCH = %q, want %q", got, want)
 	}
 	// Base URL (cs-cloud's PR API target) comes from settings.gitea_web_url.
-	if got, want := env["CS_CLOUD_REPO_BASE_URL"], "https://gitea-tenant.example"; got != want {
-		t.Errorf("CS_CLOUD_REPO_BASE_URL = %q, want %q", got, want)
+	if got, want := env["CS_CLOUD_GITEA_BASE_URL"], "https://gitea-tenant.example"; got != want {
+		t.Errorf("CS_CLOUD_GITEA_BASE_URL = %q, want %q", got, want)
 	}
-	// Authed clone URL derives from the settings-sourced cloneURL (token embedded).
-	if got := env["CS_CLOUD_REPO_CLONE_URL_AUTHED"]; !strings.Contains(got, "gitea-tenant.example") {
-		t.Errorf("CS_CLOUD_REPO_CLONE_URL_AUTHED = %q, want to derive from settings cloneURL", got)
-	}
-	// The legacy alias must carry the SAME settings-sourced value.
-	if got := env["CS_CLOUD_GITEA_CLONE_URL"]; got != "https://gitea-tenant.example/x/wf-abc.git" {
-		t.Errorf("CS_CLOUD_GITEA_CLONE_URL = %q, want settings value (aliased)", got)
+	for _, key := range []string{
+		"CS_CLOUD_REPO_CLONE_URL",
+		"CS_CLOUD_REPO_INST_BRANCH",
+		"CS_CLOUD_REPO_BASE_URL",
+		"CS_CLOUD_REPO_CLONE_URL_AUTHED",
+	} {
+		if _, ok := env[key]; ok {
+			t.Errorf("%s should be omitted; Gitea env is the dispatched contract", key)
+		}
 	}
 }
 
-func TestRepositoryDeliverableEnv_FallsBackToSelfBuiltWhenSettingsLackCloneURL(t *testing.T) {
-	// When settings are pre-provisioning (no gitea_clone_url yet), the function
-	// must still produce a usable cloneURL from GITEA_PUBLIC_BASE_URL — this is
-	// the fallback path, not the cross-repo-aligned happy path.
+func TestRepositoryDeliverableEnv_RequiresProvisionedWorkflowRepoSettings(t *testing.T) {
+	// Pre-provisioning settings (no gitea_clone_url/last_instance_branch yet)
+	// must fail closed. Multica must not synthesize wf-deliverable-archive here.
 	t.Setenv("GITEA_BASE_URL", "http://gitea:3000")
 	t.Setenv("GITEA_PUBLIC_BASE_URL", "http://localhost:23000")
 
@@ -2753,16 +2847,37 @@ func TestRepositoryDeliverableEnv_FallsBackToSelfBuiltWhenSettingsLackCloneURL(t
 	task := db.MulticaAgentTaskQueue{WorkflowNodeRunID: mdb.nodeRun.ID}
 
 	env := svc.repositoryDeliverableEnv(context.Background(), task)
+	if env != nil {
+		t.Fatalf("repositoryDeliverableEnv should be nil without provisioned workflow repo settings; got %+v", env)
+	}
+}
+
+func TestRepositoryDeliverableEnv_ParsesOwnerRepoFromWorkflowCloneURL(t *testing.T) {
+	t.Setenv("GITEA_BASE_URL", "http://gitea:3000")
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://public.gitea.test")
+
+	mdb := newEnsureRepoTestDB()
+	mdb.workspace.Settings = []byte(`{` +
+		`"gitea_clone_url":"https://public.gitea.test/custom-owner/custom-workflow-repo.git",` +
+		`"last_instance_branch":"inst-custom",` +
+		`"gitea_web_url":"https://public.gitea.test/custom-owner/custom-workflow-repo",` +
+		`"gitea_pat":"pat-xyz"}`)
+
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{WorkflowNodeRunID: mdb.nodeRun.ID}
+
+	env := svc.repositoryDeliverableEnv(context.Background(), task)
 	if env == nil {
 		t.Fatal("repositoryDeliverableEnv returned nil")
 	}
-
-	// Fallback: self-built from GITEA_PUBLIC_BASE_URL.
-	if got := env["CS_CLOUD_REPO_CLONE_URL"]; !strings.Contains(got, "localhost:23000") {
-		t.Errorf("CS_CLOUD_REPO_CLONE_URL = %q, want self-built from GITEA_PUBLIC_BASE_URL (localhost:23000)", got)
+	if got := env["CS_CLOUD_GITEA_OWNER"]; got != "custom-owner" {
+		t.Fatalf("CS_CLOUD_GITEA_OWNER = %q, want custom-owner", got)
 	}
-	if strings.Contains(env["CS_CLOUD_REPO_CLONE_URL"], "gitea-tenant.example") {
-		t.Errorf("CS_CLOUD_REPO_CLONE_URL should NOT be the settings value when gitea_clone_url is absent")
+	if got := env["CS_CLOUD_GITEA_REPO"]; got != "custom-workflow-repo" {
+		t.Fatalf("CS_CLOUD_GITEA_REPO = %q, want custom-workflow-repo", got)
+	}
+	if got := env["CS_CLOUD_GITEA_CLONE_URL"]; got != "https://public.gitea.test/custom-owner/custom-workflow-repo.git" {
+		t.Fatalf("CS_CLOUD_GITEA_CLONE_URL = %q, want workflow clone URL", got)
 	}
 }
 
@@ -2838,8 +2953,8 @@ func TestGiteaServerRoot(t *testing.T) {
 // reach. When settings.gitea_clone_url is on the internal GITEA_BASE_URL host,
 // resolveDeliveryRepo must rewrite it to GITEA_PUBLIC_BASE_URL (host swapped,
 // path preserved). repositoryDeliverableEnv runs the SAME settings value
-// through the SAME rewrite helper for CS_CLOUD_REPO_CLONE_URL, keeping
-// repos[].URL == CS_CLOUD_REPO_CLONE_URL so cs-cloud's lookupRepoRole equality
+// through the SAME rewrite helper for CS_CLOUD_GITEA_CLONE_URL, keeping
+// repos[].URL == CS_CLOUD_GITEA_CLONE_URL so cs-cloud's lookupRepoRole equality
 // contract holds.
 //
 // (repositoryDeliverableEnv itself isn't exercised here because its mock
@@ -2869,11 +2984,10 @@ func TestResolveDeliveryRepo_RewritesInternalHostToPublic(t *testing.T) {
 }
 
 // TestRepositoryDeliverableEnv_RewritesInternalHostToPublic verifies the second
-// dispatch exit end-to-end: CS_CLOUD_REPO_CLONE_URL / _BASE_URL /
-// _CLONE_URL_AUTHED all carry the PUBLIC host when settings.gitea_clone_url is
-// on the internal GITEA_BASE_URL host. cloneURL is rewritten before the bot
-// token is injected, so the authed URL is public too; and CS_CLOUD_REPO_CLONE_URL
-// stays EXACTLY equal to resolveDeliveryRepo's repos[].URL (lookupRepoRole).
+// dispatch exit end-to-end: CS_CLOUD_GITEA_CLONE_URL / _BASE_URL /
+// token env all carry the PUBLIC host when settings.gitea_clone_url is on the
+// internal GITEA_BASE_URL host. CS_CLOUD_GITEA_CLONE_URL stays EXACTLY equal to
+// resolveDeliveryRepo's repos[].URL (lookupRepoRole).
 func TestRepositoryDeliverableEnv_RewritesInternalHostToPublic(t *testing.T) {
 	t.Setenv("GITEA_BASE_URL", "http://10.20.19.101:33000")
 	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://zgsmtest.xyz:30443")
@@ -2895,19 +3009,23 @@ func TestRepositoryDeliverableEnv_RewritesInternalHostToPublic(t *testing.T) {
 	}
 
 	wantClone := "https://zgsmtest.xyz:30443/t-ad9d561c/wf-deliverable-archive.git"
-	if got := env["CS_CLOUD_REPO_CLONE_URL"]; got != wantClone {
-		t.Errorf("CS_CLOUD_REPO_CLONE_URL = %q, want rewritten to public host %q", got, wantClone)
+	if got := env["CS_CLOUD_GITEA_CLONE_URL"]; got != wantClone {
+		t.Errorf("CS_CLOUD_GITEA_CLONE_URL = %q, want rewritten to public host %q", got, wantClone)
 	}
 	// Base URL must be the Gitea SERVER ROOT, not the repo web URL: gitea_web_url
 	// carries the /t-ad9d561c/wf-deliverable-archive repo path, which cs-cloud's
 	// PR API would turn into .../repo/api/v1/repos/repo/pulls and 404.
-	if got := env["CS_CLOUD_REPO_BASE_URL"]; got != "https://zgsmtest.xyz:30443" {
-		t.Errorf("CS_CLOUD_REPO_BASE_URL = %q, want server root (repo path stripped, public host) %q", got, "https://zgsmtest.xyz:30443")
+	if got := env["CS_CLOUD_GITEA_BASE_URL"]; got != "https://zgsmtest.xyz:30443" {
+		t.Errorf("CS_CLOUD_GITEA_BASE_URL = %q, want server root (repo path stripped, public host) %q", got, "https://zgsmtest.xyz:30443")
 	}
-	// Authed clone URL: host swapped BEFORE the bot token is injected.
-	authed := env["CS_CLOUD_REPO_CLONE_URL_AUTHED"]
-	if !strings.HasPrefix(authed, "https://bot-t-ad9d561c:pat-xyz@zgsmtest.xyz:30443/") {
-		t.Errorf("CS_CLOUD_REPO_CLONE_URL_AUTHED = %q, want public host + embedded bot token", authed)
+	for _, key := range []string{
+		"CS_CLOUD_REPO_CLONE_URL",
+		"CS_CLOUD_REPO_BASE_URL",
+		"CS_CLOUD_REPO_CLONE_URL_AUTHED",
+	} {
+		if _, ok := env[key]; ok {
+			t.Errorf("%s should be omitted; Gitea env is the dispatched contract", key)
+		}
 	}
 	// Cross-repo equality: repos[].URL must equal the dispatched clone URL.
 	repo, ok := svc.resolveDeliveryRepo(context.Background(), mdb.workspace.ID)
@@ -2915,7 +3033,7 @@ func TestRepositoryDeliverableEnv_RewritesInternalHostToPublic(t *testing.T) {
 		t.Fatal("resolveDeliveryRepo returned ok=false")
 	}
 	if repo.URL != wantClone {
-		t.Errorf("repos[].URL = %q, want %q (must equal CS_CLOUD_REPO_CLONE_URL)", repo.URL, wantClone)
+		t.Errorf("repos[].URL = %q, want %q (must equal CS_CLOUD_GITEA_CLONE_URL)", repo.URL, wantClone)
 	}
 }
 
