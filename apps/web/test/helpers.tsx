@@ -17,6 +17,8 @@ export const mockUser: User = {
   language: null,
   timezone: null,
   profile_description: "",
+  can_manage_workflows: false,
+  workflow_admin_source: "local",
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };

@@ -725,6 +725,8 @@ export const UserSchema = z.object({
   language: z.string().nullable().default(null),
   profile_description: z.string().default(""),
   timezone: z.string().nullable().default(null),
+  can_manage_workflows: z.boolean().default(false),
+  workflow_admin_source: z.string().default("local"),
   created_at: z.string().default(""),
   updated_at: z.string().default(""),
 }).loose();
@@ -740,6 +742,8 @@ export const EMPTY_USER: User = {
   language: null,
   profile_description: "",
   timezone: null,
+  can_manage_workflows: false,
+  workflow_admin_source: "local",
   created_at: "",
   updated_at: "",
 };
