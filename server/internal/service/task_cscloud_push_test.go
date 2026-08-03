@@ -586,7 +586,7 @@ func TestAppendDeliverablePrompt_CheckoutAndSubmit(t *testing.T) {
 		".cs-cloud.env",
 		"Before submitting, clone the delivery repository listed in `.cs-cloud.repos`",
 		"check out the listed node branch",
-		"cs-cloud workflow deliverable submit --deliverable <id> --file <path>",
+		"cs-cloud workflow deliverable submit --deliverable <id> --file <path> --title \"<PR title>\"",
 		"Document Deliverables",
 	} {
 		if !strings.Contains(got, want) {
@@ -943,6 +943,9 @@ func TestAppendCodeRepoPrompt_MultiRepo(t *testing.T) {
 	if !strings.Contains(got, "cs-cloud workflow deliverable submit") {
 		t.Fatalf("prompt missing CLI submit instruction:\n%s", got)
 	}
+	if !strings.Contains(got, "--title \"<PR title>\"") {
+		t.Fatalf("prompt must tell the agent to choose the PR/MR title via --title:\n%s", got)
+	}
 	if strings.Contains(got, "--mr") {
 		t.Fatalf("prompt must not hardcode --mr (cs-cloud reads CS_CLOUD_CODE_PROVIDER):\n%s", got)
 	}
@@ -991,6 +994,9 @@ func TestAppendCodeRepoPrompt_NoHardcodedMrFlag(t *testing.T) {
 	}
 	if !strings.Contains(got, "cs-cloud workflow deliverable submit") {
 		t.Fatalf("prompt missing submit instruction:\n%s", got)
+	}
+	if !strings.Contains(got, "--title \"<PR title>\"") {
+		t.Fatalf("prompt must include custom title flag:\n%s", got)
 	}
 }
 

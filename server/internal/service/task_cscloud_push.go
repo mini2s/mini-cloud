@@ -740,7 +740,7 @@ func appendCodeRepoPrompt(prompt string, _ []csCloudRepoSpec) string {
 	b.WriteString("\n---\n## Code Repositories\n\n")
 	b.WriteString("Repository names, URLs, branches, and purposes are in `.cs-cloud.repos` in your task root. Authentication is in `.cs-cloud.env` and is read by commands automatically. Do not copy tokens into replies, documents, commits, or prompts.\n")
 	b.WriteString("Clone code repositories on demand. Only clone a repository when the current task needs you to inspect or modify it. Do not clone every repository by default.\n")
-	b.WriteString("Use the code repositories listed there for source changes. After committing in the repository, run `cs-cloud workflow deliverable submit --repo <url> --deliverable <id>` from the repository directory to open the MR/PR and report it.\n")
+	b.WriteString("Use the code repositories listed there for source changes. After committing in the repository, run `cs-cloud workflow deliverable submit --repo <url> --deliverable <id> --title \"<PR title>\"` from the repository directory to open the MR/PR with your chosen title and report it.\n")
 	b.WriteString("\n---\n\n")
 	return b.String()
 }
@@ -778,7 +778,7 @@ func appendDeliverablePrompt(prompt string, _ []repositoryDeliverableRefJSON) st
 	b.WriteString("\n---\n## Document Deliverables\n\n")
 	b.WriteString("Delivery repository, node/inst branches, deliverable IDs, and target paths are in `.cs-cloud.repos`. Authentication is in `.cs-cloud.env` and is read by commands automatically. Do not copy tokens into replies, documents, commits, or prompts.\n")
 	b.WriteString("Before submitting, clone the delivery repository listed in `.cs-cloud.repos` into the task root using the credential source in `.cs-cloud.env`, check out the listed node branch, and `cd` into that repository. Do not print or copy credentialed URLs.\n")
-	b.WriteString("For each deliverable listed in `.cs-cloud.repos`, write the document to a local file, then run `cs-cloud workflow deliverable submit --deliverable <id> --file <path>` from inside the delivery repository. A deliverable is not considered submitted until its PR is registered.\n")
+	b.WriteString("For each deliverable listed in `.cs-cloud.repos`, write the document to a local file, then run `cs-cloud workflow deliverable submit --deliverable <id> --file <path> --title \"<PR title>\"` from inside the delivery repository, choosing a meaningful PR title yourself. A deliverable is not considered submitted until its PR is registered.\n")
 	b.WriteString("\n---\n\n")
 	return b.String()
 }

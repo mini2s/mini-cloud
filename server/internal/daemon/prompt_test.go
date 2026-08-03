@@ -494,6 +494,9 @@ func TestBuildPromptGiteaDeliverables(t *testing.T) {
 	if !strings.Contains(got, "cs-cloud workflow deliverable submit --deliverable d2 --file") {
 		t.Errorf("prompt missing repo submit command for d2:\n%s", got)
 	}
+	if !strings.Contains(got, "--title \"<PR title>\"") {
+		t.Errorf("prompt must tell the agent to choose the PR title via --title:\n%s", got)
+	}
 	if !strings.Contains(got, "Design Doc") || !strings.Contains(got, "API Spec") {
 		t.Errorf("prompt missing deliverable titles:\n%s", got)
 	}

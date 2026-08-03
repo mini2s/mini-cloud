@@ -86,7 +86,7 @@ func BuildPrompt(task Task, provider string) string {
 		b.WriteString("This node has deliverables. Each must be satisfied by registering a PR/MR URL before the node is complete. Choose the method based on what the deliverable asks for:\n\n")
 		b.WriteString("**Document deliverable** — write the content to a local file and submit it with the CLI (which creates a node branch off the run's instance branch, pushes the file, opens a review PR in the platform repository, and registers the URL):\n")
 		for _, d := range task.GiteaDeliverables.Deliverables {
-			fmt.Fprintf(&b, "- **%s** (id=%s): `cs-cloud workflow deliverable submit --deliverable %s --file <local-path>`\n", d.Title, d.ID, d.ID)
+			fmt.Fprintf(&b, "- **%s** (id=%s): `cs-cloud workflow deliverable submit --deliverable %s --file <local-path> --title \"<PR title>\"`\n", d.Title, d.ID, d.ID)
 		}
 		b.WriteString("\n**Code deliverable** — push a branch to the linked Git repo and open a Merge Request, then register the MR URL:\n")
 		b.WriteString("1. Open an MR with `cs-workflow mr create --source-branch <branch> --title \"<title>\" --push` (run inside a checkout whose `origin` points at the Git repo; the CLI reads the PAT from the workspace).\n")
