@@ -3,6 +3,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkflowNode, WorkflowNodeRun } from "@multica/core/types";
+import { formatPullRequestLabel } from "../../../common/node-deliverable-drawer-ui";
 import { TaskNodeDetailPanel } from "./task-node-detail-panel";
 
 const mocks = vi.hoisted(() => ({
@@ -171,6 +172,16 @@ describe("TaskNodeDetailPanel", () => {
     mocks.uploadIssueDeliverable.mockResolvedValue({ ok: true });
     mocks.submitNodeRun.mockResolvedValue({});
     mocks.invalidateQueries.mockResolvedValue(undefined);
+  });
+
+  it.each([
+    ["https://gitea.test/team/repo/pulls/3", "PR#3"],
+    ["https://github.com/multica-ai/multica/pull/192", "PR#192"],
+    ["https://gitlab.test/team/repo/-/merge_requests/27", "PR#27"],
+    ["https://bitbucket.test/team/repo/pull-requests/8?tab=diff", "PR#8"],
+    ["not-a-pull-request", "Pull request"],
+  ])("formats pull request link %s as %s", (url, expected) => {
+    expect(formatPullRequestLabel(url, "Pull request")).toBe(expected);
   });
 
   it("renders the canonical 620px running task drawer", () => {

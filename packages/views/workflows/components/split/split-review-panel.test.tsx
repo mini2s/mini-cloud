@@ -2,7 +2,13 @@
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { SplitTasksResponse, WorkflowNode, WorkflowNodeRun } from "@multica/core/types";
+import type {
+  SplitTasksResponse,
+  WorkflowNode,
+  WorkflowNodeDeliverable,
+  WorkflowNodeDeliverableSubmission,
+  WorkflowNodeRun,
+} from "@multica/core/types";
 import { SplitReviewPanel } from "./split-review-panel";
 
 const mocks = vi.hoisted(() => ({
@@ -12,11 +18,15 @@ const mocks = vi.hoisted(() => ({
   generate: vi.fn(),
   retry: vi.fn(),
   cancel: vi.fn(),
+  deliverableData: {
+    deliverables: [] as WorkflowNodeDeliverable[],
+    submissions: [] as WorkflowNodeDeliverableSubmission[],
+  },
 }));
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (options: { kind?: string }) => ({
-    data: options.kind === "split" ? mocks.data : { deliverables: [], submissions: [] },
+    data: options.kind === "split" ? mocks.data : mocks.deliverableData,
     isLoading: false,
   }),
 }));
@@ -112,6 +122,42 @@ describe("SplitReviewPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.data = response();
+    mocks.deliverableData = { deliverables: [], submissions: [] };
+  });
+
+  it("shows the task-plan pull request number", () => {
+    mocks.deliverableData = {
+      deliverables: [{
+        id: "deliverable-1",
+        workflow_node_id: "node-1",
+        title: "task.md",
+        description: "Split plan",
+        required: true,
+        sort_order: 0,
+        created_at: "",
+        updated_at: "",
+      }],
+      submissions: [{
+        id: "submission-2",
+        workflow_node_run_id: "run-node-1",
+        deliverable_id: "deliverable-1",
+        submitted_by_type: "agent",
+        submitted_by_id: "agent-1",
+        status: "submitted",
+        content: "",
+        attachment_id: null,
+        pull_request_url: "https://gitea.test/team/repo/pulls/42",
+        review_comment: "",
+        submitted_at: "2026-08-03T10:00:00Z",
+        reviewed_at: null,
+        created_at: "",
+        updated_at: "",
+      }],
+    };
+
+    render(<SplitReviewPanel node={node} nodeRun={baseRun} wsId="ws-1" onClose={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: "PR#42" })).toBeInTheDocument();
   });
 
   it("approves the exact generation and submission", () => {

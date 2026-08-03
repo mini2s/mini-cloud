@@ -44,6 +44,7 @@ import {
   PreviousDeliverableCard,
   drawerButtonClass,
   drawerSmallButtonClass,
+  formatPullRequestLabel,
   formatDeliverableTime,
   type DeliverableDrawerItem,
   type DrawerTone,
@@ -142,7 +143,10 @@ function TaskSubmissionCard({
                   className="inline-flex items-center gap-[3px] text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
                 >
                   <ExternalLink className="size-3" />
-                  {t(($) => $.execution.detail_panel.task_drawer_pull_request)}
+                  {formatPullRequestLabel(
+                    item.submission.pull_request_url,
+                    t(($) => $.execution.detail_panel.task_drawer_pull_request),
+                  )}
                 </a>
               ) : (
                 <span className="inline-flex items-center gap-1 rounded-[5px] bg-muted px-1.5 py-[3px] font-mono text-[10.5px] leading-none text-emerald-600">

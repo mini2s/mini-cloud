@@ -87,6 +87,16 @@ function openPullRequest(url: string) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
+export function formatPullRequestLabel(url: string, fallback: string): string {
+  try {
+    const pathname = new URL(url).pathname;
+    const match = pathname.match(/\/(?:pull|pulls|pull-requests|merge_requests)\/(\d+)\/?$/);
+    return match ? `PR#${match[1]}` : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function formatDeliverableTime(value: string | null | undefined): string {
   if (!value) return "—";
   const time = new Date(value);
@@ -155,7 +165,7 @@ export function PreviousDeliverableCard({
             onClick={() => openPullRequest(submission.pull_request_url)}
           >
             <ExternalLink className="size-3" />
-            {pullRequestLabel} · {mergedLabel}
+            {formatPullRequestLabel(submission.pull_request_url, pullRequestLabel)} · {mergedLabel}
           </button>
         ) : null}
         <span className="text-[11px] leading-[1.45] text-muted-foreground">{hint}</span>
@@ -299,7 +309,7 @@ export function CurrentDeliverablesCard({
                         onClick={() => openPullRequest(submission.pull_request_url)}
                       >
                         <ExternalLink className="size-3" />
-                        {pullRequestLabel}
+                        {formatPullRequestLabel(submission.pull_request_url, pullRequestLabel)}
                       </button>
                     ) : null}
                     <span className="text-[11px] leading-[1.45] text-muted-foreground">
