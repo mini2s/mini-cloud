@@ -109,4 +109,26 @@ describe("PluginSelect", () => {
       });
     });
   });
+
+  it("filters the built-in list server-side as the user types", async () => {
+    renderPluginSelect();
+
+    fireEvent.click(screen.getByRole("button", { name: /Select a plugin/i }));
+
+    // The builtin query starts unfiltered on expand.
+    await screen.findByRole("button", { name: /Built-in One/i });
+    expect(mockListBuiltinPlugins).toHaveBeenCalledWith({ search: "" });
+
+    fireEvent.change(screen.getByPlaceholderText("Search plugins"), {
+      target: { value: "design" },
+    });
+
+    // After the debounce, the built-in list refetches with the search term so
+    // the server filters it (matching the cloud list's behavior). Previously
+    // the search term was never passed to listBuiltinPlugins, leaving the
+    // built-in section unfiltered while the cloud section filtered correctly.
+    await waitFor(() => {
+      expect(mockListBuiltinPlugins).toHaveBeenCalledWith({ search: "design" });
+    });
+  });
 });
