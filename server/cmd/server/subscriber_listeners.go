@@ -61,6 +61,15 @@ func registerSubscriberListeners(bus *events.Bus, queries *db.Queries) {
 			}
 		}
 
+		// Subscribe new responsible user if responsible changed, so later
+		// status_changed (and other subscriber-routed) notifications reach the
+		// new owner. Mirrors the assignee-changed subscription just above.
+		if responsibleChanged, _ := payload["responsible_user_changed"].(bool); responsibleChanged {
+			if issue.ResponsibleUserID != nil && *issue.ResponsibleUserID != "" {
+				addSubscriber(bus, queries, e.WorkspaceID, issue.ID, "member", *issue.ResponsibleUserID, "responsible")
+			}
+		}
+
 		// Subscribe newly @mentioned users in description
 		if descriptionChanged, _ := payload["description_changed"].(bool); descriptionChanged && issue.Description != nil {
 			newMentions := parseMentions(*issue.Description)

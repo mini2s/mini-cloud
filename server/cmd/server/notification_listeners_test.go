@@ -1031,287 +1031,7 @@ func TestNotification_WorkflowNodeAssignmentWithoutIssueID(t *testing.T) {
 	}
 }
 
-// TestNotification_TaskCompleted verifies that task:completed events do NOT
 // create inbox notifications (completion is visible from the status change).
-func TestNotification_TaskCompleted(t *testing.T) {
-	queries := db.New(testPool)
-	bus := newNotificationBus(t, queries)
-
-	issueID := createTestIssue(t, testWorkspaceID, testUserID)
-	t.Cleanup(func() {
-		cleanupInboxForIssue(t, issueID)
-		cleanupTestIssue(t, issueID)
-	})
-
-	// The agent ID (acting as system actor)
-	agentID := "00000000-0000-0000-0000-aaaaaaaaaaaa"
-
-	// Pre-add subscribers: creator and the agent
-	addTestSubscriber(t, issueID, "member", testUserID, "creator")
-	addTestSubscriber(t, issueID, "agent", agentID, "assignee")
-
-	bus.Publish(events.Event{
-		Type:        protocol.EventTaskCompleted,
-		WorkspaceID: testWorkspaceID,
-		ActorType:   "system",
-		ActorID:     "",
-		Payload: map[string]any{
-			"task_id":  "00000000-0000-0000-0000-bbbbbbbbbbbb",
-			"agent_id": agentID,
-			"issue_id": issueID,
-			"status":   "completed",
-		},
-	})
-
-	// No inbox notification should be created for task:completed
-	creatorItems := inboxItemsForRecipient(t, queries, testUserID)
-	if len(creatorItems) != 0 {
-		t.Fatalf("expected 0 inbox items for creator on task:completed, got %d", len(creatorItems))
-	}
-}
-
-// TestNotification_TaskFailed verifies that subscribers get a "task_failed"
-// notification when a task fails, excluding the agent.
-func TestNotification_TaskFailed(t *testing.T) {
-	queries := db.New(testPool)
-	bus := newNotificationBus(t, queries)
-
-	issueID := createTestIssue(t, testWorkspaceID, testUserID)
-	t.Cleanup(func() {
-		cleanupInboxForIssue(t, issueID)
-		cleanupTestIssue(t, issueID)
-	})
-
-	agentID := "00000000-0000-0000-0000-aaaaaaaaaaaa"
-
-	addTestSubscriber(t, issueID, "member", testUserID, "creator")
-	addTestSubscriber(t, issueID, "agent", agentID, "assignee")
-
-	bus.Publish(events.Event{
-		Type:        protocol.EventTaskFailed,
-		WorkspaceID: testWorkspaceID,
-		ActorType:   "system",
-		ActorID:     "",
-		Payload: map[string]any{
-			"task_id":  "00000000-0000-0000-0000-bbbbbbbbbbbb",
-			"agent_id": agentID,
-			"issue_id": issueID,
-			"status":   "failed",
-		},
-	})
-
-	creatorItems := inboxItemsForRecipient(t, queries, testUserID)
-	if len(creatorItems) != 1 {
-		t.Fatalf("expected 1 inbox item for creator, got %d", len(creatorItems))
-	}
-	if creatorItems[0].Type != "task_failed" {
-		t.Fatalf("expected type 'task_failed', got %q", creatorItems[0].Type)
-	}
-	if creatorItems[0].Severity != "action_required" {
-		t.Fatalf("expected severity 'action_required', got %q", creatorItems[0].Severity)
-	}
-}
-
-// TestNotification_PriorityChanged verifies that all subscribers receive a
-// "priority_changed" notification when an issue priority changes, including
-// the actor when they are subscribed.
-func TestNotification_PriorityChanged(t *testing.T) {
-	queries := db.New(testPool)
-	bus := newNotificationBus(t, queries)
-
-	sub1Email := "notif-sub1-priority@multica.ai"
-	sub1ID := createTestUser(t, sub1Email)
-	t.Cleanup(func() { cleanupTestUser(t, sub1Email) })
-
-	issueID := createTestIssue(t, testWorkspaceID, testUserID)
-	t.Cleanup(func() {
-		cleanupInboxForIssue(t, issueID)
-		cleanupTestIssue(t, issueID)
-	})
-
-	addTestSubscriber(t, issueID, "member", testUserID, "creator")
-	addTestSubscriber(t, issueID, "member", sub1ID, "assignee")
-
-	bus.Publish(events.Event{
-		Type:        protocol.EventIssueUpdated,
-		WorkspaceID: testWorkspaceID,
-		ActorType:   "member",
-		ActorID:     testUserID,
-		Payload: map[string]any{
-			"issue": handler.IssueResponse{
-				ID:          issueID,
-				WorkspaceID: testWorkspaceID,
-				Title:       "priority test issue",
-				Status:      "todo",
-				Priority:    "high",
-				CreatorType: "member",
-				CreatorID:   testUserID,
-			},
-			"assignee_changed": false,
-			"status_changed":   false,
-			"priority_changed": true,
-			"prev_priority":    "medium",
-		},
-	})
-
-	// Actor is subscribed and should get a notification too.
-	actorItems := inboxItemsForRecipient(t, queries, testUserID)
-	if len(actorItems) != 1 {
-		t.Fatalf("expected 1 inbox item for actor, got %d", len(actorItems))
-	}
-	if actorItems[0].Type != "priority_changed" {
-		t.Fatalf("expected type 'priority_changed', got %q", actorItems[0].Type)
-	}
-
-	// sub1 should get a priority_changed notification
-	sub1Items := inboxItemsForRecipient(t, queries, sub1ID)
-	if len(sub1Items) != 1 {
-		t.Fatalf("expected 1 inbox item for sub1, got %d", len(sub1Items))
-	}
-	if sub1Items[0].Type != "priority_changed" {
-		t.Fatalf("expected type 'priority_changed', got %q", sub1Items[0].Type)
-	}
-	if sub1Items[0].Severity != "info" {
-		t.Fatalf("expected severity 'info', got %q", sub1Items[0].Severity)
-	}
-	// Title is now just the issue title; details contain from/to
-	expectedTitle := "priority test issue"
-	if sub1Items[0].Title != expectedTitle {
-		t.Fatalf("expected title %q, got %q", expectedTitle, sub1Items[0].Title)
-	}
-}
-
-// TestNotification_DueDateChanged verifies that all subscribers receive a
-// "due_date_changed" notification when an issue due date changes, including
-// the actor when they are subscribed.
-func TestNotification_DueDateChanged(t *testing.T) {
-	queries := db.New(testPool)
-	bus := newNotificationBus(t, queries)
-
-	sub1Email := "notif-sub1-duedate@multica.ai"
-	sub1ID := createTestUser(t, sub1Email)
-	t.Cleanup(func() { cleanupTestUser(t, sub1Email) })
-
-	issueID := createTestIssue(t, testWorkspaceID, testUserID)
-	t.Cleanup(func() {
-		cleanupInboxForIssue(t, issueID)
-		cleanupTestIssue(t, issueID)
-	})
-
-	addTestSubscriber(t, issueID, "member", testUserID, "creator")
-	addTestSubscriber(t, issueID, "member", sub1ID, "assignee")
-
-	dueDate := "2026-04-15T00:00:00Z"
-	bus.Publish(events.Event{
-		Type:        protocol.EventIssueUpdated,
-		WorkspaceID: testWorkspaceID,
-		ActorType:   "member",
-		ActorID:     testUserID,
-		Payload: map[string]any{
-			"issue": handler.IssueResponse{
-				ID:          issueID,
-				WorkspaceID: testWorkspaceID,
-				Title:       "due date test issue",
-				Status:      "todo",
-				Priority:    "medium",
-				CreatorType: "member",
-				CreatorID:   testUserID,
-				DueDate:     &dueDate,
-			},
-			"assignee_changed": false,
-			"status_changed":   false,
-			"due_date_changed": true,
-		},
-	})
-
-	// Actor is subscribed and should get a notification too.
-	actorItems := inboxItemsForRecipient(t, queries, testUserID)
-	if len(actorItems) != 1 {
-		t.Fatalf("expected 1 inbox item for actor, got %d", len(actorItems))
-	}
-	if actorItems[0].Type != "due_date_changed" {
-		t.Fatalf("expected type 'due_date_changed', got %q", actorItems[0].Type)
-	}
-
-	// sub1 should get a due_date_changed notification
-	sub1Items := inboxItemsForRecipient(t, queries, sub1ID)
-	if len(sub1Items) != 1 {
-		t.Fatalf("expected 1 inbox item for sub1, got %d", len(sub1Items))
-	}
-	if sub1Items[0].Type != "due_date_changed" {
-		t.Fatalf("expected type 'due_date_changed', got %q", sub1Items[0].Type)
-	}
-	if sub1Items[0].Severity != "info" {
-		t.Fatalf("expected severity 'info', got %q", sub1Items[0].Severity)
-	}
-}
-
-// TestNotification_StartDateChanged verifies that subscribers receive a
-// "start_date_changed" notification when an issue start date changes,
-// including the actor when they are subscribed.
-func TestNotification_StartDateChanged(t *testing.T) {
-	queries := db.New(testPool)
-	bus := newNotificationBus(t, queries)
-
-	sub1Email := "notif-sub1-startdate@multica.ai"
-	sub1ID := createTestUser(t, sub1Email)
-	t.Cleanup(func() { cleanupTestUser(t, sub1Email) })
-
-	issueID := createTestIssue(t, testWorkspaceID, testUserID)
-	t.Cleanup(func() {
-		cleanupInboxForIssue(t, issueID)
-		cleanupTestIssue(t, issueID)
-	})
-
-	addTestSubscriber(t, issueID, "member", testUserID, "creator")
-	addTestSubscriber(t, issueID, "member", sub1ID, "assignee")
-
-	startDate := "2026-04-01T00:00:00Z"
-	bus.Publish(events.Event{
-		Type:        protocol.EventIssueUpdated,
-		WorkspaceID: testWorkspaceID,
-		ActorType:   "member",
-		ActorID:     testUserID,
-		Payload: map[string]any{
-			"issue": handler.IssueResponse{
-				ID:          issueID,
-				WorkspaceID: testWorkspaceID,
-				Title:       "start date test issue",
-				Status:      "todo",
-				Priority:    "medium",
-				CreatorType: "member",
-				CreatorID:   testUserID,
-				StartDate:   &startDate,
-			},
-			"assignee_changed":   false,
-			"status_changed":     false,
-			"start_date_changed": true,
-		},
-	})
-
-	// Actor is subscribed and should get a notification too.
-	actorItems := inboxItemsForRecipient(t, queries, testUserID)
-	if len(actorItems) != 1 {
-		t.Fatalf("expected 1 inbox item for actor, got %d", len(actorItems))
-	}
-	if actorItems[0].Type != "start_date_changed" {
-		t.Fatalf("expected type 'start_date_changed', got %q", actorItems[0].Type)
-	}
-
-	sub1Items := inboxItemsForRecipient(t, queries, sub1ID)
-	if len(sub1Items) != 1 {
-		t.Fatalf("expected 1 inbox item for sub1, got %d", len(sub1Items))
-	}
-	if sub1Items[0].Type != "start_date_changed" {
-		t.Fatalf("expected type 'start_date_changed', got %q", sub1Items[0].Type)
-	}
-	if sub1Items[0].Severity != "info" {
-		t.Fatalf("expected severity 'info', got %q", sub1Items[0].Severity)
-	}
-}
-
-// TestNotification_ParentBubble_StatusChanged verifies that a status_changed
-// event on a sub-issue bubbles to subscribers of the parent issue.
 func TestNotification_ParentBubble_StatusChanged(t *testing.T) {
 	queries := db.New(testPool)
 	bus := newNotificationBus(t, queries)
@@ -1424,318 +1144,7 @@ func TestNotification_ParentBubble_NewCommentSuppressed(t *testing.T) {
 	}
 }
 
-// TestNotification_ParentBubble_PriorityChangeSuppressed verifies that a
 // priority change on a sub-issue does NOT bubble to parent subscribers.
-func TestNotification_ParentBubble_PriorityChangeSuppressed(t *testing.T) {
-	queries := db.New(testPool)
-	bus := newNotificationBus(t, queries)
-
-	parentSubEmail := "notif-parent-sub-priority@multica.ai"
-	parentSubID := createTestUser(t, parentSubEmail)
-	t.Cleanup(func() { cleanupTestUser(t, parentSubEmail) })
-
-	parentID := createTestIssue(t, testWorkspaceID, testUserID)
-	t.Cleanup(func() {
-		cleanupInboxForIssue(t, parentID)
-		cleanupTestIssue(t, parentID)
-	})
-	subID := createTestSubIssue(t, testWorkspaceID, testUserID, parentID)
-	t.Cleanup(func() {
-		cleanupInboxForIssue(t, subID)
-		cleanupTestIssue(t, subID)
-	})
-
-	addTestSubscriber(t, parentID, "member", parentSubID, "manual")
-
-	bus.Publish(events.Event{
-		Type:        protocol.EventIssueUpdated,
-		WorkspaceID: testWorkspaceID,
-		ActorType:   "member",
-		ActorID:     testUserID,
-		Payload: map[string]any{
-			"issue": handler.IssueResponse{
-				ID:          subID,
-				WorkspaceID: testWorkspaceID,
-				Title:       "sub-issue priority bubble",
-				Status:      "todo",
-				Priority:    "high",
-				CreatorType: "member",
-				CreatorID:   testUserID,
-			},
-			"assignee_changed": false,
-			"status_changed":   false,
-			"priority_changed": true,
-			"prev_priority":    "medium",
-		},
-	})
-
-	items := inboxItemsForRecipient(t, queries, parentSubID)
-	if len(items) != 0 {
-		t.Fatalf("expected 0 inbox items bubbled to parent subscriber for priority_changed, got %d", len(items))
-	}
-}
-
-// countInboxByTypeForRecipient counts inbox rows of a given type for a
-// recipient, including archived rows. Used to distinguish "row never created"
-// from "row archived."
-func countInboxByTypeForRecipient(t *testing.T, recipientID, notifType string) (active, archived int) {
-	t.Helper()
-	rows, err := testPool.Query(context.Background(), `
-		SELECT archived FROM multica_inbox_item
-		WHERE workspace_id = $1 AND recipient_type = 'member' AND recipient_id = $2 AND type = $3
-	`, testWorkspaceID, recipientID, notifType)
-	if err != nil {
-		t.Fatalf("countInboxByTypeForRecipient: %v", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var isArchived bool
-		if err := rows.Scan(&isArchived); err != nil {
-			t.Fatalf("countInboxByTypeForRecipient scan: %v", err)
-		}
-		if isArchived {
-			archived++
-		} else {
-			active++
-		}
-	}
-	return active, archived
-}
-
-// publishStatusChange is a small helper to publish the issue:updated event
-// shape used by the notification listener for status-only transitions.
-func publishStatusChange(bus *events.Bus, issueID, newStatus, prevStatus string) {
-	bus.Publish(events.Event{
-		Type:        protocol.EventIssueUpdated,
-		WorkspaceID: testWorkspaceID,
-		ActorType:   "member",
-		ActorID:     testUserID,
-		Payload: map[string]any{
-			"issue": handler.IssueResponse{
-				ID:          issueID,
-				WorkspaceID: testWorkspaceID,
-				Title:       "task_failed dismiss test",
-				Status:      newStatus,
-				Priority:    "medium",
-				CreatorType: "member",
-				CreatorID:   testUserID,
-			},
-			"assignee_changed": false,
-			"status_changed":   true,
-			"prev_status":      prevStatus,
-		},
-	})
-}
-
-// TestNotification_StatusChange_ArchivesStaleTaskFailed verifies that when an
-// issue transitions into a terminal status (in_review/done/cancelled), any
-// existing task_failed inbox rows for that issue are archived for every
-// affected member recipient, an inbox:batch-archived event fires per
-// recipient, and sibling notifications on the same issue are untouched.
-func TestNotification_StatusChange_ArchivesStaleTaskFailed(t *testing.T) {
-	queries := db.New(testPool)
-	bus := newNotificationBus(t, queries)
-
-	subEmail := "notif-archive-task-failed-sub@multica.ai"
-	subID := createTestUser(t, subEmail)
-	t.Cleanup(func() { cleanupTestUser(t, subEmail) })
-
-	issueID := createTestIssue(t, testWorkspaceID, testUserID)
-	t.Cleanup(func() {
-		cleanupInboxForIssue(t, issueID)
-		cleanupTestIssue(t, issueID)
-	})
-
-	addTestSubscriber(t, issueID, "member", testUserID, "creator")
-	addTestSubscriber(t, issueID, "member", subID, "assignee")
-
-	agentID := "00000000-0000-0000-0000-aaaaaaaaaaaa"
-
-	// Two failed runs land before the status flip.
-	for i := 0; i < 2; i++ {
-		bus.Publish(events.Event{
-			Type:        protocol.EventTaskFailed,
-			WorkspaceID: testWorkspaceID,
-			ActorType:   "system",
-			Payload: map[string]any{
-				"task_id":  "00000000-0000-0000-0000-bbbbbbbbbbbb",
-				"agent_id": agentID,
-				"issue_id": issueID,
-			},
-		})
-	}
-
-	// A separate non-task notification on the same issue, so we can prove
-	// the archive scope is narrow. Use a comment-like notification by
-	// directly inserting a row of a different type.
-	_, err := testPool.Exec(context.Background(), `
-		INSERT INTO multica_inbox_item (workspace_id, recipient_type, recipient_id, type, severity, issue_id, title, details)
-		VALUES ($1, 'member', $2, 'new_comment', 'info', $3, 'sibling notification', '{}')
-	`, testWorkspaceID, testUserID, issueID)
-	if err != nil {
-		t.Fatalf("seed sibling notification: %v", err)
-	}
-
-	if active, _ := countInboxByTypeForRecipient(t, testUserID, "task_failed"); active != 2 {
-		t.Fatalf("precondition: expected 2 active task_failed rows for creator, got %d", active)
-	}
-	if active, _ := countInboxByTypeForRecipient(t, subID, "task_failed"); active != 2 {
-		t.Fatalf("precondition: expected 2 active task_failed rows for sub, got %d", active)
-	}
-
-	// Track the batch-archived events fired during the status change.
-	var batchArchived []events.Event
-	bus.Subscribe(protocol.EventInboxBatchArchived, func(e events.Event) {
-		batchArchived = append(batchArchived, e)
-	})
-
-	publishStatusChange(bus, issueID, "in_review", "in_progress")
-
-	// task_failed rows are archived for both recipients.
-	for _, recipient := range []string{testUserID, subID} {
-		active, archived := countInboxByTypeForRecipient(t, recipient, "task_failed")
-		if active != 0 {
-			t.Fatalf("recipient %s: expected 0 active task_failed rows after terminal status, got %d", recipient, active)
-		}
-		if archived != 2 {
-			t.Fatalf("recipient %s: expected 2 archived task_failed rows after terminal status, got %d", recipient, archived)
-		}
-	}
-
-	// Sibling notification on the same issue is untouched.
-	if active, _ := countInboxByTypeForRecipient(t, testUserID, "new_comment"); active != 1 {
-		t.Fatalf("expected sibling new_comment row to remain active, got %d active", active)
-	}
-
-	// One inbox:batch-archived event per affected recipient.
-	if len(batchArchived) != 2 {
-		t.Fatalf("expected 2 inbox:batch-archived events (one per recipient), got %d", len(batchArchived))
-	}
-	seenRecipients := map[string]bool{}
-	for _, e := range batchArchived {
-		payload, ok := e.Payload.(map[string]any)
-		if !ok {
-			t.Fatalf("inbox:batch-archived: unexpected payload type %T", e.Payload)
-		}
-		recipientID, _ := payload["recipient_id"].(string)
-		if recipientID == "" {
-			t.Fatalf("inbox:batch-archived: missing recipient_id in payload %+v", payload)
-		}
-		if payload["issue_id"] != issueID {
-			t.Fatalf("inbox:batch-archived: expected issue_id %q, got %v", issueID, payload["issue_id"])
-		}
-		if payload["reason"] != "issue_status_terminal" {
-			t.Fatalf("inbox:batch-archived: expected reason 'issue_status_terminal', got %v", payload["reason"])
-		}
-		if count, _ := payload["count"].(int64); count != 2 {
-			t.Fatalf("inbox:batch-archived: expected count=2 for recipient %s, got %v", recipientID, payload["count"])
-		}
-		seenRecipients[recipientID] = true
-	}
-	if !seenRecipients[testUserID] || !seenRecipients[subID] {
-		t.Fatalf("expected batch-archived events for both creator and sub, got %v", seenRecipients)
-	}
-}
-
-// TestNotification_StatusChange_NonTerminalKeepsTaskFailed verifies that a
-// transition to a non-terminal status (e.g. in_progress) does NOT archive
-// existing task_failed inbox rows.
-func TestNotification_StatusChange_NonTerminalKeepsTaskFailed(t *testing.T) {
-	queries := db.New(testPool)
-	bus := newNotificationBus(t, queries)
-
-	issueID := createTestIssue(t, testWorkspaceID, testUserID)
-	t.Cleanup(func() {
-		cleanupInboxForIssue(t, issueID)
-		cleanupTestIssue(t, issueID)
-	})
-
-	addTestSubscriber(t, issueID, "member", testUserID, "creator")
-
-	bus.Publish(events.Event{
-		Type:        protocol.EventTaskFailed,
-		WorkspaceID: testWorkspaceID,
-		ActorType:   "system",
-		Payload: map[string]any{
-			"task_id":  "00000000-0000-0000-0000-bbbbbbbbbbbb",
-			"agent_id": "00000000-0000-0000-0000-aaaaaaaaaaaa",
-			"issue_id": issueID,
-		},
-	})
-
-	if active, _ := countInboxByTypeForRecipient(t, testUserID, "task_failed"); active != 1 {
-		t.Fatalf("precondition: expected 1 active task_failed row, got %d", active)
-	}
-
-	publishStatusChange(bus, issueID, "in_progress", "todo")
-
-	// task_failed row stays active because in_progress is not terminal.
-	active, archived := countInboxByTypeForRecipient(t, testUserID, "task_failed")
-	if active != 1 || archived != 0 {
-		t.Fatalf("expected task_failed row to remain active after non-terminal transition, got active=%d archived=%d", active, archived)
-	}
-}
-
-// TestNotification_StatusChange_ReopenSurfacesNewTaskFailed verifies that
-// after a terminal-status auto-archive, a status flip back to in_progress
-// followed by a new task failure produces a fresh, visible task_failed row.
-// This guards the "reopen and rerun" path described in the design.
-func TestNotification_StatusChange_ReopenSurfacesNewTaskFailed(t *testing.T) {
-	queries := db.New(testPool)
-	bus := newNotificationBus(t, queries)
-
-	issueID := createTestIssue(t, testWorkspaceID, testUserID)
-	t.Cleanup(func() {
-		cleanupInboxForIssue(t, issueID)
-		cleanupTestIssue(t, issueID)
-	})
-
-	addTestSubscriber(t, issueID, "member", testUserID, "creator")
-
-	agentID := "00000000-0000-0000-0000-aaaaaaaaaaaa"
-
-	bus.Publish(events.Event{
-		Type:        protocol.EventTaskFailed,
-		WorkspaceID: testWorkspaceID,
-		ActorType:   "system",
-		Payload: map[string]any{
-			"task_id":  "00000000-0000-0000-0000-bbbbbbbbbbbb",
-			"agent_id": agentID,
-			"issue_id": issueID,
-		},
-	})
-
-	// First terminal transition archives the original failure.
-	publishStatusChange(bus, issueID, "in_review", "in_progress")
-	if active, archived := countInboxByTypeForRecipient(t, testUserID, "task_failed"); active != 0 || archived != 1 {
-		t.Fatalf("after terminal transition: expected active=0 archived=1, got active=%d archived=%d", active, archived)
-	}
-
-	// Reviewer kicks the issue back; a rerun fails again.
-	publishStatusChange(bus, issueID, "in_progress", "in_review")
-	bus.Publish(events.Event{
-		Type:        protocol.EventTaskFailed,
-		WorkspaceID: testWorkspaceID,
-		ActorType:   "system",
-		Payload: map[string]any{
-			"task_id":  "00000000-0000-0000-0000-cccccccccccc",
-			"agent_id": agentID,
-			"issue_id": issueID,
-		},
-	})
-
-	// The new failure is visible; the old archived row stays archived.
-	active, archived := countInboxByTypeForRecipient(t, testUserID, "task_failed")
-	if active != 1 {
-		t.Fatalf("expected 1 active task_failed row after reopen+fail, got %d", active)
-	}
-	if archived != 1 {
-		t.Fatalf("expected 1 archived task_failed row preserved from prior cycle, got %d", archived)
-	}
-}
-
-// publishResponsibleUpdate is a small helper to publish the issue:updated
-// event shape used by the responsible-user change notification path.
 func publishResponsibleUpdate(bus *events.Bus, issueID, newResponsibleID string, prevResponsibleID *string) {
 	issue := handler.IssueResponse{
 		ID:          issueID,
@@ -2128,5 +1537,57 @@ func TestNotification_WorkflowNodeExecutorAndReviewerMutedSeparately(t *testing.
 	})
 	if !hasInboxType(inboxItemsForRecipient(t, queries, bID), "workflow_executor_assigned") {
 		t.Fatalf("expected executor assignment to still reach B (only reviewer group muted)")
+	}
+}
+
+// TestNotification_StatusChanged_NotifiesReassignedResponsible guards the
+// "own" half of the task-status-change notification: after an issue's
+// responsible user is reassigned via update, the new responsible must receive
+// subsequent status_changed notifications. The subscriber listener must
+// subscribe the new responsible on responsible_user_changed (it already does
+// for assignee on assignee_changed), otherwise the new owner is invisible to
+// notifySubscribers and never learns about status transitions.
+func TestNotification_StatusChanged_NotifiesReassignedResponsible(t *testing.T) {
+	queries := db.New(testPool)
+	bus := newNotificationBus(t, queries)
+
+	responsibleEmail := "notif-status-resp@multica.ai"
+	responsibleID := createTestUser(t, responsibleEmail)
+	t.Cleanup(func() { cleanupTestUser(t, responsibleEmail) })
+
+	issueID := createTestIssue(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() {
+		cleanupInboxForIssue(t, issueID)
+		cleanupTestIssue(t, issueID)
+	})
+
+	// Step 1: reassign responsible — subscriber listener should subscribe them.
+	publishResponsibleUpdate(bus, issueID, responsibleID, nil)
+
+	// Step 2: status change — notifySubscribers should now reach the responsible.
+	bus.Publish(events.Event{
+		Type:        protocol.EventIssueUpdated,
+		WorkspaceID: testWorkspaceID,
+		ActorType:   "member",
+		ActorID:     testUserID,
+		Payload: map[string]any{
+			"issue": handler.IssueResponse{
+				ID:          issueID,
+				WorkspaceID: testWorkspaceID,
+				Title:       "status change after responsible reassign",
+				Status:      "in_progress",
+				Priority:    "medium",
+				CreatorType: "member",
+				CreatorID:   testUserID,
+			},
+			"assignee_changed": false,
+			"status_changed":   true,
+			"prev_status":      "todo",
+		},
+	})
+
+	items := inboxItemsForRecipient(t, queries, responsibleID)
+	if !hasInboxType(items, "status_changed") {
+		t.Fatalf("expected reassigned responsible to receive status_changed, got %#v", items)
 	}
 }

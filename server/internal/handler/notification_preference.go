@@ -25,8 +25,6 @@ var validNotifGroups = map[string]bool{
 	"status_changes":       true,
 	"workflow_node_status": true,
 	"comments":             true,
-	"updates":              true,
-	"agent_activity":       true,
 	"system_notifications": true,
 }
 

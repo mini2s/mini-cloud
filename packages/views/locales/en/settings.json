@@ -74,24 +74,16 @@
         "description": "When you're assigned or removed as a workflow node reviewer"
       },
       "status_changes": {
-        "label": "Status changes",
-        "description": "When an issue you own, handle, or follow changes status"
+        "label": "Task status changes",
+        "description": "When an issue you subscribe to, own, or handle changes status"
       },
       "workflow_node_status": {
-        "label": "Workflow node status",
+        "label": "Workflow node status changes",
         "description": "When a workflow node where you are executor or reviewer changes status"
       },
       "comments": {
         "label": "Comments & Mentions",
         "description": "New comments on issues you follow, or when someone @mentions you"
-      },
-      "updates": {
-        "label": "Priority & Due date",
-        "description": "When priority or due date changes on issues you follow"
-      },
-      "agent_activity": {
-        "label": "Digital Human activity",
-        "description": "When a digital human task completes or fails"
       }
     },
     "system": {

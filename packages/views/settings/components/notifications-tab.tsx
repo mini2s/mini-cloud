@@ -20,8 +20,6 @@ const INBOX_GROUP_KEYS = [
   "status_changes",
   "workflow_node_status",
   "comments",
-  "updates",
-  "agent_activity",
 ] as const;
 type InboxGroupKey = (typeof INBOX_GROUP_KEYS)[number];
 

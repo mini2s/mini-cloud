@@ -6,8 +6,6 @@ export type NotificationGroupKey =
   | "status_changes"
   | "workflow_node_status"
   | "comments"
-  | "updates"
-  | "agent_activity"
   | "system_notifications";
 
 export type NotificationGroupValue = "all" | "muted";
