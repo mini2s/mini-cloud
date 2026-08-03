@@ -205,8 +205,8 @@ func (s *IssueAssignmentService) AfterIssueAssigned(
 
 // resolveIssueRuntime resolves a concrete runtime for an issue's run-now
 // dispatch using the same policy semantics as workflow runtime selection. Used
-// for built-in agent and squad-leader dispatch when the caller supplied a
-// runtime selection policy. Returns an invalid UUID on any failure so callers
+// for built-in agent dispatch (squad-leader dispatch will follow in a
+// subsequent change). Returns an invalid UUID on any failure so callers
 // fall back to the task service's default runtime resolution.
 func (s *IssueAssignmentService) resolveIssueRuntime(
 	ctx context.Context,
@@ -225,10 +225,12 @@ func (s *IssueAssignmentService) resolveIssueRuntime(
 		ResponsibleUserID: issue.ResponsibleUserID,
 	})
 	if err != nil {
+		slog.Warn("resolve issue runtime: list candidates failed", "issue_id", util.UUIDToString(issue.ID), "policy", policy, "error", err)
 		return pgtype.UUID{}
 	}
 	selection, err := chooseRuntimeByPolicy(policy, specifiedRuntimeID, issue.ResponsibleUserID, candidates)
 	if err != nil {
+		slog.Warn("resolve issue runtime: policy produced no runtime", "issue_id", util.UUIDToString(issue.ID), "policy", policy, "error", err)
 		return pgtype.UUID{}
 	}
 	return selection.RuntimeID
