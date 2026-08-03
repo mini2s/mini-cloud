@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { runtimeListOptions } from "@multica/core/runtimes/queries";
-import { agentListOptions } from "@multica/core/workspace/queries";
+import { agentListOptions, squadListOptions } from "@multica/core/workspace/queries";
 import { workflowActiveListOptions } from "@multica/core/workflows/queries";
 import type { IssueAssigneeType, WorkflowRuntimeSelectionPolicy } from "@multica/core/types";
 import {
@@ -36,6 +36,7 @@ type PendingStart = {
 export function useRuntimeStartDialogs(wsId: string) {
   const { data: runtimes = [], isLoading: runtimesLoading } = useQuery(runtimeListOptions(wsId));
   const { data: agents = [] } = useQuery(agentListOptions(wsId));
+  const { data: squads = [] } = useQuery(squadListOptions(wsId));
   const { data: workflows = [] } = useQuery(workflowActiveListOptions(wsId));
   const usableWorkflowRuntimes = useUsableWorkflowRuntimes(runtimes);
   const [pending, setPending] = useState<PendingStart | null>(null);
@@ -83,11 +84,12 @@ export function useRuntimeStartDialogs(wsId: string) {
       }
     }
     if (assigneeType === "squad" && assigneeId) {
+      const squad = squads.find((s) => s.id === assigneeId);
       setPending({
         basePayload: loosePayload,
         commit: looseCommit,
         kind: "squad",
-        workflowTitle: "",
+        workflowTitle: squad?.name ?? "",
         initialValue: { policy: "idle_first", runtimeId: null },
       });
       return false;
