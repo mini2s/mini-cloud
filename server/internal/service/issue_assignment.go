@@ -211,9 +211,9 @@ func (s *IssueAssignmentService) AfterIssueAssigned(
 
 // resolveIssueRuntime resolves a concrete runtime for an issue's run-now
 // dispatch using the same policy semantics as workflow runtime selection. Used
-// for built-in agent dispatch (squad-leader dispatch will follow in a
-// subsequent change). Returns an invalid UUID on any failure so callers
-// fall back to the task service's default runtime resolution.
+// for built-in agent and squad-leader dispatch. Returns an invalid UUID on any
+// failure so callers fall back to the task service's default runtime
+// resolution.
 func (s *IssueAssignmentService) resolveIssueRuntime(
 	ctx context.Context,
 	issue db.MulticaIssue,
