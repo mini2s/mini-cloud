@@ -193,10 +193,14 @@ INSERT INTO multica_workflow_node_run_deliverable (
     title,
     description,
     required,
-    sort_order
+    sort_order,
+    purpose
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5, $6,
+    COALESCE(sqlc.narg('purpose')::text, 'general')
 )
+ON CONFLICT (workflow_node_run_id, source_deliverable_id)
+DO UPDATE SET source_deliverable_id = EXCLUDED.source_deliverable_id
 RETURNING *;
 
 -- =====================

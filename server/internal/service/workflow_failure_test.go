@@ -620,6 +620,85 @@ func TestSplittingTransitionSetsStartedAt(t *testing.T) {
 	}
 }
 
+func TestHandleWorkflowTaskFailureFailsBoundSplitGeneration(t *testing.T) {
+	fx := setupWorkflowFailureGraph(t, 1, nil)
+	nodeRun := fx.nodeRuns[0]
+	if _, err := fx.pool.Exec(fx.ctx, `
+		UPDATE multica_workflow_node_run
+		SET status = 'splitting', format_schema = '{"type":"split"}'::jsonb, split_plan_generation = 1
+		WHERE id = $1
+	`, nodeRun.ID); err != nil {
+		t.Fatalf("prepare split node run: %v", err)
+	}
+	var deliverableID string
+	if err := fx.pool.QueryRow(fx.ctx, `
+		INSERT INTO multica_workflow_node_run_deliverable (
+			workflow_node_run_id, source_deliverable_id, title, description, required, sort_order, purpose
+		) VALUES ($1, gen_random_uuid(), 'task.md', 'Split task plan', true, -1, 'split_task_plan')
+		RETURNING id
+	`, nodeRun.ID).Scan(&deliverableID); err != nil {
+		t.Fatalf("create split deliverable: %v", err)
+	}
+	if _, err := fx.pool.Exec(fx.ctx, `
+		INSERT INTO multica_workflow_split_generation (node_run_id, generation, status, deliverable_id)
+		VALUES ($1, 1, 'splitting', $2)
+	`, nodeRun.ID, deliverableID); err != nil {
+		t.Fatalf("create split generation: %v", err)
+	}
+	var workspaceID string
+	if err := fx.pool.QueryRow(fx.ctx, `SELECT workspace_id FROM multica_workflow_run WHERE id = $1`, fx.run.ID).Scan(&workspaceID); err != nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	var runtimeID, agentID, taskID string
+	if err := fx.pool.QueryRow(fx.ctx, `
+		INSERT INTO multica_agent_runtime (workspace_id, daemon_id, name, runtime_mode, provider, status, device_info, metadata)
+		VALUES ($1, 'split-failure-device', 'split failure runtime', 'local', 'test', 'online', '', '{}')
+		RETURNING id
+	`, workspaceID).Scan(&runtimeID); err != nil {
+		t.Fatalf("create runtime: %v", err)
+	}
+	if err := fx.pool.QueryRow(fx.ctx, `
+		INSERT INTO multica_agent (workspace_id, name, runtime_mode, visibility, status, runtime_id)
+		VALUES ($1, 'split failure agent', 'local', 'private', 'idle', $2)
+		RETURNING id
+	`, workspaceID, runtimeID).Scan(&agentID); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	if err := fx.pool.QueryRow(fx.ctx, `
+		INSERT INTO multica_agent_task_queue (
+			agent_id, runtime_id, status, priority, workflow_node_run_id, context,
+			error, failure_reason, attempt, max_attempts
+		) VALUES ($1, $2, 'failed', 2, $3,
+			'{"phase":"split_generate","split_plan_generation":1}'::jsonb,
+			'planner crashed', 'agent_error', 1, 1)
+		RETURNING id
+	`, agentID, runtimeID, nodeRun.ID).Scan(&taskID); err != nil {
+		t.Fatalf("create split planner task: %v", err)
+	}
+	if _, err := fx.pool.Exec(fx.ctx, `
+		UPDATE multica_workflow_split_generation SET planner_task_id = $3
+		WHERE node_run_id = $1 AND generation = $2
+	`, nodeRun.ID, 1, taskID); err != nil {
+		t.Fatalf("bind split planner task: %v", err)
+	}
+	taskUUID, _ := util.ParseUUID(taskID)
+	task, err := fx.queries.GetAgentTask(fx.ctx, taskUUID)
+	if err != nil {
+		t.Fatalf("get split planner task: %v", err)
+	}
+	if err := fx.service.HandleWorkflowTaskFailure(fx.ctx, task); err != nil {
+		t.Fatalf("HandleWorkflowTaskFailure: %v", err)
+	}
+	generation, err := fx.queries.GetWorkflowSplitGeneration(fx.ctx, db.GetWorkflowSplitGenerationParams{NodeRunID: nodeRun.ID, Generation: 1})
+	if err != nil || generation.Status != SplitGenerationFailed {
+		t.Fatalf("split generation after planner failure = %+v, err=%v", generation, err)
+	}
+	failedNode, err := fx.queries.GetWorkflowNodeRun(fx.ctx, nodeRun.ID)
+	if err != nil || failedNode.Status != NodeRunStatusFailed || failedNode.FailureReason.String != "agent_error" {
+		t.Fatalf("split node after planner failure = %+v, err=%v", failedNode, err)
+	}
+}
+
 func assertFailedRunStopsNodes(t *testing.T, fx workflowFailureGraphFixture, failedIndex int, failedStatus string) {
 	t.Helper()
 

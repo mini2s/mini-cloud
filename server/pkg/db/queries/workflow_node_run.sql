@@ -26,6 +26,12 @@ SELECT * FROM multica_workflow_node_run
 WHERE id = $1
 FOR UPDATE;
 
+-- name: TouchWorkflowNodeRun :one
+UPDATE multica_workflow_node_run
+SET updated_at = now()
+WHERE id = $1
+RETURNING *;
+
 -- name: UpdateNodeRunRuntimeConfig :one
 UPDATE multica_workflow_node_run
 SET runtime_config = $2,
@@ -86,6 +92,7 @@ RETURNING *;
 -- name: ReactivateWorkflowNodeRunStatus :one
 UPDATE multica_workflow_node_run SET
     status = $2,
+    failure_reason = NULL,
     completed_at = NULL,
     updated_at = now()
 WHERE id = $1

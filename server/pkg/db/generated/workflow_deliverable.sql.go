@@ -57,9 +57,38 @@ func (q *Queries) DeleteWorkflowNodeDeliverable(ctx context.Context, id pgtype.U
 	return err
 }
 
+const getNodeRunDeliverableByPurpose = `-- name: GetNodeRunDeliverableByPurpose :one
+SELECT id, workflow_node_run_id, source_deliverable_id, title, description, required, sort_order, created_at, purpose
+FROM multica_workflow_node_run_deliverable
+WHERE workflow_node_run_id = $1
+  AND purpose = $2
+`
+
+type GetNodeRunDeliverableByPurposeParams struct {
+	WorkflowNodeRunID pgtype.UUID `json:"workflow_node_run_id"`
+	Purpose           string      `json:"purpose"`
+}
+
+func (q *Queries) GetNodeRunDeliverableByPurpose(ctx context.Context, arg GetNodeRunDeliverableByPurposeParams) (MulticaWorkflowNodeRunDeliverable, error) {
+	row := q.db.QueryRow(ctx, getNodeRunDeliverableByPurpose, arg.WorkflowNodeRunID, arg.Purpose)
+	var i MulticaWorkflowNodeRunDeliverable
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowNodeRunID,
+		&i.SourceDeliverableID,
+		&i.Title,
+		&i.Description,
+		&i.Required,
+		&i.SortOrder,
+		&i.CreatedAt,
+		&i.Purpose,
+	)
+	return i, err
+}
+
 const getNodeRunDeliverableRequirementForSubmission = `-- name: GetNodeRunDeliverableRequirementForSubmission :one
 
-SELECT id, workflow_node_run_id, source_deliverable_id, title, description, required, sort_order, created_at
+SELECT id, workflow_node_run_id, source_deliverable_id, title, description, required, sort_order, created_at, purpose
 FROM multica_workflow_node_run_deliverable
 WHERE id = $1 AND workflow_node_run_id = $2
 `
@@ -84,6 +113,34 @@ func (q *Queries) GetNodeRunDeliverableRequirementForSubmission(ctx context.Cont
 		&i.Required,
 		&i.SortOrder,
 		&i.CreatedAt,
+		&i.Purpose,
+	)
+	return i, err
+}
+
+const getNodeRunDeliverableSubmission = `-- name: GetNodeRunDeliverableSubmission :one
+SELECT id, workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id, status, content, attachment_id, pull_request_url, review_comment, submitted_at, reviewed_at, created_at, updated_at FROM multica_workflow_node_deliverable_submission
+WHERE id = $1
+`
+
+func (q *Queries) GetNodeRunDeliverableSubmission(ctx context.Context, id pgtype.UUID) (MulticaWorkflowNodeDeliverableSubmission, error) {
+	row := q.db.QueryRow(ctx, getNodeRunDeliverableSubmission, id)
+	var i MulticaWorkflowNodeDeliverableSubmission
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowNodeRunID,
+		&i.DeliverableID,
+		&i.SubmittedByType,
+		&i.SubmittedByID,
+		&i.Status,
+		&i.Content,
+		&i.AttachmentID,
+		&i.PullRequestUrl,
+		&i.ReviewComment,
+		&i.SubmittedAt,
+		&i.ReviewedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }

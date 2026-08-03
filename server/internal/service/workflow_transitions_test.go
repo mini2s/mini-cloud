@@ -7,9 +7,12 @@ import "testing"
 //
 // Takeover  = working → blocked   (user pauses the node to intervene)
 // Handback  = blocked → working   (user returns control; daemon resumes the
-//                                   same CSC session)
+//
+//	same CSC session)
+//
 // Finalize  = blocked → completed / failed / cancelled
-//             (user decides the node's outcome while holding control)
+//
+//	(user decides the node's outcome while holding control)
 //
 // The takeover "blocked" reuses the existing blocked status; it is told apart
 // from a rework-exhausted "stuck" blocked by completed_at: takeover goes
@@ -56,8 +59,11 @@ func TestSplitNodeRunTransitions(t *testing.T) {
 		{NodeRunStatusSplitting, NodeRunStatusAwaitingSplitReview},
 		{NodeRunStatusSplitting, NodeRunStatusFailed},
 		{NodeRunStatusAwaitingSplitReview, NodeRunStatusSplitting},
-		{NodeRunStatusAwaitingSplitReview, NodeRunStatusSplitActive},
+		{NodeRunStatusAwaitingSplitReview, NodeRunStatusMaterializing},
 		{NodeRunStatusAwaitingSplitReview, NodeRunStatusCancelled},
+		{NodeRunStatusMaterializing, NodeRunStatusSplitActive},
+		{NodeRunStatusMaterializing, NodeRunStatusFailed},
+		{NodeRunStatusMaterializing, NodeRunStatusCancelled},
 		{NodeRunStatusSplitActive, NodeRunStatusCompleted},
 		{NodeRunStatusSplitActive, NodeRunStatusFailed},
 		{NodeRunStatusSplitActive, NodeRunStatusCancelled},

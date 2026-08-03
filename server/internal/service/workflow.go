@@ -118,7 +118,8 @@ var validTransitions = map[string][]string{
 	NodeRunStatusCompleted:           {},
 	NodeRunStatusFailed:              {},
 	NodeRunStatusSplitting:           {NodeRunStatusAwaitingSplitReview, NodeRunStatusFailed, NodeRunStatusCancelled},
-	NodeRunStatusAwaitingSplitReview: {NodeRunStatusSplitting, NodeRunStatusSplitActive, NodeRunStatusCancelled},
+	NodeRunStatusAwaitingSplitReview: {NodeRunStatusSplitting, NodeRunStatusMaterializing, NodeRunStatusCancelled},
+	NodeRunStatusMaterializing:       {NodeRunStatusSplitActive, NodeRunStatusFailed, NodeRunStatusCancelled},
 	NodeRunStatusSplitActive:         {NodeRunStatusCompleted, NodeRunStatusFailed, NodeRunStatusCancelled},
 	// blocked is reached two ways: rework-exhausted ("stuck", completed_at set)
 	// and human takeover ("paused", completed_at NULL). Both reuse the status;
@@ -165,7 +166,7 @@ func isExecutingNodeRunStatus(s string) bool {
 	case NodeRunStatusFormatChecking, NodeRunStatusFormatOk, NodeRunStatusWorkerAssigned,
 		NodeRunStatusWorking, NodeRunStatusAwaitingInput, NodeRunStatusAwaitingCritic,
 		NodeRunStatusCriticReviewing, NodeRunStatusCriticApproved, NodeRunStatusCriticRework,
-		NodeRunStatusSplitting, NodeRunStatusAwaitingSplitReview, NodeRunStatusSplitActive:
+		NodeRunStatusSplitting, NodeRunStatusAwaitingSplitReview, NodeRunStatusMaterializing, NodeRunStatusSplitActive:
 		return true
 	}
 	return false
@@ -1108,6 +1109,37 @@ func (s *WorkflowService) RetryNodeRun(ctx context.Context, nodeRun db.MulticaWo
 				return fmt.Errorf("revive cancelled node runs: %w", err)
 			}
 		}
+		if workflowNodeType(fresh.FormatSchema) == "split" {
+			if !fresh.FailureReason.Valid || fresh.FailureReason.String != "materialize_dispatch_failed" {
+				return NewSplitAPIError(SplitErrorConflict, "split_retry_requires_generation_action", errors.New("retry failed split rows individually or generate a new task plan"))
+			}
+			generation, err := qtx.GetWorkflowSplitGenerationForUpdate(ctx, db.GetWorkflowSplitGenerationForUpdateParams{
+				NodeRunID: fresh.ID, Generation: fresh.SplitPlanGeneration,
+			})
+			if err != nil {
+				return err
+			}
+			if _, err := qtx.UpdateWorkflowSplitGenerationStatus(ctx, db.UpdateWorkflowSplitGenerationStatusParams{
+				NodeRunID: fresh.ID, Generation: generation.Generation, Status: SplitGenerationMaterializing,
+			}); err != nil {
+				return err
+			}
+			updated, err = qtx.ReactivateWorkflowNodeRunStatus(ctx, db.ReactivateWorkflowNodeRunStatusParams{
+				ID: fresh.ID, Status: NodeRunStatusMaterializing,
+			})
+			if err != nil {
+				return err
+			}
+			if err := ensureSplitMaterializeDispatch(ctx, qtx, fresh.ID, generation.Generation); err != nil {
+				return err
+			}
+			for i := range revived {
+				if err := activateNodeRunIfReady(ctx, qtx, revived[i].ID); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
 		updated, err = qtx.UpdateWorkflowNodeRunRework(ctx, db.UpdateWorkflowNodeRunReworkParams{
 			ID: fresh.ID, Status: NodeRunStatusFormatOk,
 		})
@@ -2019,7 +2051,8 @@ func (s *WorkflowService) HandleWorkflowTaskFailure(ctx context.Context, task db
 	}
 
 	var ctxPayload struct {
-		Phase string `json:"phase"`
+		Phase               string `json:"phase"`
+		SplitPlanGeneration int32  `json:"split_plan_generation"`
 	}
 	if len(task.Context) > 0 {
 		_ = json.Unmarshal(task.Context, &ctxPayload)
@@ -2035,6 +2068,49 @@ func (s *WorkflowService) HandleWorkflowTaskFailure(ctx context.Context, task db
 		if nodeRun.Status == NodeRunStatusCriticReviewing {
 			targetStatus = NodeRunStatusFailed
 		}
+	case splitPhaseGenerate:
+		if ctxPayload.SplitPlanGeneration < 1 {
+			return nil
+		}
+		shouldFail := false
+		err := s.runInTx(ctx, func(qtx *db.Queries) error {
+			lockedNode, err := qtx.GetWorkflowNodeRunForUpdate(ctx, task.WorkflowNodeRunID)
+			if err != nil {
+				return err
+			}
+			if lockedNode.Status != NodeRunStatusSplitting || lockedNode.SplitPlanGeneration != ctxPayload.SplitPlanGeneration {
+				return nil
+			}
+			generation, err := qtx.GetWorkflowSplitGenerationForUpdate(ctx, db.GetWorkflowSplitGenerationForUpdateParams{
+				NodeRunID: lockedNode.ID, Generation: ctxPayload.SplitPlanGeneration,
+			})
+			if err != nil {
+				return err
+			}
+			lockedTask, err := qtx.GetAgentTaskForUpdate(ctx, task.ID)
+			if err != nil {
+				return err
+			}
+			if generation.Status != SplitGenerationSplitting || !generation.PlannerTaskID.Valid ||
+				generation.PlannerTaskID != lockedTask.ID || generation.SubmissionID.Valid {
+				return nil
+			}
+			if _, err := qtx.UpdateWorkflowSplitGenerationStatus(ctx, db.UpdateWorkflowSplitGenerationStatusParams{
+				NodeRunID: lockedNode.ID, Generation: generation.Generation, Status: SplitGenerationFailed,
+			}); err != nil {
+				return err
+			}
+			nodeRun = lockedNode
+			shouldFail = true
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("fail split planner generation: %w", err)
+		}
+		if !shouldFail {
+			return nil
+		}
+		targetStatus = NodeRunStatusFailed
 	}
 	if targetStatus == "" {
 		return nil

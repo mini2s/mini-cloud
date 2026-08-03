@@ -195,12 +195,21 @@ func TestWorkflowDispatchWorkerUsesNodeSnapshotAfterDefinitionDeletion(t *testin
 	}
 }
 
-func TestWorkflowDispatchWorkerDispatchesSplitNodeFromSnapshot(t *testing.T) {
+func TestWorkflowDispatchWorkerRequiresSplitDeliverableRepository(t *testing.T) {
 	fixture := newWorkflowDispatchFixture(t)
+	initialJob := fixture.pendingJob(t)
 	if _, err := fixture.pool.Exec(fixture.ctx, `
 		UPDATE multica_workflow_node_run
 		SET format_schema = '{"type":"split","split_config":{"mode":"barrier"}}'::jsonb
 		WHERE id = $1
+	`, fixture.nodeRunID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.pool.Exec(fixture.ctx, `
+		INSERT INTO multica_workflow_node_run_deliverable (
+			workflow_node_run_id, source_deliverable_id, title, description,
+			required, sort_order, purpose
+		) VALUES ($1, gen_random_uuid(), 'task', '', true, -1, 'split_task_plan')
 	`, fixture.nodeRunID); err != nil {
 		t.Fatal(err)
 	}
@@ -219,11 +228,41 @@ func TestWorkflowDispatchWorkerDispatchesSplitNodeFromSnapshot(t *testing.T) {
 	if err := worker.runOnce(fixture.ctx); err != nil {
 		t.Fatal(err)
 	}
-	if dispatched != 1 {
-		t.Fatalf("split dispatches=%d, want 1", dispatched)
+	if dispatched != 0 {
+		t.Fatalf("split dispatches after activation=%d, want 0", dispatched)
 	}
-	if got := fixture.dispatchJobStatus(t, fixture.pendingJob(t).ID); got != "succeeded" {
-		t.Fatalf("split dispatch job status=%s, want succeeded", got)
+	if _, err := fixture.pool.Exec(fixture.ctx, `
+		UPDATE multica_workflow_node_run_dispatch_job
+		SET attempt_count = 1, max_attempts = 1, scheduled_at = '1990-01-01 00:00:00+00'
+		WHERE workflow_node_run_id = $1 AND phase = 'split'
+	`, fixture.nodeRunID); err != nil {
+		t.Fatal(err)
+	}
+	_ = worker.runOnce(fixture.ctx)
+	if dispatched != 0 {
+		t.Fatalf("split dispatches=%d, want 0", dispatched)
+	}
+	if got := fixture.dispatchJobStatus(t, initialJob.ID); got != "succeeded" {
+		t.Fatalf("activation dispatch job status=%s, want succeeded", got)
+	}
+	var splitJobStatus string
+	if err := fixture.pool.QueryRow(fixture.ctx, `
+		SELECT status FROM multica_workflow_node_run_dispatch_job
+		WHERE workflow_node_run_id = $1 AND phase = 'split'
+	`, fixture.nodeRunID).Scan(&splitJobStatus); err != nil {
+		t.Fatal(err)
+	}
+	if splitJobStatus != "failed" {
+		t.Fatalf("split dispatch job status=%s, want failed", splitJobStatus)
+	}
+	var nodeReason string
+	if err := fixture.pool.QueryRow(fixture.ctx, `
+		SELECT failure_reason FROM multica_workflow_node_run WHERE id = $1
+	`, fixture.nodeRunID).Scan(&nodeReason); err != nil {
+		t.Fatal(err)
+	}
+	if nodeReason != "split_deliverable_unavailable" {
+		t.Fatalf("split node failure reason=%s, want split_deliverable_unavailable", nodeReason)
 	}
 }
 
@@ -674,13 +713,15 @@ func (f *workflowDispatchFixture) pendingJob(t *testing.T) db.MulticaWorkflowNod
 	err := f.pool.QueryRow(f.ctx, `
 		SELECT id, workflow_run_id, workflow_node_run_id, phase, generation, status,
 		       attempt_count, max_attempts, scheduled_at, locked_by, lease_expires_at,
-		       last_error, created_at, updated_at
+		       last_error, created_at, updated_at, split_plan_generation
 		FROM multica_workflow_node_run_dispatch_job
 		WHERE workflow_run_id = $1
+		ORDER BY created_at, id
+		LIMIT 1
 	`, f.runID).Scan(
 		&job.ID, &job.WorkflowRunID, &job.WorkflowNodeRunID, &job.Phase, &job.Generation,
 		&job.Status, &job.AttemptCount, &job.MaxAttempts, &job.ScheduledAt, &job.LockedBy,
-		&job.LeaseExpiresAt, &job.LastError, &job.CreatedAt, &job.UpdatedAt,
+		&job.LeaseExpiresAt, &job.LastError, &job.CreatedAt, &job.UpdatedAt, &job.SplitPlanGeneration,
 	)
 	if err != nil {
 		t.Fatal(err)

@@ -56,14 +56,17 @@ type Task struct {
 	ChatSessionID                       string                   `json:"chat_session_id,omitempty"`         // non-empty for chat tasks
 	WorkflowNodeRunID                   string                   `json:"workflow_node_run_id,omitempty"`    // non-empty when this task executes a workflow node-run; daemon writes back the session binding for it (Design Two)
 	WorkflowPhase                       string                   `json:"workflow_phase,omitempty"`          // workflow context phase: worker, split, or critic
-	WorkflowSplitRepair                 bool                     `json:"workflow_split_repair,omitempty"`
-	WorkflowSplitRepairSourceTaskID     string                   `json:"workflow_split_repair_source_task_id,omitempty"`
-	WorkflowSplitRepairSourceOutput     string                   `json:"workflow_split_repair_source_output,omitempty"`
 	WorkflowSplitParentIssueID          string                   `json:"workflow_split_parent_issue_id,omitempty"`
 	WorkflowSplitParentIssueTitle       string                   `json:"workflow_split_parent_issue_title,omitempty"`
 	WorkflowSplitParentIssueDescription string                   `json:"workflow_split_parent_issue_description,omitempty"`
-	WorkflowSplitCurrentDrafts          json.RawMessage          `json:"workflow_split_current_drafts,omitempty"`
-	WorkflowSplitConfig                 json.RawMessage          `json:"workflow_split_config,omitempty"`
+	WorkflowSplitPlanGeneration         int32                    `json:"workflow_split_plan_generation,omitempty"`
+	WorkflowSplitDeliverableID          string                   `json:"workflow_split_deliverable_id,omitempty"`
+	WorkflowSplitWorkspaceMembers       json.RawMessage          `json:"workflow_split_workspace_members,omitempty"`
+	WorkflowSplitMembersTruncated       bool                     `json:"workflow_split_members_truncated,omitempty"`
+	WorkflowSplitReviewComment          string                   `json:"workflow_split_review_comment,omitempty"`
+	WorkflowSplitReviewedContent        string                   `json:"workflow_split_reviewed_content,omitempty"`
+	WorkflowSplitReviewHeadCommitSHA    string                   `json:"workflow_split_review_head_commit_sha,omitempty"`
+	WorkflowSplitReviewTaskPath         string                   `json:"workflow_split_review_task_path,omitempty"`
 	ChatMessage                         string                   `json:"chat_message,omitempty"`              // user message content for chat tasks
 	ChatMessageAttachments              []ChatAttachmentMeta     `json:"chat_message_attachments,omitempty"`  // attachments linked to the chat message; agent uses these to `cs-workflow attachment download <id>`
 	UpstreamStageContext                []UpstreamStageNode      `json:"upstream_stage_context,omitempty"`    // completed upstream-stage node runs the agent should read

@@ -311,13 +311,27 @@ func TestRerunIssue_PreservesWorkflowContext(t *testing.T) {
 	}
 	ctx := context.Background()
 	f := createWorkflowRerunFixture(t, ctx, "ctx-preservation")
+	if _, err := testPool.Exec(ctx, `
+		WITH deliverable AS (
+			INSERT INTO multica_workflow_node_run_deliverable (
+				workflow_node_run_id, source_deliverable_id, title, description, required, sort_order, purpose
+			) VALUES ($1, uuid_generate_v4(), 'task', 'Split task plan', true, -1, 'split_task_plan')
+			RETURNING id
+		), generation AS (
+			INSERT INTO multica_workflow_split_generation (node_run_id, generation, status, deliverable_id)
+			SELECT $1, 1, 'active', id FROM deliverable
+		)
+		UPDATE multica_workflow_node_run SET split_plan_generation = 1 WHERE id = $1
+	`, f.nodeRunID); err != nil {
+		t.Fatalf("create split generation: %v", err)
+	}
 	var splitTaskID string
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO multica_workflow_split_task (
 			node_run_id, workspace_id, title, description, depends_on, sort_order,
-			status, issue_id, assignee_type, assignee_id, last_error
+			status, issue_id, assignee_type, assignee_id, last_error, split_plan_generation
 		) VALUES ($1, $2, 'Rerun split child', '', '[]'::jsonb, 0,
-			'failed', $3, 'agent', $4, '{"code":"split_child_execution_failed"}'::jsonb)
+			'failed', $3, 'agent', $4, '{"code":"split_child_execution_failed"}'::jsonb, 1)
 		RETURNING id
 	`, f.nodeRunID, testWorkspaceID, f.issueID, f.agentID).Scan(&splitTaskID); err != nil {
 		t.Fatalf("create failed split task: %v", err)

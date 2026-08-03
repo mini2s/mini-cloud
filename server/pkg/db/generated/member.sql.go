@@ -162,7 +162,8 @@ SELECT
     m.id AS member_id,
     m.user_id,
     m.subject_id,
-    COALESCE(NULLIF(m.org_display_name, ''), u.name) AS display_name
+    COALESCE(NULLIF(m.org_display_name, ''), u.name) AS display_name,
+    u.email
 FROM multica_member m
 JOIN multica_user u ON u.id = m.user_id
 WHERE m.workspace_id = $1
@@ -176,6 +177,7 @@ type ListActiveWorkflowRoleCandidateMembersRow struct {
 	UserID      pgtype.UUID `json:"user_id"`
 	SubjectID   pgtype.Text `json:"subject_id"`
 	DisplayName string      `json:"display_name"`
+	Email       string      `json:"email"`
 }
 
 // Keep the automatic role-resolution candidate boundary local: organization
@@ -194,6 +196,7 @@ func (q *Queries) ListActiveWorkflowRoleCandidateMembers(ctx context.Context, wo
 			&i.UserID,
 			&i.SubjectID,
 			&i.DisplayName,
+			&i.Email,
 		); err != nil {
 			return nil, err
 		}

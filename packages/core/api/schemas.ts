@@ -26,7 +26,6 @@ import type {
   WorkflowRoleResolution,
   SplitProgress,
   SplitTasksResponse,
-  SplitChatResponse,
   RuntimePermission,
   SessionPermissionResponse,
 } from "../types";
@@ -248,6 +247,10 @@ export const SplitProgressSchema = z.object({
   failed: z.number().default(0),
   cancelled: z.number().default(0),
   skipped: z.number().default(0),
+  materialized: z.number().default(0),
+  retry_waiting: z.number().default(0),
+  exhausted: z.number().default(0),
+  next_retry_at: z.string().nullable().default(null),
 }).loose();
 
 export const EMPTY_SPLIT_PROGRESS: SplitProgress = {
@@ -258,6 +261,10 @@ export const EMPTY_SPLIT_PROGRESS: SplitProgress = {
   failed: 0,
   cancelled: 0,
   skipped: 0,
+  materialized: 0,
+  retry_waiting: 0,
+  exhausted: 0,
+  next_retry_at: null,
 };
 
 export const SplitTaskSchema = z.object({
@@ -270,12 +277,9 @@ export const SplitTaskSchema = z.object({
   assignee_id: z.string().nullable().default(null),
   depends_on: z.array(z.string()).default([]),
   sort_order: z.number().default(0),
-  status: z.string().default("draft"),
+  status: z.enum(["discarded", "created", "running", "done", "failed", "cancelled", "skipped"]).catch("created").default("created"),
   issue_id: z.string().nullable().default(null),
   run_id: z.string().nullable().default(null),
-  version: z.number().default(1),
-  draft_key: z.string().nullable().default(null),
-  draft_source: z.enum(["agent", "chat", "recovered"]).catch("agent"),
   last_error: z.object({
     code: z.string().default(""),
     message: z.string().default(""),
@@ -283,43 +287,32 @@ export const SplitTaskSchema = z.object({
     workflow_run_id: z.string().nullable().default(null),
     node_run_id: z.string().nullable().default(null),
     occurred_at: z.string().default(""),
+    retryable: z.boolean().optional(),
+    attempt: z.number().optional(),
+    next_attempt_at: z.string().nullable().optional(),
   }).nullable().default(null),
   created_at: z.string().default(""),
   updated_at: z.string().default(""),
+  materialize_retry_count: z.number().default(0),
+  materialize_next_attempt_at: z.string().nullable().default(null),
 }).loose();
 
 export const SplitTasksResponseSchema = z.object({
   tasks: z.array(SplitTaskSchema).nullish().transform((value) => value ?? []),
   progress: SplitProgressSchema.default(EMPTY_SPLIT_PROGRESS as any),
-  chat_session_id: z.string().optional(),
-  task_id: z.string().optional(),
+  split_plan_generation: z.number().default(0),
+  submission_id: z.string().nullable().default(null),
+  archive_status: z.string().default("not_started"),
+  archive_error: z.string().default(""),
 }).loose();
 
 export const EMPTY_SPLIT_TASKS_RESPONSE: SplitTasksResponse = {
   tasks: [],
   progress: EMPTY_SPLIT_PROGRESS,
-};
-
-export const SplitChatResponseSchema = z.union([
-  SplitTasksResponseSchema.extend({
-    chat_session_id: z.string().default(""),
-    task_id: z.string().default(""),
-  }).loose(),
-  z.object({
-    chat_session_id: z.string().default(""),
-    task_id: z.string().default(""),
-    tasks: SplitTasksResponseSchema.default(EMPTY_SPLIT_TASKS_RESPONSE as any),
-  }).loose().transform((value) => ({
-    ...value.tasks,
-    chat_session_id: value.chat_session_id,
-    task_id: value.task_id,
-  })),
-]);
-
-export const EMPTY_SPLIT_CHAT_RESPONSE: SplitChatResponse = {
-  ...EMPTY_SPLIT_TASKS_RESPONSE,
-  chat_session_id: "",
-  task_id: "",
+  split_plan_generation: 0,
+  submission_id: null,
+  archive_status: "not_started",
+  archive_error: "",
 };
 
 export const CsUserSearchHitSchema = z.object({

@@ -175,9 +175,7 @@ function splitTaskDisplayStatus(status: SplitTask["status"]): WorkflowRuntimeDis
     case "discarded":
       return "cancelled";
     case "created":
-    case "approved":
       return "todo";
-    case "draft":
     default:
       return "pending";
   }
@@ -202,8 +200,7 @@ function splitTaskProgressLabel(
       return task.last_error?.message || t(($) => $.execution.card.child_failed);
     case "skipped":
       return t(($) => $.execution.card.child_skipped);
-    case "created":
-    case "approved": {
+    case "created": {
       const hasUnfinishedDependency = task.depends_on.some(
         (dependencyId) => taskById.get(dependencyId)?.status !== "done",
       );
@@ -211,7 +208,6 @@ function splitTaskProgressLabel(
         ? t(($) => $.execution.card.child_waiting_dependencies)
         : t(($) => $.execution.card.child_waiting_start);
     }
-    case "draft":
     default:
       return t(($) => $.execution.card.child_waiting_start);
   }
@@ -291,6 +287,7 @@ function runtimeToneForEdge(
     targetRun?.status === "awaiting_critic" ||
     targetRun?.status === "awaiting_input" ||
     targetRun?.status === "splitting" ||
+    targetRun?.status === "materializing" ||
     targetRun?.status === "split_active"
   ) {
     return "running";
@@ -318,6 +315,7 @@ function runtimeFocusPriority(status: WorkflowNodeRun["status"]): number {
     case "critic_reviewing":
     case "format_checking":
     case "splitting":
+    case "materializing":
     case "split_active":
       return 30;
     default:
@@ -734,7 +732,6 @@ export function ExecutionPanoramaPage({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 24, zoom: 0.95 });
   const [retryingNodeRunId, setRetryingNodeRunId] = useState<string | null>(null);
-  const [splitDraftSelectionsByNodeRunId, setSplitDraftSelectionsByNodeRunId] = useState<Record<string, string[]>>({});
   const [expandedSplitNodeIds, setExpandedSplitNodeIds] = useState<Set<string>>(() => new Set());
   const [focusSplitNodeId, setFocusSplitNodeId] = useState<string | null>(null);
   const splitViewportByNodeIdRef = useRef<Map<string, Viewport>>(new Map());
@@ -1616,13 +1613,6 @@ export function ExecutionPanoramaPage({
             runId={runId ?? undefined}
             plannerName={selectedWorkerName ?? undefined}
             parentIssueId={issueId}
-            selectedDraftTaskIds={selectedRun ? splitDraftSelectionsByNodeRunId[selectedRun.id] : undefined}
-            onSelectedDraftTaskIdsChange={selectedRun ? (taskIds) => {
-              setSplitDraftSelectionsByNodeRunId((current) => ({
-                ...current,
-                [selectedRun.id]: taskIds,
-              }));
-            } : undefined}
             onClose={() => setSelectedNodeId(null)}
           />
         ) : (

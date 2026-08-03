@@ -61,10 +61,20 @@ SELECT *
 FROM multica_workflow_node_run_deliverable
 WHERE id = $1 AND workflow_node_run_id = $2;
 
+-- name: GetNodeRunDeliverableByPurpose :one
+SELECT *
+FROM multica_workflow_node_run_deliverable
+WHERE workflow_node_run_id = $1
+  AND purpose = $2;
+
 -- name: ListNodeRunDeliverableSubmissions :many
 SELECT * FROM multica_workflow_node_deliverable_submission
 WHERE workflow_node_run_id = $1
 ORDER BY created_at ASC;
+
+-- name: GetNodeRunDeliverableSubmission :one
+SELECT * FROM multica_workflow_node_deliverable_submission
+WHERE id = $1;
 
 -- name: UpsertNodeRunDeliverableSubmission :one
 -- One deliverable may carry several link submissions (migration 149): the

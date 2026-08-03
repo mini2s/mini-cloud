@@ -10,7 +10,6 @@ import {
   DuplicateIssueErrorBodySchema,
   EMPTY_AGENT_CLOUD_SKILLS,
   EMPTY_CATALOG_SKILL_LIST,
-  EMPTY_SPLIT_CHAT_RESPONSE,
   EMPTY_USER,
   EMPTY_SPLIT_PROGRESS,
   EMPTY_SPLIT_TASKS_RESPONSE,
@@ -22,7 +21,6 @@ import {
   RuntimeUsageByHourListSchema,
   RuntimeUsageListSchema,
   SplitProgressSchema,
-  SplitChatResponseSchema,
   SplitTasksResponseSchema,
   UserSchema,
   WorkflowRoleResolutionsResponseSchema,
@@ -101,6 +99,14 @@ describe("IssueSchema (via ListIssuesResponseSchema)", () => {
 });
 
 describe("split API response schemas", () => {
+	it("downgrades an unknown split task status without dropping the response", () => {
+		const parsed = SplitTasksResponseSchema.parse({
+			tasks: [{ id: "task-1", node_run_id: "nr-1", status: "future_status" }],
+		});
+		expect(parsed.tasks).toHaveLength(1);
+		expect(parsed.tasks[0]?.status).toBe("created");
+	});
+
 	it("parses split task assignees and tolerates older responses", () => {
 		const current = SplitTasksResponseSchema.parse({
 			tasks: [{
@@ -121,7 +127,7 @@ describe("split API response schemas", () => {
 		expect(SplitTasksResponseSchema.parse({ tasks: null }).tasks).toEqual([]);
 	});
 
-  it("parses split config versions and draft provenance", () => {
+  it("parses split config versions and task workflow selection", () => {
     const nodeRun = WorkflowNodeRunSchema.parse({
       id: "nr-1",
       workflow_run_id: "run-1",
@@ -133,16 +139,12 @@ describe("split API response schemas", () => {
         id: "task-1",
         node_run_id: "nr-1",
         workflow_id: "wf-1",
-        draft_key: "backend",
-        draft_source: "recovered",
       }],
     });
 
     expect(nodeRun.split_config_version).toBe(4);
     expect(split.tasks[0]).toMatchObject({
       workflow_id: "wf-1",
-      draft_key: "backend",
-      draft_source: "recovered",
     });
   });
 
@@ -182,16 +184,13 @@ describe("split API response schemas", () => {
     status: "running",
     issue_id: "issue-1",
     run_id: "run-1",
-    version: 3,
     last_error: null,
     created_at: "2026-07-12T00:00:00Z",
     updated_at: "2026-07-12T00:01:00Z",
   };
 
-  it.each([
-		["assignee_type", { ...validTask, assignee_type: "future-assignee" }],
-		["draft_key", { ...validTask, draft_key: 42 }],
-  ])("falls back when split task %s is malformed", (_field, task) => {
+	it("falls back when a split task assignee type is malformed", () => {
+		const task = { ...validTask, assignee_type: "future-assignee" };
     const parsed = parseWithFallback(
       { tasks: [task] },
       SplitTasksResponseSchema,
@@ -200,18 +199,6 @@ describe("split API response schemas", () => {
     );
 
     expect(parsed).toBe(EMPTY_SPLIT_TASKS_RESPONSE);
-  });
-
-  it("downgrades an unknown draft source at the API boundary", () => {
-    const parsed = parseWithFallback(
-      { tasks: [{ ...validTask, draft_source: "future-source" }] },
-      SplitTasksResponseSchema,
-      EMPTY_SPLIT_TASKS_RESPONSE,
-      { endpoint: "GET /api/node-runs/:id/split/tasks" },
-    );
-
-    expect(parsed).not.toBe(EMPTY_SPLIT_TASKS_RESPONSE);
-    expect(parsed.tasks[0]?.draft_source).toBe("agent");
   });
 
   it("accepts split task lists and keeps unknown fields", () => {
@@ -224,22 +211,19 @@ describe("split API response schemas", () => {
   });
 
   it("defaults missing additive split task fields", () => {
-    const { workflow_id: _a, issue_id: _b, run_id: _c, depends_on: _d, last_error: _e, version: _f, ...partial } = validTask;
+    const { workflow_id: _a, issue_id: _b, run_id: _c, depends_on: _d, last_error: _e, ...partial } = validTask;
     const parsed = SplitTasksResponseSchema.parse({ tasks: [partial] });
 		expect(parsed.tasks[0]?.workflow_id).toBeNull();
 		expect(parsed.tasks[0]?.assignee_type).toBeNull();
 		expect(parsed.tasks[0]?.assignee_id).toBeNull();
-    expect(parsed.tasks[0]?.draft_key).toBeNull();
-    expect(parsed.tasks[0]?.draft_source).toBe("agent");
     expect(parsed.tasks[0]?.issue_id).toBeNull();
     expect(parsed.tasks[0]?.run_id).toBeNull();
     expect(parsed.tasks[0]?.depends_on).toEqual([]);
-    expect(parsed.tasks[0]?.version).toBe(1);
     expect(parsed.tasks[0]?.last_error).toBeNull();
     expect(parsed.progress).toEqual(EMPTY_SPLIT_PROGRESS);
   });
 
-  it("parses split task workflow version and last error", () => {
+  it("parses split task workflow and last error", () => {
     const parsed = SplitTasksResponseSchema.parse({
       tasks: [{
         ...validTask,
@@ -255,7 +239,6 @@ describe("split API response schemas", () => {
     });
 
     expect(parsed.tasks[0]?.workflow_id).toBe("workflow-1");
-    expect(parsed.tasks[0]?.version).toBe(3);
     expect(parsed.tasks[0]?.last_error?.code).toBe("dispatch_failed");
   });
 
@@ -269,47 +252,9 @@ describe("split API response schemas", () => {
     expect(parsed).toBe(EMPTY_SPLIT_TASKS_RESPONSE);
   });
 
-  it("flattens the nested split review chat response returned by the handler", () => {
-    const parsed = SplitChatResponseSchema.parse({
-      chat_session_id: "chat-1",
-      task_id: "agent-task-1",
-      tasks: {
-        tasks: [{ ...validTask, title: "Security review" }],
-        progress: { total: 1 },
-      },
-    });
-
-    expect(parsed.chat_session_id).toBe("chat-1");
-    expect(parsed.task_id).toBe("agent-task-1");
-    expect(parsed.tasks[0]?.title).toBe("Security review");
-    expect(parsed.progress).toEqual({
-      total: 1,
-      created: 0,
-      running: 0,
-      done: 0,
-      failed: 0,
-      cancelled: 0,
-      skipped: 0,
-    });
-  });
-
-  it("falls back when split review chat tasks have the wrong shape", () => {
-    const parsed = parseWithFallback(
-      {
-        chat_session_id: "chat-1",
-        task_id: "agent-task-1",
-        tasks: { tasks: [{ ...validTask, depends_on: "task-0" }] },
-      },
-      SplitChatResponseSchema,
-      EMPTY_SPLIT_CHAT_RESPONSE,
-      { endpoint: "POST /api/node-runs/:id/split/chat" },
-    );
-    expect(parsed).toBe(EMPTY_SPLIT_CHAT_RESPONSE);
-  });
-
   it("defaults missing split progress counts to zero", () => {
     const parsed = SplitProgressSchema.parse({ total: 3, running: 1 });
-    expect(parsed).toEqual({ total: 3, created: 0, running: 1, done: 0, failed: 0, cancelled: 0, skipped: 0 });
+    expect(parsed).toEqual({ total: 3, created: 0, running: 1, done: 0, failed: 0, cancelled: 0, skipped: 0, materialized: 0, retry_waiting: 0, exhausted: 0, next_retry_at: null });
   });
 
   it("parses split progress inside workflow canvas summaries", () => {
@@ -333,6 +278,10 @@ describe("split API response schemas", () => {
       failed: 0,
       cancelled: 0,
       skipped: 0,
+      materialized: 0,
+      retry_waiting: 0,
+      exhausted: 0,
+      next_retry_at: null,
     });
   });
 

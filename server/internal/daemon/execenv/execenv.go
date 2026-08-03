@@ -61,14 +61,9 @@ type TaskContextForEnv struct {
 	ChatMessage                         string                  // latest user message for chat-backed tasks
 	WorkflowNodeRunID                   string
 	WorkflowPhase                       string // workflow context phase: worker, split, or critic
-	WorkflowSplitRepair                 bool
-	WorkflowSplitRepairSourceTaskID     string
-	WorkflowSplitRepairSourceOutput     string
 	WorkflowSplitParentIssueID          string
 	WorkflowSplitParentIssueTitle       string
 	WorkflowSplitParentIssueDescription string
-	WorkflowSplitCurrentDrafts          json.RawMessage
-	WorkflowSplitConfig                 json.RawMessage
 	AutopilotRunID                      string // non-empty for autopilot run_only tasks
 	AutopilotID                         string
 	AutopilotTitle                      string

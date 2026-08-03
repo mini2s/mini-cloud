@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -300,25 +301,24 @@ func TestBuildPromptSplitPhaseRequiresStructuredTasksOutput(t *testing.T) {
 		WorkflowSplitParentIssueID:          "parent-issue-1",
 		WorkflowSplitParentIssueTitle:       "Build a gomoku game",
 		WorkflowSplitParentIssueDescription: "Create a playable browser game.",
+		WorkflowSplitPlanGeneration:         3,
+		WorkflowSplitDeliverableID:          "deliverable-1",
+		WorkflowSplitWorkspaceMembers:       json.RawMessage(`[{"display_name":"Ada","email":"ada@example.com"}]`),
 	}, "claude")
 
 	for _, want := range []string{
-		"dynamic split-task generator",
+		"split-plan document producer",
 		"Workflow node run ID: node-run-1",
-		"Parent issue ID: parent-issue-1",
 		"Parent issue title: Build a gomoku game",
+		"Split plan generation: 3",
+		"## Task: <title>",
+		"key: <stable-key>",
+		"assignee: <active member email>",
+		"depends-on: <comma-separated keys>",
+		"ada@example.com",
 		"default issue workflow",
-		"Do NOT output workflow_id",
-		"Reviewers change execution workflow later in Multica",
-		"cs-workflow workflow split draft add",
-		"cs-workflow workflow split draft submit node-run-1 --output json",
-		"--key",
-		"--title",
-		"--description-file",
-		"Do NOT create issues",
-		"Do NOT change issue status",
-		"Do NOT post comments",
-		"After `cs-workflow workflow split draft submit node-run-1 --output json` succeeds, stop",
+		"cs-cloud workflow deliverable submit --deliverable deliverable-1 --file task.md",
+		"Do not use the retired split draft CLI",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("split BuildPrompt missing %q\n--- output ---\n%s", want, out)
@@ -333,6 +333,8 @@ func TestBuildPromptSplitPhaseRequiresStructuredTasksOutput(t *testing.T) {
 		"Default child assignee",
 		"--assignee",
 		"agent list",
+		"workflow split draft add",
+		"workflow split draft submit",
 	} {
 		if strings.Contains(out, banned) {
 			t.Errorf("split BuildPrompt must not contain ordinary assignment guidance %q\n--- output ---\n%s", banned, out)
@@ -340,67 +342,25 @@ func TestBuildPromptSplitPhaseRequiresStructuredTasksOutput(t *testing.T) {
 	}
 }
 
-func TestBuildPromptSplitRepairIncludesSourceTask(t *testing.T) {
+func TestBuildPromptSplitGenerationIncludesRejectedSnapshot(t *testing.T) {
 	out := BuildPrompt(Task{
-		IssueID:                         "issue-split-1",
-		WorkflowPhase:                   "split",
-		WorkflowSplitRepair:             true,
-		WorkflowSplitRepairSourceTaskID: "task-source-1",
+		IssueID:                          "issue-split-1",
+		WorkflowPhase:                    "split",
+		WorkflowSplitReviewComment:       "Use fewer tasks",
+		WorkflowSplitReviewedContent:     "## Task: Old",
+		WorkflowSplitReviewHeadCommitSHA: "abc123",
+		WorkflowSplitReviewTaskPath:      "nodes/01/task.md",
 	}, "claude")
 
 	for _, want := range []string{
-		"repairing a failed split draft generation",
-		"task-source-1",
-		"recover usable draft tasks",
-		"cs-workflow workflow split draft add",
-		"cs-workflow workflow split draft submit",
+		"previous generation was rejected",
+		"Use fewer tasks",
+		"Previous fixed task.md excerpt",
+		"## Task: Old",
+		"git show abc123:nodes/01/task.md",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("split repair BuildPrompt missing %q\n--- output ---\n%s", want, out)
-		}
-	}
-}
-
-func TestBuildPromptSplitChatAdjustsExistingDrafts(t *testing.T) {
-	out := BuildPrompt(Task{
-		IssueID:                       "split-planning-issue",
-		WorkflowPhase:                 "split_chat",
-		WorkflowNodeRunID:             "node-run-1",
-		ChatSessionID:                 "chat-1",
-		ChatMessage:                   "简化拆分",
-		WorkflowSplitParentIssueID:    "parent-issue-1",
-		WorkflowSplitParentIssueTitle: "Build a gomoku game",
-		WorkflowSplitCurrentDrafts:    []byte(`[{"id":"draft-1","title":"Too large","draft_key":"too-large"}]`),
-	}, "claude")
-
-	for _, want := range []string{
-		"split review adjustment",
-		"User requested",
-		"简化拆分",
-		"Current draft tasks",
-		"Too large",
-		"cs-workflow workflow split draft add",
-		"cs-workflow workflow split draft submit",
-		"discard or replace",
-		"Never answer that the task is already complete",
-		"durable draft update",
-		"Do NOT create issues",
-		"Do NOT change issue status",
-		"Do NOT post comments",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("split_chat BuildPrompt missing %q\n--- output ---\n%s", want, out)
-		}
-	}
-	for _, banned := range []string{
-		"chat assistant",
-		"Your assigned issue ID is",
-		"cs-workflow issue status",
-		"cs-workflow issue comment add",
-		"then complete it",
-	} {
-		if strings.Contains(out, banned) {
-			t.Errorf("split_chat BuildPrompt must not contain ordinary guidance %q\n--- output ---\n%s", banned, out)
 		}
 	}
 }

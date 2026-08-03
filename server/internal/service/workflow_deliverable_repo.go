@@ -635,24 +635,24 @@ func (s *WorkflowService) provisionTeamNamespaceWorkflowRepo(ctx context.Context
 // RetryCount+1 on approve (the tx leaves RetryCount unchanged) and RetryCount on
 // reject (the tx has already incremented it). Reviewer resolves from the assigned
 // critic member's display name, falling back to "critic".
-func (s *WorkflowService) ArchiveReviewComment(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, decision, comment string) {
+func (s *WorkflowService) ArchiveReviewComment(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun, decision, comment string) error {
 	if comment == "" {
-		return
+		return nil
 	}
 	run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
 	if err != nil {
 		slog.Warn("archive review comment: get run", "error", err)
-		return
+		return err
 	}
 	workflow, err := s.workflowFromRunSnapshot(ctx, run)
 	if err != nil {
 		slog.Warn("archive review comment: get run snapshot", "error", err)
-		return
+		return err
 	}
 	repoProvider, err := s.deliverableRepositoryForWorkspace(ctx, run.WorkspaceID)
 	if err != nil {
 		slog.Warn("archive review comment: repository provider", "error", err)
-		return
+		return err
 	}
 
 	approved := decision == "approved"
@@ -688,9 +688,10 @@ func (s *WorkflowService) ArchiveReviewComment(ctx context.Context, nodeRun db.M
 	inst := gitea.InstBranch(util.UUIDToString(run.ID))
 	if err := repoProvider.UpsertFile(ctx, owner, repo, inst, path, content, "review: "+decision); err != nil {
 		slog.Warn("archive review comment: write file", "node_run_id", nodeRunIDStr, "path", path, "error", err)
-		return
+		return err
 	}
 	slog.Info("archived review comment", "node_run_id", nodeRunIDStr, "round", round, "verdict", verdict, "path", path)
+	return nil
 }
 
 // ArchiveCodeDeliverable archives a code (GitLab MR) deliverable's pointer into

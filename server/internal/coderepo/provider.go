@@ -32,6 +32,14 @@ type RepositoryProvider interface {
 	FetchReviewRequestTitleByURL(ctx context.Context, prURL string) (string, error)
 }
 
+type ReviewSnapshotProvider interface {
+	RepositoryProvider
+	ReviewHost() string
+	GetReviewRequest(ctx context.Context, owner, repo string, index int) (gitea.PullRequestMetadata, error)
+	ReadFileAtCommit(ctx context.Context, owner, repo, path, commitSHA string) ([]byte, string, error)
+	MergeReviewRequestAtHead(ctx context.Context, owner, repo string, index int, headCommitSHA string) error
+}
+
 type FactoryConfig struct {
 	Gitea *gitea.Client
 }
@@ -106,4 +114,18 @@ func (a GiteaAdapter) FetchReviewRequestTitleByURL(ctx context.Context, prURL st
 		return "", nil // not a Gitea PR URL — best-effort empty title
 	}
 	return a.Client.GetPRTitle(ctx, ref.Owner, ref.Repo, ref.Index)
+}
+
+func (a GiteaAdapter) ReviewHost() string { return a.Client.ReviewHost() }
+
+func (a GiteaAdapter) GetReviewRequest(ctx context.Context, owner, repo string, index int) (gitea.PullRequestMetadata, error) {
+	return a.Client.GetPullRequest(ctx, owner, repo, index)
+}
+
+func (a GiteaAdapter) ReadFileAtCommit(ctx context.Context, owner, repo, path, commitSHA string) ([]byte, string, error) {
+	return a.Client.ReadFileAtCommit(ctx, owner, repo, path, commitSHA)
+}
+
+func (a GiteaAdapter) MergeReviewRequestAtHead(ctx context.Context, owner, repo string, index int, headCommitSHA string) error {
+	return a.Client.MergePRAtHead(ctx, owner, repo, index, headCommitSHA)
 }

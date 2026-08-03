@@ -505,16 +505,6 @@ func workflowTaskPhase(contextJSON []byte) string {
 	return "worker"
 }
 
-func workflowTaskRequiresDirectRetry(contextJSON []byte) bool {
-	var payload struct {
-		Phase string `json:"phase"`
-	}
-	if err := json.Unmarshal(contextJSON, &payload); err != nil {
-		return false
-	}
-	return payload.Phase == splitPhaseRepair || payload.Phase == splitPhaseChat
-}
-
 func (s *TaskService) selectRuntimeForWorkflowTask(
 	ctx context.Context,
 	qtx *db.Queries,
@@ -1663,10 +1653,6 @@ func (s *TaskService) createRetryTaskWithRuntimeSelection(
 		})
 		return taskRetryResult{Task: &child, Scheduled: err == nil}, err
 	}
-	if workflowTaskRequiresDirectRetry(parent.Context) {
-		return s.createDirectWorkflowRetryTask(ctx, parent)
-	}
-
 	err := s.runInTx(ctx, func(qtx *db.Queries) error {
 		nodeRun, err := qtx.GetWorkflowNodeRunForUpdate(ctx, parent.WorkflowNodeRunID)
 		if err != nil {
@@ -1693,43 +1679,6 @@ func (s *TaskService) createRetryTaskWithRuntimeSelection(
 		return taskRetryResult{}, err
 	}
 	return taskRetryResult{Scheduled: true}, nil
-}
-
-func (s *TaskService) createDirectWorkflowRetryTask(
-	ctx context.Context,
-	parent db.MulticaAgentTaskQueue,
-) (taskRetryResult, error) {
-	var (
-		child     db.MulticaAgentTaskQueue
-		nodeRun   db.MulticaWorkflowNodeRun
-		selection workflowRuntimeSelection
-	)
-	err := s.runInTx(ctx, func(qtx *db.Queries) error {
-		var err error
-		nodeRun, selection, err = s.selectRuntimeForWorkflowTask(ctx, qtx, parent.WorkflowNodeRunID, parent.AgentID)
-		if err != nil {
-			return err
-		}
-		child, err = qtx.CreateRetryTask(ctx, db.CreateRetryTaskParams{
-			RuntimeID: selection.RuntimeID, ParentTaskID: parent.ID,
-		})
-		if err != nil {
-			return fmt.Errorf("create workflow retry task: %w", err)
-		}
-		if err := linkSelectedWorkflowTask(
-			ctx, qtx, parent.WorkflowNodeRunID, "worker", child, selection,
-		); err != nil {
-			return fmt.Errorf("link workflow retry task: %w", err)
-		}
-		return nil
-	})
-	if errors.Is(err, ErrWorkflowRunNotRunning) {
-		return taskRetryResult{}, nil
-	}
-	if err != nil {
-		return taskRetryResult{}, s.failWorkflowTaskRuntimeSelection(ctx, nodeRun, err)
-	}
-	return taskRetryResult{Task: &child, Scheduled: true}, nil
 }
 
 func (s *TaskService) MaybeRetryFailedTask(ctx context.Context, parent db.MulticaAgentTaskQueue) (*db.MulticaAgentTaskQueue, error) {

@@ -207,7 +207,7 @@ export type NodeRunStatus =
   | "worker_assigned" | "working" | "awaiting_input" | "awaiting_critic"
   | "critic_reviewing" | "critic_approved" | "critic_rework"
   | "completed" | "failed" | "blocked" | "skipped" | "cancelled"
-  | "splitting" | "awaiting_split_review" | "split_active";
+  | "splitting" | "awaiting_split_review" | "materializing" | "split_active";
 export type WorkflowRunStatus =
   | "resolving_roles"
   | "waiting_role_assignment"
@@ -236,6 +236,7 @@ export function toWorkflowRuntimeDisplayStatus(status: string): WorkflowRuntimeD
     case "awaiting_input":
     case "working":
     case "splitting":
+    case "materializing":
     case "split_active":
       return "in_progress";
     case "awaiting_critic":
@@ -436,7 +437,7 @@ export interface WorkflowNodeRun {
   failure_reason: string | null;
   /** Device identifier for the runtime/session bound to this node run, if any. */
   device_id: string | null;
-  /** Chat session used for natural-language split draft review, if any. */
+  /** Legacy split review chat session, retained for historical run payloads. */
   split_review_chat_session_id: string | null;
   split_config_version: number;
   started_at: string | null;
@@ -454,8 +455,6 @@ export interface WorkflowNodeRun {
 }
 
 export type SplitTaskStatus =
-  | "draft"
-  | "approved"
   | "discarded"
   | "created"
   | "running"
@@ -464,7 +463,6 @@ export type SplitTaskStatus =
   | "cancelled"
   | "skipped";
 
-export type SplitDraftSource = "agent" | "chat" | "recovered";
 export type SplitTaskAssigneeType = "member" | "agent" | "squad" | "workflow";
 
 export interface SplitTask {
@@ -480,12 +478,11 @@ export interface SplitTask {
   status: SplitTaskStatus;
   issue_id: string | null;
   run_id: string | null;
-  version: number;
-  draft_key: string | null;
-  draft_source: SplitDraftSource;
   last_error: SplitTaskLastError | null;
   created_at: string;
   updated_at: string;
+  materialize_retry_count: number;
+  materialize_next_attempt_at: string | null;
 }
 
 export interface SplitTaskLastError {
@@ -495,6 +492,9 @@ export interface SplitTaskLastError {
   workflow_run_id: string | null;
   node_run_id: string | null;
   occurred_at: string;
+  retryable?: boolean;
+  attempt?: number;
+  next_attempt_at?: string | null;
 }
 
 export interface SplitProgress {
@@ -505,68 +505,43 @@ export interface SplitProgress {
   failed: number;
   cancelled: number;
   skipped: number;
+  materialized?: number;
+  retry_waiting?: number;
+  exhausted?: number;
+  next_retry_at?: string | null;
 }
 
 export interface SplitTasksResponse {
   tasks: SplitTask[];
   progress: SplitProgress;
-}
-
-/** Returned by POST /api/node-runs/:id/split/chat — extends SplitTasksResponse
- *  with the chat session and agent task IDs needed for real-time updates. */
-export interface SplitChatResponse extends SplitTasksResponse {
-  chat_session_id: string;
-  task_id: string;
+  split_plan_generation?: number;
+  submission_id?: string | null;
+  archive_status?: string;
+  archive_error?: string;
 }
 
 export interface ApproveSplitRequest {
-  approved_task_ids: string[];
-  expected_versions?: Record<string, number>;
-  confirm_empty?: boolean;
+  expected_split_generation: number;
+  expected_submission_id: string;
+  review_comment?: string;
 }
 
-export interface PatchSplitDraftTaskRequest {
-  title?: string;
-  description?: string;
-  depends_on?: string[];
-  discarded?: boolean;
-  workflow_id?: string;
-  expected_version: number;
+export interface RejectSplitRequest extends ApproveSplitRequest {
+  review_comment: string;
 }
 
-export interface CreateSplitDraftTaskRequest {
-  title: string;
-  description?: string;
-  workflow_id?: string;
-  depends_on?: string[];
+export interface GenerateSplitRequest {
+  expected_split_generation: number;
+  confirm_supersede?: boolean;
 }
 
-export interface BatchPatchSplitDraftTasksRequest {
-  updates: Array<{
-    task_id: string;
-    workflow_id: string;
-    expected_version: number;
-  }>;
+export interface RetrySplitTaskRequest {
+  expected_split_generation: number;
 }
 
 export interface PatchSplitConfigRequest {
   max_concurrency: number;
   expected_config_version: number;
-}
-
-export interface PatchSplitTaskAssigneeRequest {
-  assignee_type: SplitTaskAssigneeType;
-  assignee_id: string;
-  expected_version: number;
-}
-
-export interface BatchPatchSplitTaskAssigneesRequest {
-  assignee_type: SplitTaskAssigneeType;
-  assignee_id: string;
-  tasks: Array<{
-    task_id: string;
-    expected_version: number;
-  }>;
 }
 
 export interface WorkflowNodeRuntimeSummary {

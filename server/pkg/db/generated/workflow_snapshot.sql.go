@@ -18,11 +18,15 @@ INSERT INTO multica_workflow_node_run_deliverable (
     title,
     description,
     required,
-    sort_order
+    sort_order,
+    purpose
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5, $6,
+    COALESCE($7::text, 'general')
 )
-RETURNING id, workflow_node_run_id, source_deliverable_id, title, description, required, sort_order, created_at
+ON CONFLICT (workflow_node_run_id, source_deliverable_id)
+DO UPDATE SET source_deliverable_id = EXCLUDED.source_deliverable_id
+RETURNING id, workflow_node_run_id, source_deliverable_id, title, description, required, sort_order, created_at, purpose
 `
 
 type CreateNodeRunDeliverableRequirementParams struct {
@@ -32,6 +36,7 @@ type CreateNodeRunDeliverableRequirementParams struct {
 	Description         string      `json:"description"`
 	Required            bool        `json:"required"`
 	SortOrder           int32       `json:"sort_order"`
+	Purpose             pgtype.Text `json:"purpose"`
 }
 
 func (q *Queries) CreateNodeRunDeliverableRequirement(ctx context.Context, arg CreateNodeRunDeliverableRequirementParams) (MulticaWorkflowNodeRunDeliverable, error) {
@@ -42,6 +47,7 @@ func (q *Queries) CreateNodeRunDeliverableRequirement(ctx context.Context, arg C
 		arg.Description,
 		arg.Required,
 		arg.SortOrder,
+		arg.Purpose,
 	)
 	var i MulticaWorkflowNodeRunDeliverable
 	err := row.Scan(
@@ -53,6 +59,7 @@ func (q *Queries) CreateNodeRunDeliverableRequirement(ctx context.Context, arg C
 		&i.Required,
 		&i.SortOrder,
 		&i.CreatedAt,
+		&i.Purpose,
 	)
 	return i, err
 }
@@ -134,7 +141,7 @@ INSERT INTO multica_workflow_node_run (
     $17,
     $18
 )
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version, source_workflow_node_id, node_description, format_schema, critic_api_url, stage_snapshot, worker_role_snapshot, critic_role_snapshot, runtime_config, worker_name_snapshot, critic_name_snapshot
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version, source_workflow_node_id, node_description, format_schema, critic_api_url, stage_snapshot, worker_role_snapshot, critic_role_snapshot, runtime_config, worker_name_snapshot, critic_name_snapshot, split_plan_generation
 `
 
 type CreateWorkflowNodeRunSnapshotParams struct {
@@ -218,6 +225,7 @@ func (q *Queries) CreateWorkflowNodeRunSnapshot(ctx context.Context, arg CreateW
 		&i.RuntimeConfig,
 		&i.WorkerNameSnapshot,
 		&i.CriticNameSnapshot,
+		&i.SplitPlanGeneration,
 	)
 	return i, err
 }
@@ -347,7 +355,7 @@ func (q *Queries) CreateWorkflowRunSnapshot(ctx context.Context, arg CreateWorkf
 }
 
 const getNodeRunDeliverableRequirement = `-- name: GetNodeRunDeliverableRequirement :one
-SELECT id, workflow_node_run_id, source_deliverable_id, title, description, required, sort_order, created_at
+SELECT id, workflow_node_run_id, source_deliverable_id, title, description, required, sort_order, created_at, purpose
 FROM multica_workflow_node_run_deliverable
 WHERE id = $1
 `
@@ -364,6 +372,7 @@ func (q *Queries) GetNodeRunDeliverableRequirement(ctx context.Context, id pgtyp
 		&i.Required,
 		&i.SortOrder,
 		&i.CreatedAt,
+		&i.Purpose,
 	)
 	return i, err
 }
@@ -403,7 +412,7 @@ func (q *Queries) GetWorkflowForSnapshot(ctx context.Context, id pgtype.UUID) (M
 }
 
 const getWorkflowNodeRunBySource = `-- name: GetWorkflowNodeRunBySource :one
-SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version, source_workflow_node_id, node_description, format_schema, critic_api_url, stage_snapshot, worker_role_snapshot, critic_role_snapshot, runtime_config, worker_name_snapshot, critic_name_snapshot
+SELECT id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version, source_workflow_node_id, node_description, format_schema, critic_api_url, stage_snapshot, worker_role_snapshot, critic_role_snapshot, runtime_config, worker_name_snapshot, critic_name_snapshot, split_plan_generation
 FROM multica_workflow_node_run
 WHERE workflow_run_id = $1
   AND source_workflow_node_id = $2
@@ -456,6 +465,7 @@ func (q *Queries) GetWorkflowNodeRunBySource(ctx context.Context, arg GetWorkflo
 		&i.RuntimeConfig,
 		&i.WorkerNameSnapshot,
 		&i.CriticNameSnapshot,
+		&i.SplitPlanGeneration,
 	)
 	return i, err
 }
@@ -565,7 +575,7 @@ func (q *Queries) ListCompletedRuntimeUpstreamNodeRuns(ctx context.Context, arg 
 }
 
 const listNodeRunDeliverableRequirements = `-- name: ListNodeRunDeliverableRequirements :many
-SELECT id, workflow_node_run_id, source_deliverable_id, title, description, required, sort_order, created_at
+SELECT id, workflow_node_run_id, source_deliverable_id, title, description, required, sort_order, created_at, purpose
 FROM multica_workflow_node_run_deliverable
 WHERE workflow_node_run_id = $1
 ORDER BY sort_order, created_at, id
@@ -589,6 +599,7 @@ func (q *Queries) ListNodeRunDeliverableRequirements(ctx context.Context, workfl
 			&i.Required,
 			&i.SortOrder,
 			&i.CreatedAt,
+			&i.Purpose,
 		); err != nil {
 			return nil, err
 		}

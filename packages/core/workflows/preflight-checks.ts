@@ -301,7 +301,7 @@ export function checkSplitReviewer(nodes: WorkflowNode[]): PreflightIssue[] {
       blocking: true,
       nodeId: n.id,
       nodeTitle: n.title,
-      message: "Assign one member or member role to review split drafts",
+      message: "Assign one member or member role to review split task plans",
     }));
 }
 

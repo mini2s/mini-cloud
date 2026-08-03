@@ -320,6 +320,7 @@ func (h *Handler) workflowRunSplitProgressSummaries(ctx context.Context, runID p
 		FROM multica_workflow_split_task st
 		JOIN multica_workflow_node_run wnr ON wnr.id = st.node_run_id
 		WHERE wnr.workflow_run_id = $1
+		  AND st.split_plan_generation = wnr.split_plan_generation
 	`, runID)
 	if err != nil {
 		return nil, err
@@ -767,6 +768,11 @@ func (h *Handler) RetryNodeRun(w http.ResponseWriter, r *http.Request) {
 
 	updated, err := h.WorkflowService.RetryNodeRun(r.Context(), nodeRun)
 	if err != nil {
+		var splitErr *service.SplitAPIError
+		if errors.As(err, &splitErr) {
+			writeSplitAPIError(w, err)
+			return
+		}
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1163,6 +1169,31 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
 	submittedByType := actorType
 	submittedByID := parseUUID(actorID)
+	requirement, requirementErr := h.Queries.GetNodeRunDeliverableRequirementForSubmission(r.Context(), db.GetNodeRunDeliverableRequirementForSubmissionParams{
+		ID: dUUID, WorkflowNodeRunID: nrUUID,
+	})
+	if requirementErr != nil {
+		writeError(w, http.StatusNotFound, "deliverable not found on this node run")
+		return
+	}
+	if requirement.Purpose == service.SplitDeliverablePurpose {
+		if actorType != "agent" || h.SplitOrchestrator == nil {
+			writeCodeError(w, http.StatusForbidden, "split_planner_task_required", "split task plans must be submitted by the active planner task")
+			return
+		}
+		taskID, taskErr := util.ParseUUID(r.Header.Get("X-Task-ID"))
+		if taskErr != nil {
+			writeCodeError(w, http.StatusForbidden, "split_planner_task_required", "X-Task-ID is required")
+			return
+		}
+		submission, err := h.SplitOrchestrator.SubmitSplitTaskPlan(r.Context(), nrUUID, dUUID, taskID, submittedByID, req.PullRequestURL)
+		if err != nil {
+			writeSplitAPIError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, workflowNodeDeliverableSubmissionToResponse(submission))
+		return
+	}
 
 	// Best-effort: cache the PR title at submit time so the submissions list
 	// can render it without fanning out to the code host on every read. Build
@@ -1228,6 +1259,14 @@ func (h *Handler) ReviewNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 	if req.Status != "approved" && req.Status != "rejected" {
 		writeError(w, http.StatusBadRequest, "status must be 'approved' or 'rejected'")
 		return
+	}
+	if submission, err := h.Queries.GetNodeRunDeliverableSubmission(r.Context(), sUUID); err == nil {
+		if requirement, reqErr := h.Queries.GetNodeRunDeliverableRequirementForSubmission(r.Context(), db.GetNodeRunDeliverableRequirementForSubmissionParams{
+			ID: submission.DeliverableID, WorkflowNodeRunID: nrUUID,
+		}); reqErr == nil && requirement.Purpose == service.SplitDeliverablePurpose {
+			writeCodeError(w, http.StatusConflict, "split_review_endpoint_required", "split task plans must use the split approve or reject endpoint")
+			return
+		}
 	}
 
 	workspaceID := h.resolveWorkspaceID(r)

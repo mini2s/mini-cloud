@@ -446,3 +446,72 @@ func TestSubmitNodeRunDeliverable_AgentAttribution(t *testing.T) {
 		}
 	})
 }
+
+func TestSubmitNodeRunDeliverable_BindsCurrentSplitGeneration(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	agentID := createHandlerTestAgent(t, "split-plan-submit-agent", nil)
+	taskID := createHandlerTestTaskForAgent(t, agentID)
+	nodeRunID, deliverableID := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
+	ctx := context.Background()
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node_run_deliverable
+		SET purpose = 'split_task_plan', title = 'task'
+		WHERE id = $1
+	`, deliverableID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_agent_task_queue
+		SET status = 'running', workflow_node_run_id = $2,
+		    context = jsonb_build_object(
+		      'type', 'workflow', 'phase', 'split_generate',
+		      'split_plan_generation', 1, 'split_deliverable_id', $1::text
+		    )
+		WHERE id = $3
+	`, deliverableID, nodeRunID, taskID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO multica_workflow_split_generation (
+		  node_run_id, generation, status, planner_task_id, deliverable_id
+		) VALUES ($2, 1, 'splitting', $3, $1)
+	`, deliverableID, nodeRunID, taskID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE multica_workflow_node_run
+		SET status = 'splitting', split_plan_generation = 1
+		WHERE id = $1
+	`, nodeRunID); err != nil {
+		t.Fatal(err)
+	}
+
+	req := newRequest(http.MethodPost, "/api/node-runs/"+nodeRunID+"/deliverables/"+deliverableID+"/submit",
+		map[string]any{"pull_request_url": "https://gitea.test/t-a/wf-b/pulls/7"})
+	req = withURLParams(req, "nodeRunId", nodeRunID, "deliverableId", deliverableID)
+	req.Header.Set("X-Agent-ID", agentID)
+	req.Header.Set("X-Task-ID", taskID)
+	rec := httptest.NewRecorder()
+	testHandler.SubmitNodeRunDeliverable(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	var nodeStatus, generationStatus string
+	var submissionID *string
+	if err := testPool.QueryRow(ctx, `
+		SELECT node_run.status, generation.status, generation.submission_id::text
+		FROM multica_workflow_node_run node_run
+		JOIN multica_workflow_split_generation generation
+		  ON generation.node_run_id = node_run.id
+		 AND generation.generation = node_run.split_plan_generation
+		WHERE node_run.id = $1
+	`, nodeRunID).Scan(&nodeStatus, &generationStatus, &submissionID); err != nil {
+		t.Fatal(err)
+	}
+	if nodeStatus != service.NodeRunStatusAwaitingSplitReview || generationStatus != service.SplitGenerationAwaitingReview || submissionID == nil {
+		t.Fatalf("node/generation/submission = %s/%s/%v", nodeStatus, generationStatus, submissionID)
+	}
+}

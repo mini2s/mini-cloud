@@ -506,10 +506,11 @@ func main() {
 	for i := 0; i < workflowDispatchWorkerConcurrency; i++ {
 		worker := &service.WorkflowDispatchWorker{
 			Queries: queries, TxStarter: pool, Workflow: roleWorkflowSvc,
-			DispatchSplit: splitDispatchSvc.GenerateSplitTasksForDispatch,
-			WorkerID:      hostname + "-workflow-dispatch-" + strconv.Itoa(i+1),
-			PollInterval:  workflowDispatchPollInterval,
-			LeaseDuration: workflowDispatchLeaseDuration,
+			DispatchSplit:    splitDispatchSvc.GenerateSplitTasksForDispatch,
+			MaterializeSplit: splitDispatchSvc.MaterializeSplitGeneration,
+			WorkerID:         hostname + "-workflow-dispatch-" + strconv.Itoa(i+1),
+			PollInterval:     workflowDispatchPollInterval,
+			LeaseDuration:    workflowDispatchLeaseDuration,
 		}
 		go worker.Run(sweepCtx)
 	}

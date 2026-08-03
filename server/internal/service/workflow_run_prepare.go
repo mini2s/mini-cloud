@@ -6,10 +6,19 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/gitea"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
+
+var splitTaskPlanDeliverableNamespace = uuid.MustParse("7b6431f8-1b4e-51a9-9873-35c285bdb3e8")
+
+func splitTaskPlanSourceDeliverableID(workflowNodeID pgtype.UUID) pgtype.UUID {
+	id := uuid.NewSHA1(splitTaskPlanDeliverableNamespace, []byte(util.UUIDToString(workflowNodeID)+":split_task_plan"))
+	return pgtype.UUID{Bytes: [16]byte(id), Valid: true}
+}
 
 type PrepareWorkflowRunParams struct {
 	TriggeredByType        string
@@ -412,8 +421,34 @@ func (s *WorkflowService) persistPreparedWorkflowRun(
 			WorkflowNodeRunID: nodeRun.ID, SourceDeliverableID: parseSnapshotUUID(deliverable.ID),
 			Title: deliverable.Title, Description: deliverable.Description,
 			Required: deliverable.Required, SortOrder: deliverable.SortOrder,
+			Purpose: pgtype.Text{String: "general", Valid: true},
 		}); err != nil {
 			return nil, fmt.Errorf("create snapshot deliverable %q: %w", deliverable.Title, err)
+		}
+	}
+	for _, node := range snapshot.Nodes {
+		if node.Kind != WorkflowSnapshotNodeKindSplit {
+			continue
+		}
+		nodeRun, ok := nodeRunBySourceID[node.ID]
+		if !ok {
+			continue
+		}
+		systemPath := gitea.DeliverablePath(1, node.Title, util.UUIDToString(nodeRun.ID), "task")
+		for _, deliverable := range snapshot.Deliverables {
+			if deliverable.WorkflowNodeID == node.ID &&
+				gitea.DeliverablePath(1, node.Title, util.UUIDToString(nodeRun.ID), deliverable.Title) == systemPath {
+				return nil, fmt.Errorf("split node %q reserves task.md for its task plan; rename deliverable %q", node.Title, deliverable.Title)
+			}
+		}
+		if _, err := qtx.CreateNodeRunDeliverableRequirement(ctx, db.CreateNodeRunDeliverableRequirementParams{
+			WorkflowNodeRunID:   nodeRun.ID,
+			SourceDeliverableID: splitTaskPlanSourceDeliverableID(nodeRun.SourceWorkflowNodeID),
+			Title:               "task", Description: "Split task plan reviewed and materialized by Multica.",
+			Required: true, SortOrder: -1,
+			Purpose: pgtype.Text{String: SplitDeliverablePurpose, Valid: true},
+		}); err != nil {
+			return nil, fmt.Errorf("create split task plan deliverable for %q: %w", node.Title, err)
 		}
 	}
 	if hasRoleSlots && !autoResolveRoles {
@@ -436,6 +471,12 @@ func (s *WorkflowService) persistPreparedWorkflowRun(
 	if !hasRoleSlots {
 		for sourceID, nodeRun := range nodeRunBySourceID {
 			if hasIncoming[sourceID] {
+				continue
+			}
+			if workflowNodeType(nodeRun.FormatSchema) == "split" {
+				if err := BeginInitialSplitPlanGeneration(ctx, qtx, nodeRun); err != nil {
+					return nil, fmt.Errorf("create root split generation: %w", err)
+				}
 				continue
 			}
 			if err := EnqueueWorkflowDispatch(ctx, qtx, nodeRun.ID, "worker", 1); err != nil {

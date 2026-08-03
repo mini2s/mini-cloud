@@ -51,20 +51,20 @@ type AgentResponse struct {
 	// ThinkingLevel is the runtime-native reasoning/effort token persisted
 	// for this agent (empty = use runtime default). The picker is per-runtime
 	// per-model; the API never normalizes across providers. See MUL-2339.
-	ThinkingLevel string              `json:"thinking_level"`
-	PluginID      *string             `json:"plugin_id"`
+	ThinkingLevel string  `json:"thinking_level"`
+	PluginID      *string `json:"plugin_id"`
 	// PluginName is the stable install identifier (slug) of the bound plugin,
 	// e.g. "cospowers-integration-verification". cs-cloud installs by this name
 	// (csc plugin install <name>@<marketplace>), so it is carried alongside
 	// plugin_id to avoid a fragile id->catalog lookup at download time.
-	PluginName    *string             `json:"plugin_name"`
-	IsBuiltin     bool                `json:"is_builtin"`
-	OwnerID       *string             `json:"owner_id"`
-	Skills        []AgentSkillSummary `json:"skills"`
-	CreatedAt     string              `json:"created_at"`
-	UpdatedAt     string              `json:"updated_at"`
-	ArchivedAt    *string             `json:"archived_at"`
-	ArchivedBy    *string             `json:"archived_by"`
+	PluginName *string             `json:"plugin_name"`
+	IsBuiltin  bool                `json:"is_builtin"`
+	OwnerID    *string             `json:"owner_id"`
+	Skills     []AgentSkillSummary `json:"skills"`
+	CreatedAt  string              `json:"created_at"`
+	UpdatedAt  string              `json:"updated_at"`
+	ArchivedAt *string             `json:"archived_at"`
+	ArchivedBy *string             `json:"archived_by"`
 }
 
 func agentToResponse(a db.MulticaAgent) AgentResponse {
@@ -186,14 +186,17 @@ type AgentTaskResponse struct {
 	ChatSessionID                       string                   `json:"chat_session_id,omitempty"`         // non-empty for chat tasks
 	WorkflowNodeRunID                   string                   `json:"workflow_node_run_id,omitempty"`    // non-empty when this task executes a workflow node-run; daemon uses it to write back the session binding
 	WorkflowPhase                       string                   `json:"workflow_phase,omitempty"`          // workflow context phase: worker, split, or critic
-	WorkflowSplitRepair                 bool                     `json:"workflow_split_repair,omitempty"`
-	WorkflowSplitRepairSourceTaskID     string                   `json:"workflow_split_repair_source_task_id,omitempty"`
-	WorkflowSplitRepairSourceOutput     string                   `json:"workflow_split_repair_source_output,omitempty"`
 	WorkflowSplitParentIssueID          string                   `json:"workflow_split_parent_issue_id,omitempty"`
 	WorkflowSplitParentIssueTitle       string                   `json:"workflow_split_parent_issue_title,omitempty"`
 	WorkflowSplitParentIssueDescription string                   `json:"workflow_split_parent_issue_description,omitempty"`
-	WorkflowSplitCurrentDrafts          json.RawMessage          `json:"workflow_split_current_drafts,omitempty"`
-	WorkflowSplitConfig                 json.RawMessage          `json:"workflow_split_config,omitempty"`
+	WorkflowSplitPlanGeneration         int32                    `json:"workflow_split_plan_generation,omitempty"`
+	WorkflowSplitDeliverableID          string                   `json:"workflow_split_deliverable_id,omitempty"`
+	WorkflowSplitWorkspaceMembers       json.RawMessage          `json:"workflow_split_workspace_members,omitempty"`
+	WorkflowSplitMembersTruncated       bool                     `json:"workflow_split_members_truncated,omitempty"`
+	WorkflowSplitReviewComment          string                   `json:"workflow_split_review_comment,omitempty"`
+	WorkflowSplitReviewedContent        string                   `json:"workflow_split_reviewed_content,omitempty"`
+	WorkflowSplitReviewHeadCommitSHA    string                   `json:"workflow_split_review_head_commit_sha,omitempty"`
+	WorkflowSplitReviewTaskPath         string                   `json:"workflow_split_review_task_path,omitempty"`
 	ChatMessage                         string                   `json:"chat_message,omitempty"`              // user message for chat tasks
 	ChatMessageAttachments              []ChatAttachmentMeta     `json:"chat_message_attachments,omitempty"`  // attachments on the user message — agent calls `cs-workflow attachment download <id>` per entry
 	UpstreamStageContext                []UpstreamStageNode      `json:"upstream_stage_context,omitempty"`    // completed upstream-stage node runs the agent should read
@@ -264,16 +267,16 @@ type GiteaDeliverableRef struct {
 // TaskAgentData holds agent info included in claim responses so the daemon
 // can set up the execution environment (branch naming, skill files, instructions).
 type TaskAgentData struct {
-	ID            string                   `json:"id"`
-	Name          string                   `json:"name"`
-	Instructions  string                   `json:"instructions"`
-	Skills        []service.AgentSkillData `json:"skills,omitempty"`
-	CloudSkills   []AgentCloudSkillData    `json:"cloud_skills,omitempty"`
-	CustomEnv     map[string]string        `json:"custom_env,omitempty"`
-	CustomArgs    []string                 `json:"custom_args,omitempty"`
-	McpConfig     json.RawMessage          `json:"mcp_config,omitempty"`
-	Model         string                   `json:"model,omitempty"`
-	ThinkingLevel string                   `json:"thinking_level,omitempty"`
+	ID            string                    `json:"id"`
+	Name          string                    `json:"name"`
+	Instructions  string                    `json:"instructions"`
+	Skills        []service.AgentSkillData  `json:"skills,omitempty"`
+	CloudSkills   []AgentCloudSkillData     `json:"cloud_skills,omitempty"`
+	CustomEnv     map[string]string         `json:"custom_env,omitempty"`
+	CustomArgs    []string                  `json:"custom_args,omitempty"`
+	McpConfig     json.RawMessage           `json:"mcp_config,omitempty"`
+	Model         string                    `json:"model,omitempty"`
+	ThinkingLevel string                    `json:"thinking_level,omitempty"`
 	Plugin        *plugincatalog.PluginInfo `json:"plugin,omitempty"`
 }
 
@@ -326,14 +329,17 @@ func taskToResponse(t db.MulticaAgentTaskQueue) AgentTaskResponse {
 		// daemon needs the node_run_id to call POST /api/daemon/node-runs/{id}/session.
 		WorkflowNodeRunID:                   uuidToString(t.WorkflowNodeRunID),
 		WorkflowPhase:                       workflowCtx.Phase,
-		WorkflowSplitRepair:                 workflowCtx.Repair,
-		WorkflowSplitRepairSourceTaskID:     workflowCtx.RepairSourceTaskID,
-		WorkflowSplitRepairSourceOutput:     workflowCtx.RepairSourceOutput,
 		WorkflowSplitParentIssueID:          workflowCtx.ParentIssueID,
 		WorkflowSplitParentIssueTitle:       workflowCtx.ParentIssueTitle,
 		WorkflowSplitParentIssueDescription: workflowCtx.ParentIssueDescription,
-		WorkflowSplitCurrentDrafts:          workflowCtx.CurrentDrafts,
-		WorkflowSplitConfig:                 workflowCtx.SplitConfig,
+		WorkflowSplitPlanGeneration:         workflowCtx.PlanGeneration,
+		WorkflowSplitDeliverableID:          workflowCtx.DeliverableID,
+		WorkflowSplitWorkspaceMembers:       workflowCtx.WorkspaceMembers,
+		WorkflowSplitMembersTruncated:       workflowCtx.MembersTruncated,
+		WorkflowSplitReviewComment:          workflowCtx.ReviewComment,
+		WorkflowSplitReviewedContent:        workflowCtx.ReviewedContent,
+		WorkflowSplitReviewHeadCommitSHA:    workflowCtx.ReviewHeadCommitSHA,
+		WorkflowSplitReviewTaskPath:         workflowCtx.ReviewTaskPath,
 		Kind:                                computeTaskKind(t),
 	}
 	if resp.ChatSessionID == "" && workflowCtx.ChatSessionID != "" {
@@ -344,15 +350,18 @@ func taskToResponse(t db.MulticaAgentTaskQueue) AgentTaskResponse {
 
 type workflowTaskContext struct {
 	Phase                  string
-	Repair                 bool
-	RepairSourceTaskID     string
-	RepairSourceOutput     string
 	ChatSessionID          string
 	ParentIssueID          string
 	ParentIssueTitle       string
 	ParentIssueDescription string
-	CurrentDrafts          json.RawMessage
-	SplitConfig            json.RawMessage
+	PlanGeneration         int32
+	DeliverableID          string
+	WorkspaceMembers       json.RawMessage
+	MembersTruncated       bool
+	ReviewComment          string
+	ReviewedContent        string
+	ReviewHeadCommitSHA    string
+	ReviewTaskPath         string
 }
 
 func workflowPhaseFromTaskContext(raw []byte) string {
@@ -360,10 +369,7 @@ func workflowPhaseFromTaskContext(raw []byte) string {
 }
 
 func shouldSkipPriorTaskState(t db.MulticaAgentTaskQueue) bool {
-	if t.ForceFreshSession {
-		return true
-	}
-	return workflowPhaseFromTaskContext(t.Context) == "split_chat"
+	return t.ForceFreshSession
 }
 
 func workflowContextFromTaskContext(raw []byte) workflowTaskContext {
@@ -373,15 +379,18 @@ func workflowContextFromTaskContext(raw []byte) workflowTaskContext {
 	var payload struct {
 		Type                   string          `json:"type"`
 		Phase                  string          `json:"phase"`
-		Repair                 bool            `json:"repair"`
-		RepairSourceTaskID     string          `json:"repair_source_task_id"`
-		RepairSourceOutput     string          `json:"repair_source_output"`
 		ChatSessionID          string          `json:"chat_session_id"`
 		ParentIssueID          string          `json:"parent_issue_id"`
 		ParentIssueTitle       string          `json:"parent_issue_title"`
 		ParentIssueDescription string          `json:"parent_issue_description"`
-		CurrentDrafts          json.RawMessage `json:"current_drafts"`
-		SplitConfig            json.RawMessage `json:"split_config"`
+		PlanGeneration         int32           `json:"split_plan_generation"`
+		DeliverableID          string          `json:"split_deliverable_id"`
+		WorkspaceMembers       json.RawMessage `json:"workspace_members"`
+		MembersTruncated       bool            `json:"workspace_members_truncated"`
+		ReviewComment          string          `json:"review_comment"`
+		ReviewedContent        string          `json:"reviewed_content"`
+		ReviewHeadCommitSHA    string          `json:"review_head_commit_sha"`
+		ReviewTaskPath         string          `json:"review_task_path"`
 	}
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return workflowTaskContext{}
@@ -391,22 +400,25 @@ func workflowContextFromTaskContext(raw []byte) workflowTaskContext {
 	}
 	phase := payload.Phase
 	switch payload.Phase {
-	case "split_generate", "split_repair":
+	case "split_generate":
 		phase = "split"
 	}
 	switch payload.Phase {
-	case "worker", "split", "split_generate", "split_repair", "split_chat", "critic":
+	case "worker", "split", "split_generate", "critic":
 		return workflowTaskContext{
 			Phase:                  phase,
-			Repair:                 payload.Phase == "split_repair" || payload.Phase == "split" && payload.Repair,
-			RepairSourceTaskID:     payload.RepairSourceTaskID,
-			RepairSourceOutput:     payload.RepairSourceOutput,
 			ChatSessionID:          payload.ChatSessionID,
 			ParentIssueID:          payload.ParentIssueID,
 			ParentIssueTitle:       payload.ParentIssueTitle,
 			ParentIssueDescription: payload.ParentIssueDescription,
-			CurrentDrafts:          payload.CurrentDrafts,
-			SplitConfig:            payload.SplitConfig,
+			PlanGeneration:         payload.PlanGeneration,
+			DeliverableID:          payload.DeliverableID,
+			WorkspaceMembers:       payload.WorkspaceMembers,
+			MembersTruncated:       payload.MembersTruncated,
+			ReviewComment:          payload.ReviewComment,
+			ReviewedContent:        payload.ReviewedContent,
+			ReviewHeadCommitSHA:    payload.ReviewHeadCommitSHA,
+			ReviewTaskPath:         payload.ReviewTaskPath,
 		}
 	default:
 		return workflowTaskContext{}
@@ -616,7 +628,7 @@ type CreateAgentRequest struct {
 	// PluginName is the install slug of the bound plugin, sent by the picker
 	// alongside plugin_id so the download chain can install by name without a
 	// catalog lookup. Empty/omitted = no plugin name.
-	PluginName         *string           `json:"plugin_name"`
+	PluginName *string `json:"plugin_name"`
 	// Template records which template slug was used to seed this agent
 	// (e.g. "coding" / "planning" / "writing" / "assistant"). Empty when
 	// the caller didn't come from a template picker — the `agent_created`

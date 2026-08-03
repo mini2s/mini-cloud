@@ -6,32 +6,25 @@ afterEach(() => {
 });
 
 describe("ApiClient", () => {
-  it("posts one split draft assignee batch and falls back on a malformed response", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ tasks: "invalid", progress: null }), {
+  it("posts generation-aware split review and retry requests", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(
+      new Response(JSON.stringify({ tasks: [], progress: { total: 0 }, split_plan_generation: 2 }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       }),
-    );
+    ));
     vi.stubGlobal("fetch", fetchMock);
     const client = new ApiClient("https://api.example.test");
-    const request = {
-      assignee_type: "member" as const,
-      assignee_id: "member-1",
-      tasks: [
-        { task_id: "task-1", expected_version: 2 },
-        { task_id: "task-2", expected_version: 5 },
-      ],
-    };
+    await client.approveSplitTasks("node-run-1", { expected_split_generation: 2, expected_submission_id: "submission-1" });
+    await client.rejectSplitTasks("node-run-1", { expected_split_generation: 2, expected_submission_id: "submission-1", review_comment: "revise" });
+    await client.retrySplitTask("node-run-1", "task-1", { expected_split_generation: 2 });
 
-    const response = await client.batchPatchSplitTaskAssignees("node-run-1", request);
-
-    expect(response.tasks).toEqual([]);
-    expect(response.progress).toMatchObject({ total: 0, created: 0, running: 0, done: 0 });
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe("https://api.example.test/api/node-runs/node-run-1/split/draft-tasks/assignees");
-    expect(init?.method).toBe("PATCH");
-    expect(JSON.parse(init?.body as string)).toEqual(request);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://api.example.test/api/node-runs/node-run-1/split/approve",
+      "https://api.example.test/api/node-runs/node-run-1/split/reject",
+      "https://api.example.test/api/node-runs/node-run-1/split/tasks/task-1/retry",
+    ]);
+    expect(JSON.parse(fetchMock.mock.calls[1]![1]?.body as string)).toEqual({ expected_split_generation: 2, expected_submission_id: "submission-1", review_comment: "revise" });
   });
 
   it("preserves HTTP status on failed requests", async () => {
@@ -555,67 +548,6 @@ describe("ApiClient", () => {
       expect(JSON.parse(fetchMock.mock.calls[1]![1]?.body as string)).toEqual({ content: "again" });
     });
 
-    it("submitSplitReviewChat posts natural language instructions and attachments", async () => {
-      const fetchMock = vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ tasks: [], progress: { total: 0 } }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
-      );
-      vi.stubGlobal("fetch", fetchMock);
-
-      const client = new ApiClient("https://api.example.test");
-      await client.submitSplitReviewChat("node-run-1", {
-        content: "把第 2 个 task 拆成前后端",
-        attachment_ids: ["att-1"],
-      });
-
-      const [url, init] = fetchMock.mock.calls[0]!;
-      expect(url).toBe("https://api.example.test/api/node-runs/node-run-1/split/chat");
-      expect(init?.method).toBe("POST");
-      expect(JSON.parse(init?.body as string)).toEqual({
-        content: "把第 2 个 task 拆成前后端",
-        attachment_ids: ["att-1"],
-      });
-    });
-
-    it("submitSplitReviewChat preserves the split chat ids from the nested task response", async () => {
-      const fetchMock = vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({
-          chat_session_id: "chat-1",
-          task_id: "agent-task-1",
-          tasks: {
-            tasks: [
-              {
-                id: "split-task-1",
-                node_run_id: "node-run-1",
-                title: "Security review",
-                description: "Audit the implementation",
-                depends_on: [],
-                sort_order: 0,
-                status: "draft",
-              },
-            ],
-            progress: { total: 1 },
-          },
-        }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
-      );
-      vi.stubGlobal("fetch", fetchMock);
-
-      const client = new ApiClient("https://api.example.test");
-      const result = await client.submitSplitReviewChat("node-run-1", {
-        content: "add security review",
-      });
-
-      expect(result.chat_session_id).toBe("chat-1");
-      expect(result.task_id).toBe("agent-task-1");
-      expect(result.tasks).toHaveLength(1);
-      expect(result.tasks[0]?.title).toBe("Security review");
-      expect(result.progress.total).toBe(1);
-    });
   });
 
   describe("plugin catalog", () => {
