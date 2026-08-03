@@ -207,6 +207,9 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 		}
 	}
 
+	probeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	h := &Handler{
 		Queries:                queries,
 		DB:                     executor,
@@ -235,7 +238,7 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 			BaseURL: cfg.CloudRuntimeFleetURL,
 			Timeout: cfg.CloudRuntimeFleetTimeout,
 		}),
-		AdminChecker: platformadmin.NewChecker(context.Background(), queries),
+		AdminChecker: platformadmin.NewChecker(probeCtx, queries),
 		cfg:          cfg,
 	}
 	assignmentSvc.Hooks = service.IssueAssignmentHooks{
