@@ -75,7 +75,7 @@ import { ProjectIcon } from "../../projects/components/project-icon";
 import { issueLabelsOptions } from "@multica/core/labels";
 import { memberListOptions, agentListOptions } from "@multica/core/workspace/queries";
 import { isActiveWorkspaceMember } from "@multica/core/workspace/members";
-import { workflowNodeRunsOptions } from "@multica/core/workflows/queries";
+import { defaultWorkflowOptions, workflowNodeRunsOptions } from "@multica/core/workflows/queries";
 import type { WorkflowNodeRun } from "@multica/core/types";
 import { NodeRunControlActions } from "../../workflows/components/node-run-control-actions";
 import { useRecentIssuesStore } from "@multica/core/issues/stores";
@@ -844,13 +844,25 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   });
 
   const workflowAssigneeId = issue?.assignee_type === "workflow" ? issue.assignee_id : null;
-  const effectiveWorkflowId = issue?.workflow_id ?? workflowAssigneeId;
+  const shouldUseDefaultWorkflow =
+    issue?.status === "todo" &&
+    issue.assignee_type !== "workflow" &&
+    !!issue.assignee_type &&
+    !!issue.assignee_id &&
+    !issue.workflow_id &&
+    !issue.workflow_run_id;
+  const { data: defaultWorkflow = null } = useQuery({
+    ...defaultWorkflowOptions(wsId),
+    enabled: shouldUseDefaultWorkflow,
+  });
+  const effectiveWorkflowId = issue?.workflow_id ?? workflowAssigneeId ?? (shouldUseDefaultWorkflow ? defaultWorkflow?.id : null);
   const effectiveWorkflowRunId = issue?.workflow_run_id ?? null;
 
-  // Issues backed by a workflow run can toggle between detail mode and
-  // fullscreen mode. This includes direct member/agent issues routed through
-  // the default archive workflow.
-  const hasWorkflow = !!effectiveWorkflowId && !!effectiveWorkflowRunId;
+  // Issues that will run through a workflow should use the same surface before
+  // and after the run starts. Todo issues may need the workspace default
+  // workflow as a preview target; in-progress issues already carry run fields.
+  const hasWorkflow = !!effectiveWorkflowId;
+  const hasWorkflowRun = !!effectiveWorkflowId && !!effectiveWorkflowRunId;
   const [isFullscreen, setIsFullscreen] = useState(true);
   // Only activate fullscreen when the issue actually has a workflow assigned.
   const effectiveFullscreen = isFullscreen && hasWorkflow;
@@ -869,7 +881,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // Two observers on the same key with refetchInterval would double-poll.
   const { data: workflowNodeRuns } = useQuery({
     ...workflowNodeRunsOptions(wsId, effectiveWorkflowId ?? "", effectiveWorkflowRunId ?? ""),
-    enabled: hasWorkflow,
+    enabled: hasWorkflowRun,
     refetchInterval: false,
   });
   const isWorkflowRunning = useMemo(() => {
@@ -1992,6 +2004,15 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                   issueId={issue.id}
                   issueCreatorType={issue.creator_type}
                   issueCreatorId={issue.creator_id}
+                  {...(shouldUseDefaultWorkflow
+                    ? {
+                        issueAssigneeType: issue.assignee_type,
+                        issueAssigneeId: issue.assignee_id,
+                        issueResponsibleUserId: issue.responsible_user_id,
+                        onPendingWorkerUpdate: handleUpdateField,
+                        onPendingCriticUpdate: handleUpdateField,
+                      }
+                    : {})}
                   fillAvailableHeight={effectiveFullscreen}
                 />
               </div>

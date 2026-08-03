@@ -647,6 +647,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Route("/api/workflows", func(r chi.Router) {
 				r.Get("/", h.ListWorkflows)
 				r.Post("/", h.CreateWorkflow)
+				r.Get("/default", h.GetDefaultWorkflow)
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", h.GetWorkflow)
 					r.Put("/", h.UpdateWorkflow)

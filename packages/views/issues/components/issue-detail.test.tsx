@@ -18,10 +18,33 @@ const mockExecutionPanoramaProps = vi.hoisted(() => ({
     issueId?: string;
     issueCreatorType?: string | null;
     issueCreatorId?: string | null;
+    issueAssigneeType?: string | null;
+    issueAssigneeId?: string | null;
+    issueResponsibleUserId?: string | null;
+    onPendingWorkerUpdate?: (updates: Record<string, unknown>) => void;
+    onPendingCriticUpdate?: (updates: Record<string, unknown>) => void;
     fillAvailableHeight?: boolean;
   },
 }));
 const mockWorkspaceAgents = vi.hoisted(() => [] as any[]);
+const mockDefaultWorkflow = vi.hoisted(() => ({
+  id: "default-wf-1",
+  workspace_id: "ws-1",
+  title: "Default workflow",
+  description: "",
+  status: "active",
+  max_retries: 3,
+  created_by_type: "system",
+  created_by_id: "",
+  node_count: 2,
+  is_template: false,
+  source_template_id: null,
+  default_runtime_selection_policy: "idle_first",
+  default_runtime_id: null,
+  custom_roles: [],
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+}));
 
 vi.mock("@multica/ui/hooks/use-mobile", () => ({
   useIsMobile: () => mockViewport.isMobile,
@@ -225,6 +248,11 @@ vi.mock("./execution", () => ({
     runId: string | null;
     wsId: string;
     issueId?: string;
+    issueAssigneeType?: string | null;
+    issueAssigneeId?: string | null;
+    issueResponsibleUserId?: string | null;
+    onPendingWorkerUpdate?: (updates: Record<string, unknown>) => void;
+    onPendingCriticUpdate?: (updates: Record<string, unknown>) => void;
     fillAvailableHeight?: boolean;
   }) => {
     mockExecutionPanoramaProps.latest = props;
@@ -249,6 +277,7 @@ const mockApiObj = vi.hoisted(() => ({
   listTasksByIssue: vi.fn().mockResolvedValue([]),
   listTaskMessages: vi.fn().mockResolvedValue([]),
   rerunIssue: vi.fn().mockResolvedValue(undefined),
+  getDefaultWorkflow: vi.fn(),
   listChildIssues: vi.fn().mockResolvedValue({ issues: [] }),
   listIssues: vi.fn().mockResolvedValue({ issues: [], total: 0 }),
   uploadFile: vi.fn(),
@@ -556,6 +585,7 @@ describe("IssueDetail (shared)", () => {
     mockApiObj.listIssues.mockResolvedValue({ issues: [], total: 0 });
     mockApiObj.getActiveTasksForIssue.mockResolvedValue({ tasks: [] });
     mockApiObj.listTasksByIssue.mockResolvedValue([]);
+    mockApiObj.getDefaultWorkflow.mockResolvedValue(mockDefaultWorkflow);
     mockApiObj.listMembers.mockResolvedValue([
       { user_id: "user-1", name: "Test User", email: "test@test.com", role: "admin" },
     ]);
@@ -708,6 +738,41 @@ describe("IssueDetail (shared)", () => {
       issueCreatorId: "user-1",
       fillAvailableHeight: true,
     });
+  });
+
+  it("renders the workflow panorama for todo member issues before a run starts", async () => {
+    mockApiObj.getIssue.mockResolvedValue({
+      ...mockIssue,
+      status: "todo",
+      assignee_type: "member",
+      assignee_id: "user-1",
+      responsible_user_id: "user-1",
+      workflow_id: null,
+      workflow_run_id: null,
+    });
+
+    renderIssueDetail();
+
+    const panorama = await screen.findByTestId("execution-panorama-props");
+    const scrollContainer = screen.getByTestId("issue-detail-scroll-container");
+
+    expect(scrollContainer).toHaveClass("flex", "flex-col", "overflow-hidden");
+    expect(panorama.parentElement).toHaveClass("flex", "flex-1", "min-h-0");
+    expect(mockExecutionPanoramaProps.latest).toMatchObject({
+      workflowId: "default-wf-1",
+      runId: null,
+      wsId: "ws-1",
+      issueId: "issue-1",
+      issueCreatorType: "member",
+      issueCreatorId: "user-1",
+      issueAssigneeType: "member",
+      issueAssigneeId: "user-1",
+      issueResponsibleUserId: "user-1",
+      fillAvailableHeight: true,
+    });
+    expect(mockExecutionPanoramaProps.latest?.onPendingWorkerUpdate).toEqual(expect.any(Function));
+    expect(mockExecutionPanoramaProps.latest?.onPendingCriticUpdate).toEqual(expect.any(Function));
+    expect(mockApiObj.getDefaultWorkflow).toHaveBeenCalledWith("ws-1");
   });
 
   it("renders the execution panorama for direct member issues with a default workflow run", async () => {

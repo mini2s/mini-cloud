@@ -15,6 +15,15 @@ const sessionPermissionMocks = vi.hoisted(() => ({
   canObserve: true as boolean | undefined,
   embedded: true,
 }));
+const assigneePickerMocks = vi.hoisted(() => ({
+  props: [] as Array<{
+    ariaLabel?: string;
+    allowedTypes?: string[];
+    allowUnassigned?: boolean;
+    onUpdate: (updates: Record<string, unknown>) => void;
+    trigger?: React.ReactNode;
+  }>,
+}));
 
 vi.mock("@multica/core/workflows/queries", async () => {
   const actual = await vi.importActual<typeof import("@multica/core/workflows/queries")>(
@@ -32,6 +41,26 @@ vi.mock("@multica/core/workflows/queries", async () => {
 
 vi.mock("@multica/core/platform", () => ({
   isEmbeddedInCostrict: () => sessionPermissionMocks.embedded,
+}));
+
+vi.mock("../pickers/assignee-picker", () => ({
+  AssigneePicker: (props: {
+    ariaLabel?: string;
+    allowedTypes?: string[];
+    allowUnassigned?: boolean;
+    onUpdate: (updates: Record<string, unknown>) => void;
+    trigger?: React.ReactNode;
+  }) => {
+    assigneePickerMocks.props.push(props);
+    return (
+      <button type="button" data-testid={`mock-picker-${props.ariaLabel}`} onClick={() => props.onUpdate({
+        assignee_type: "member",
+        assignee_id: "user-2",
+      })}>
+        {props.trigger}
+      </button>
+    );
+  },
 }));
 
 // Mock @multica/views/i18n for useT hook — handles function selector form
@@ -215,6 +244,7 @@ describe("RuntimeNodeCard", () => {
   beforeEach(() => {
     sessionPermissionMocks.canObserve = true;
     sessionPermissionMocks.embedded = true;
+    assigneePickerMocks.props = [];
   });
 
   it("renders resolved actor identity and agent availability", () => {
@@ -259,6 +289,43 @@ describe("RuntimeNodeCard", () => {
     expect(screen.getByText("Runtime Reviewer")).toBeInTheDocument();
     expect(screen.getByText("Member")).toBeInTheDocument();
     expect(screen.getByTestId("runtime-node-card-node-1").querySelector("[data-workflow-actor-state]")).not.toBeInTheDocument();
+  });
+
+  it("lets pending default workflow actors update issue assignee and responsible user", async () => {
+    const onPendingWorkerUpdate = vi.fn();
+    const onPendingCriticUpdate = vi.fn();
+
+    render(
+      <RuntimeNodeCard
+        node={baseNode}
+        nodeRun={null}
+        workerName="Worker"
+        criticName="Reviewer"
+        workerIdentity={{ type: "member", id: "user-1", name: "Worker", typeLabel: "Member" }}
+        criticIdentity={{ type: "member", id: "user-1", name: "Reviewer", typeLabel: "Member" }}
+        pendingWorkerAssigneeType="member"
+        pendingWorkerAssigneeId="user-1"
+        pendingCriticUserId="user-1"
+        onPendingWorkerUpdate={onPendingWorkerUpdate}
+        onPendingCriticUpdate={onPendingCriticUpdate}
+        onClick={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByTestId("mock-picker-Change worker"));
+    await userEvent.click(screen.getByTestId("mock-picker-Change critic"));
+
+    expect(onPendingWorkerUpdate).toHaveBeenCalledWith({
+      assignee_type: "member",
+      assignee_id: "user-2",
+    });
+    expect(onPendingCriticUpdate).toHaveBeenCalledWith({
+      responsible_user_id: "user-2",
+    });
+    expect(assigneePickerMocks.props.find((props) => props.ariaLabel === "Change critic")).toMatchObject({
+      allowedTypes: ["member"],
+      allowUnassigned: false,
+    });
   });
 
   it("renders child issue progress context instead of executor and reviewer slots", () => {

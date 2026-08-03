@@ -100,32 +100,25 @@ func TestEnsureDefaultWorkflow_Idempotent(t *testing.T) {
 }
 
 // TestDefaultRunAssigneeMapping covers the issue-to-node-run type mapping.
-// Worker and critic both follow the issue assignee. Member assignees map to
-// "human"; agent/squad assignees pass through. Table-driven, no DB.
+// Worker follows the issue assignee. Member assignees map to "human";
+// agent/squad assignees pass through. Table-driven, no DB.
 func TestDefaultRunAssigneeMapping(t *testing.T) {
 	cases := []struct {
 		name       string
 		assigneeT  string
-		creatorT   string
 		wantWorker string
-		wantCritic string
 	}{
-		{"agent owner, member creator", "agent", "member", "agent", "agent"},
-		{"squad owner, member creator", "squad", "member", "squad", "squad"},
-		{"member producer (UI upload), member creator", "member", "member", "human", "human"},
-		{"agent producer, agent creator", "agent", "agent", "agent", "agent"},
+		{"agent owner", "agent", "agent"},
+		{"squad owner", "squad", "squad"},
+		{"member producer (UI upload)", "member", "human"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			issue := db.MulticaIssue{
 				AssigneeType: pgtype.Text{String: tc.assigneeT, Valid: true},
-				CreatorType:  tc.creatorT,
 			}
 			if got := defaultRunWorkerType(issue); got != tc.wantWorker {
 				t.Errorf("worker type: got %q want %q", got, tc.wantWorker)
-			}
-			if got := defaultRunCriticType(issue); got != tc.wantCritic {
-				t.Errorf("critic type: got %q want %q", got, tc.wantCritic)
 			}
 		})
 	}
@@ -203,12 +196,13 @@ func TestStartDefaultRunForIssue_AgentAssignee(t *testing.T) {
 	})
 
 	issue := db.MulticaIssue{
-		WorkspaceID:  ws,
-		Title:        "adhoc issue",
-		AssigneeType: pgtype.Text{String: "agent", Valid: true},
-		AssigneeID:   agentUUID,
-		CreatorType:  "member",
-		CreatorID:    memberUUID,
+		WorkspaceID:       ws,
+		Title:             "adhoc issue",
+		AssigneeType:      pgtype.Text{String: "agent", Valid: true},
+		AssigneeID:        agentUUID,
+		CreatorType:       "member",
+		CreatorID:         memberUUID,
+		ResponsibleUserID: memberUUID,
 	}
 
 	run, nr, err := svc.StartDefaultRunForIssue(ctx, issue)
@@ -225,7 +219,7 @@ func TestStartDefaultRunForIssue_AgentAssignee(t *testing.T) {
 		t.Fatalf("run workflow is_default=%v, want true", dwf.IsDefault)
 	}
 
-	// Node-run worker and critic are both derived from the issue assignee.
+	// Node-run worker is derived from the issue assignee; critic is the responsible user.
 	got, err := svc.Queries.GetWorkflowNodeRun(ctx, nr.ID)
 	if err != nil {
 		t.Fatalf("get node-run: %v", err)
@@ -233,13 +227,13 @@ func TestStartDefaultRunForIssue_AgentAssignee(t *testing.T) {
 	if got.WorkerType != "agent" || got.WorkerID != agentUUID {
 		t.Fatalf("worker override: type=%q id=%v, want agent/%v", got.WorkerType, got.WorkerID, agentUUID)
 	}
-	if got.CriticType != "agent" || got.CriticID != agentUUID {
-		t.Fatalf("critic override: type=%q id=%v, want agent/%v", got.CriticType, got.CriticID, agentUUID)
+	if got.CriticType != "human" || got.CriticID != memberUUID {
+		t.Fatalf("critic override: type=%q id=%v, want human/%v", got.CriticType, got.CriticID, memberUUID)
 	}
-	if got.WorkerNameSnapshot != "SD Agent" || got.CriticNameSnapshot != "SD Agent" {
+	if got.WorkerNameSnapshot != "SD Agent" || got.CriticNameSnapshot != "SD User "+suffix {
 		t.Fatalf(
 			"actor name snapshots: worker=%q critic=%q, want %q/%q",
-			got.WorkerNameSnapshot, got.CriticNameSnapshot, "SD Agent", "SD Agent",
+			got.WorkerNameSnapshot, got.CriticNameSnapshot, "SD Agent", "SD User "+suffix,
 		)
 	}
 	if run.ResponsibleUserID != memberUUID {
@@ -588,12 +582,13 @@ func TestStartDefaultRunForIssue_SquadAssignee(t *testing.T) {
 	})
 
 	issue := db.MulticaIssue{
-		WorkspaceID:  wsUUID,
-		Title:        "squad issue",
-		AssigneeType: pgtype.Text{String: "squad", Valid: true},
-		AssigneeID:   squadUUID,
-		CreatorType:  "member",
-		CreatorID:    memberUUID,
+		WorkspaceID:       wsUUID,
+		Title:             "squad issue",
+		AssigneeType:      pgtype.Text{String: "squad", Valid: true},
+		AssigneeID:        squadUUID,
+		CreatorType:       "member",
+		CreatorID:         memberUUID,
+		ResponsibleUserID: memberUUID,
 	}
 
 	run, nr, err := svc.StartDefaultRunForIssue(ctx, issue)
