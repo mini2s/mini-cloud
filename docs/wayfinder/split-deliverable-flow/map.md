@@ -38,6 +38,7 @@ created: 2026-01-27
 - [Gitea 文档交付物流现状摸底](tickets/01-gitea-deliverable-flow.md) — 拓扑 org/repo/inst/node 分支 + PR 评审门已明；写路有两条（agent cs-cloud / 人服务端代写）；读内容/记 SHA 无现成 API 需新建；前端无文件级跳转链接
 - [Review 挂接点与拆分调度可复用清单](tickets/02-review-hooks-reuse-survey.md) — approve 走独立端点（改造现有 /split/approve）；调度/聚合/取消几乎原样复用；materializing = 1 迁移 + validTransitions + 前端 5 处；物化 job 挂 dispatch_job 新 phase（有纯 Go 先例）；退役清单已完整盘点
 - [task.md 交付物接入路径与快照读取](tickets/05-task-md-intake-path.md) — 正式 deliverable PR 流（node 分支=staging、inst=approved archive）；approve = 服务端 contents read 快照 + merge；编辑入口复用 PR 链接，_edit 直跳后置
+- [验证成员在 Gitea 的写权限与编辑路径](tickets/06-verify-member-gitea-write-access.md) — 已确认工作区下全部成员具有对应 repo 的 write 权限，可直接修改 node 分支；Gitea 网页编辑不再是集成/上线门禁，无需服务端代写兜底
 - [task.md 格式契约样例与解析校验规则](tickets/03-task-md-format-contract.md) — 标题节语法定稿：`## task:` 节 + 裸 key:value 元数据（key/assignee/depends-on）；key 必填兼作幂等键；指派人双写法三类歧义报错；报错 = 行号建议列表 + 422 details
 - [撰写拆分节点交付物化设计 spec 初稿](tickets/04-draft-design-spec.md) — destination 产出：[split-task-md-deliverable-design.md](../../workflows/split-task-md-deliverable-design.md)；状态机/Gitea 集成/快照+物化 job/重试幂等/API 事件/退役迁移/验收全覆盖，待人审
 

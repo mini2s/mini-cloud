@@ -34,6 +34,6 @@ spec 必须覆盖：
 
 Spec 初稿已完成：[docs/workflows/split-task-md-deliverable-design.md](../../../workflows/split-task-md-deliverable-design.md)。
 
-覆盖：① 状态机（新增 materializing，含迁移边/守卫/前端 5 处/取消语义）；② task.md 格式契约（引定稿 + 解析器落点 split_task_md.go）；③ Gitea 集成（deliverable 自动注册、review 就绪触发点、ReadFile 新建、merge 时序=快照先行）；④ approve 端点改造序列（三重防重）+ 快照新表 multica_workflow_split_snapshot；⑤ 物化 job（dispatch job 新 phase，断点续跑，退避 1m/5m/15m×3，MaxFailures，人工单条重试端点）；⑥ API/事件面（approve 改造 + reject/retry 新增 + 11 端点退役；事件留 4 退役 4）；⑦ 退役清单与 4 个迁移（含存量 draft 软处置）；⑧ buildSplitPrompt 改造骨架（含成员名单注入、reject 反馈重生成）；⑨ 验收标准对齐 PRD；⑩ 风险登记（06 权限验证阻塞实现）。
+覆盖：① 状态机（新增 materializing，含迁移边/守卫/前端 5 处/取消语义）；② task.md 格式契约（引定稿 + 解析器落点 split_task_md.go）；③ Gitea 集成（deliverable 自动注册、review 就绪触发点、ReadFile 新建、merge 时序=快照先行）；④ approve 端点改造序列（三重防重）+ 快照新表 multica_workflow_split_snapshot；⑤ 物化 job（dispatch job 新 phase，断点续跑，退避 1m/5m/15m×3，MaxFailures，人工单条重试端点）；⑥ API/事件面（approve 改造 + reject/retry 新增 + 11 端点退役；事件留 4 退役 4）；⑦ 退役清单与 4 个迁移（含存量 draft 软处置）；⑧ buildSplitPrompt 改造骨架（含成员名单注入、reject 反馈重生成）；⑨ 验收标准对齐 PRD；⑩ 风险登记（当时由 06 跟踪的成员写权限门禁，现已验证关闭）。
 
 等待人审阅 spec 初稿。

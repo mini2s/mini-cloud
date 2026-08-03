@@ -1,6 +1,6 @@
 # 拆分节点交付物化改造 · 设计 spec（第二稿）
 
-> 状态：第二稿，已补齐实现阻塞项，待外部门禁验证。本 spec 仍以 wayfinder map `docs/wayfinder/split-deliverable-flow/map.md` 的全部已锁定决策与 research findings 为基线；本轮不改变原方案方向，只补版本归属、并发、重试、恢复和跨 runtime 契约。
+> 状态：第二稿，已补齐实现阻塞项；`cs-cloud` CLI 的交付/完成契约和工作区成员的 Gitea repo 写权限均已核实，桌面端最低版本不纳入本期门禁，当前没有待确认的外部门禁。本 spec 仍以 wayfinder map `docs/wayfinder/split-deliverable-flow/map.md` 的全部已锁定决策与 research findings 为基线；本轮不改变原方案方向，只补版本归属、并发、重试、恢复和跨 runtime 契约。
 > 决策依据：[Charting 决策记录](../wayfinder/split-deliverable-flow/tickets/00-charting-decisions.md) · [Gitea 流摸底](../wayfinder/split-deliverable-flow/assets/research-gitea-deliverable-flow.md) · [挂接点与复用清单](../wayfinder/split-deliverable-flow/assets/research-review-hooks-reuse.md) · [task.md 格式契约（定稿）](../wayfinder/split-deliverable-flow/assets/task-md-format-proposal.md)
 
 ## 0. 背景与目标
@@ -70,7 +70,8 @@ failed（物化失败）──完整重生成──► supersede g ──► spl
 - 每代持有自己的 planner task、系统 deliverable、当前 submission、review feedback、PR URL 与状态。agent task context 必须带 `split_plan_generation`；只有与 node 当前指针及该代 `planner_task_id` 同时匹配的提交，才能成为该代的 current submission。
 - “live submission”统一定义为：**当前 generation 行上绑定的 `submission_id`，且 generation 状态为 `awaiting_review`**。不得再通过“这个 node run 最新一条 submission”推断。
 - reject 会把旧代标为 `rejected`、终止该代仍在运行的 planner task，再创建 `g+1`。旧 task 的迟到提交返回 409 `stale_split_generation`，不写 submission、不改变 node 状态。
-- 新一代可以复用同一个 PR URL，也可以产生新 PR；generation 行是评审状态的事实来源，因此即使现有 submission upsert 复用了同一 DB 行，旧代也不会重新变为有效。
+- 同一 node run 的预期 PR head 固定为 `NodeBranch(seq, nodeRunID)`。planner 必须按 §8 checkout 该 node branch 后再提交；`cs-cloud workflow deliverable submit` 实际以当前 Git 分支作为 push/PR head，并不自行校验它等于注入值，因此 §4.2 的服务端 expected host/owner/repo/head/base 校验仍是安全边界。
+- 在上述正确 checkout 的主路径上，若同 head 的 PR 仍 open，`cs-cloud` 创建 PR 收到 409 后会按 head ref 查找并确定性复用原 PR URL；若不存在匹配的 open PR（例如旧 PR 已关闭或已合并），则可以产生新 PR。generation 行而非 PR URL 是评审轮次的事实来源：同 URL 会让现有 submission upsert 复用同一 DB 行，但旧代不会重新有效；approve/reject 捕获的 `head_commit_sha` 负责锁定该代实际评审内容。
 - dispatch job 的 `generation` 仍由 `NextWorkflowDispatchGeneration(node, phase)` 生成；`split` 与 `materialize` job 另带不可空的 `split_plan_generation`，运行时二者都要核对。
 - 当前 planner task 在 live submission 产生前就 completed/failed 时，generation/node/run 以 `split_deliverable_missing` 或原 task failure reason 失败；不再解析 stdout 恢复 draft。submission 与 planner completion/failure 都按 node → generation → planner task 的锁序判定先后：提交先落库则后续 task 终态不改 review，task 终态先落库则迟到提交 409。任意旧代 task 的迟到终态只更新 task 审计。
 
@@ -114,7 +115,10 @@ failed（物化失败）──完整重生成──► supersede g ──► spl
 - runtime deliverable 增加 `purpose`，此行固定为 `split_task_plan`；普通 deliverable 默认 `general`。只有该 purpose 能驱动 split review 生命周期，不能靠标题猜测。`source_deliverable_id` 使用项目固定 UUID namespace 对 `(workflow_node_id, "split_task_plan")` 做 UUIDv5，保证重复 prepare 不会再插一条。
 - `<NodeDir>/task.md` 是 split node 的保留路径。run prepare 用实际 `DeliverablePath` 结果检查普通 document deliverable 冲突；命中时以可操作的配置错误拒绝启动并要求重命名普通 deliverable，不能给系统 task plan 加 suffix 或静默覆盖。
 - planner dispatch 前必须成功准备 runtime deliverable、delivery repo、inst branch 与 node branch；split 流不能依赖 cs-cloud payload 中“best effort ensure repo”的兜底。任一步失败则 generation/node/run 以 `split_deliverable_unavailable` 失败，不创建一个拿不到 task.md 路径的 agent task。
-- planner agent 提交路径复用现有 document deliverable 流：claim 响应与 cs-cloud payload 都注入 `gitea_deliverables` 上下文（owner/repo/带 token clone URL/inst/node 分支/精确路径），agent 执行 `cs-cloud workflow deliverable submit --deliverable <id> --file task.md`（push node 分支 + 开 node→inst PR + 回注 PR URL）。`split_generate`（含 reject/完整重生成产生的新 generation）必须在 cs-cloud 中按 deliverable producer phase 处理，而不是落入通用 issue prompt。
+- planner agent 提交路径复用现有 document deliverable 流：claim 响应与 cs-cloud payload 都注入 `gitea_deliverables` 上下文（owner/repo/普通与带 token clone URL/inst/node 分支/精确路径），agent 执行 `cs-cloud workflow deliverable submit --deliverable <id> --file task.md`（push 当前已 checkout 的 node 分支 + 开 node→inst PR + 回注 PR URL）。`split_generate`（含 reject/完整重生成产生的新 generation）必须在 cs-cloud 中按 deliverable producer phase 处理，而不是落入通用 issue prompt。
+- **路径所有权**：Multica 用 `DeliverablePath` 计算并注入 `[{deliverable_id,title,path}]`；`cs-cloud` 只按 deliverable ID 从 `CS_CLOUD_GITEA_DELIVERABLES` 取出 `path` 并原样写入，不自行拼路径。`task` 标题生成 `<NodeDir>/task.md` 的规则只在服务端维护。
+- **分支与 PR 幂等**：`cs-cloud` 在现有 worktree 中读取当前分支、写文件、仅在 dirty tree 时 commit，然后仍然 push/开 PR/回注；Gitea 创建 PR 返回 409 时，按相同 head ref 查找已有 open PR 并复用 URL。正确 checkout 由 prompt/运行时准备保证，错误 host/owner/repo/head/base 最终仍由 §4.2 拒绝。
+- **凭据与回注边界**：Multica 生产 `CS_CLOUD_REPO_*`，并保留 `CS_CLOUD_GITEA_*` 别名桥供当前 CLI 消费。`CS_CLOUD_GITEA_TOKEN` 只用于 `cs-cloud` 直连 Gitea clone/push/PR，不经 Multica 中转；`CS_CLOUD_TOKEN` 只用于回注 `POST /api/node-runs/{nodeRunId}/deliverables/{deliverableId}/submit`，body 为 `{pull_request_url}`，并转发 `X-Workspace-ID`、`X-Agent-ID`、`X-Task-ID`。
 - **review 就绪触发点**：`SubmitNodeRunDeliverable`（`workflow_run.go:1125`）在 upsert 前校验 `purpose='split_task_plan'`、agent task ID、task 非终态和 task context 的 `split_plan_generation`。submission upsert、generation 绑定和 node → `awaiting_split_review` 必须按 node → generation → planner task 加锁并在同一 tx 提交，`split_review_ready` 只在 commit 后发布（取代现状的 draft submit 触发）。同一代重复提交同一 URL 幂等；旧代提交返回 409，不落库。
 - 通用 `ReviewNodeRunDeliverable` 对 `purpose='split_task_plan'` 返回 409 `split_review_endpoint_required`，避免用户把 generic submission 标成 approved/rejected 却没有推进 split 状态。该 deliverable 只能走 generation-aware 的 split approve/reject。
 
@@ -307,7 +311,7 @@ materialization full generate 采用可恢复的三阶段，而不是跨整批�
 | `PATCH /split/config`、`POST /split/cancel` | 保留；cancel 带 `expected_split_generation` 并改为 §2.3 fence 顺序 |
 | draft CRUD/submit/recover/reset-original + `POST /split/chat` | **退役**（完整清单仍见 research 02 §4.2 路由表） |
 
-reject/new-generation 的 DB 提交不依赖“必须复用原 PR”。planner 在同一 node branch 上修订时通常会复用 URL；若 cs-cloud 创建了新 PR，只要其 repo/head/base 校验通过并由当前 planner task 提交，也可成为 `g+1` 的 live submission。
+reject/new-generation 的主路径是在固定 node branch 上修订并复用仍 open 的原 PR URL；服务端不为“同 PR／新 PR”建立两套状态分叉。若原 PR 已不再 open，`cs-cloud` 产生的新 PR 只要通过 host/owner/repo/head/base 校验且由当前 planner task 提交，也可成为 `g+1` 的 live submission。
 
 reject 与 approve 使用同一套 PR 来源校验，并在 transaction 外按当前 head commit 读取最多 1 MiB 的原文；Gitea 不可达返回 502，current review 不变。tx 把原文/head/blob 和 feedback 写在被拒 generation 上，`g+1` prompt 从该固定输入生成，不能在稍后再读浮动 branch 猜“上一版”。
 
@@ -334,7 +338,7 @@ approve、reject、retry、generate 和 cancel 都保留 resolved split reviewer
 - 422：PR 来源或 task.md 业务校验失败；
 - 502：平台 Gitea metadata/file 暂不可读。
 
-`SplitErrorStatus` 同时增加映射到 502 的 upstream 枚举，避免 Gitea 故障被现有 writer 压成 500。`details` 对 422 始终存在（可以为空数组），并一次返回全部可定位问题。packages/core 的 API schema 必须按桌面端兼容规则 parse-with-fallback：新增字段缺失或类型漂移不能让旧/新客户端白屏。
+`SplitErrorStatus` 同时增加映射到 502 的 upstream 枚举，避免 Gitea 故障被现有 writer 压成 500。`details` 对 422 始终存在（可以为空数组），并一次返回全部可定位问题。packages/core 的 API schema 继续使用 parse-with-fallback：新增字段缺失或类型漂移不能让客户端白屏；这是客户端健壮性要求，不构成桌面端版本或上线门禁。
 
 ### 6.3 协议事件（`server/pkg/protocol/events.go:146-153`）
 
@@ -404,7 +408,7 @@ Hard rules：不创建 issue、不改 issue 状态、不发评论、不改仓库
 交付物提交成功后执行 <runtime finish instruction>，平台会路由给人审核。
 ```
 
-- local daemon 的完成指令是“提交成功后退出，由 claim/complete 流收口”；cs-cloud 的完成指令是把 `cs-cloud workflow task complete --summary "..."` 作为最后一步。deliverable submit 负责进入 review，task complete 只终结 planner task，不能二次迁移 node。
+- local daemon 的完成指令是“提交成功后退出，由 claim/complete 流收口”；已核实的 cs-cloud 完成指令是把 `cs-cloud workflow task complete --summary "..."` 作为最后一步。该命令 POST 到设备 localserver 的 `/api/v1/workflow/tasks/{id}/complete`，由 driver 收口执行任务，不直接调用 Multica node API。deliverable submit 负责进入 review；task complete 只终结 planner task，不能二次迁移 node。
 - `workflowPhaseFromTask` 仍返回 context 中的 `split_generate`；新增 `isDeliverableProducerPhase`，至少包含 `worker` 和 `split_generate`。cs-cloud 对 split phase 注入 delivery repo env、repos、deliverable refs，但不追加通用 worker 编码说明。
 - task context 增加 `split_plan_generation` 与 `split_deliverable_id`；submission handler 用 task ID + 这两个字段做 stale gate。当前 planner task 在提交前终态按 §2.2 失败本代，之后由 generation-aware generate 新起一代；提交后的迟到 complete/fail 不改变 `awaiting_split_review`。
 - reject 重生成：创建新 generation 后同 phase 重新派发，contextExtras 注入被拒 generation 已持久化的 `review_comment`、固定 head SHA/path 和 task.md 内容，prompt 指示“按反馈修订后重新提交”。正文受 runtime prompt budget 截断时，必须同时给出 `git show <head_sha>:<task_path>` 精确读取指令；node branch 可作为工作副本，但不能替代固定 rework 输入。
@@ -417,7 +421,7 @@ Hard rules：不创建 issue、不改 issue 状态、不发评论、不改仓库
 
 - [ ] 配置拆分节点的父 issue 运行后，planner 自动产出**task.md 交付物（PR 链接可见）**，人点链接在 Gitea 评审/**编辑**，回 Multica approve 后全部子 issue 跑起来
 - [ ] **approve 时刻校验失败返回 422 + 全量行号 `details`（格式/依赖环/指派人），人在 Gitea 修完重新 approve 即可**
-- [ ] **reject 打回后 planner 带 review_comment 进入新 generation，PR 上可见 diff；旧 planner 的迟到提交返回 stale，不会把节点带回旧版**
+- [ ] **reject 打回后 planner 带 review_comment 进入新 generation；原 PR 仍 open 时在同一 PR 上可见 diff，不存在匹配 open PR 时允许产生经校验的新 PR；旧 planner 的迟到提交返回 stale，不会把节点带回旧版**
 - [ ] **approve 固定并快照 PR head commit；之后再改 Gitea 文档不影响本次物化，自动 merge 也不会吞入新 commit**
 - [ ] **物化期单条失败按 +1m/+5m/+15m 自动重试（首次 + 3 次，最多 4 次执行），且不阻断同 sweep 的后续行**
 - [ ] **有 exhausted 行但数量 ≤ max_failures 时保持 materializing、所有 child workflow 均未启动并提示人工重试；超过阈值才 fail-fast**
@@ -431,7 +435,7 @@ Hard rules：不创建 issue、不改 issue 状态、不发评论、不改仓库
 - [ ] DAG 依赖生效、环依赖被拒绝（approve 时刻，口径不变）
 - [ ] 父节点取消二次确认后级联停止（**含 materializing 中途取消**）
 - [ ] 聚合徽章与父 issue 进度面板展示一致（**materializing 期间展示「物化中 n/m」**）
-- [ ] local daemon 与 cs-cloud 都收到同一 task.md 契约、成员列表、generation 和正确 deliverable 路径；cs-cloud 能显式完成 planner task
+- [ ] local daemon 与 cs-cloud 都收到同一 task.md 契约、成员列表、generation 和正确 deliverable 路径；cs-cloud 原样消费服务端路径、使用正确 node branch，并能通过设备 localserver 显式完成 planner task
 - [ ] Gitea 不支持 conditional merge 时批准/物化仍成功，UI 明确显示 manual_required；不会无条件 merge
 
 ### 9.1 必须具备的测试 seam
@@ -439,22 +443,26 @@ Hard rules：不创建 issue、不改 issue 状态、不发评论、不改仓库
 | 层 | 最低覆盖 |
 |---|---|
 | parser 单测 | UTF-8/1 MiB 边界、围栏代码块、坏 H2、未知字段建议、重复/非法 key、成员歧义、未知依赖、自依赖、环、50 条边界、一次返回多错误 |
-| handler/service 集成 | 初始激活只派 split job、stale split job、generation/submission CAS、同 URL 新 generation、旧 task 迟到提交、PR repo/branch/head 校验、固定 commit 快照、approve/reject 并发 |
+| handler/service 集成 | 初始激活只派 split job、stale split job、generation/submission CAS、open PR 下同 URL/同 submission 行的新 generation、无匹配 open PR 时的新 URL generation、旧 task 迟到提交、PR host/owner/repo/head/base 校验、固定 commit 快照、approve/reject 并发 |
 | materializer DB 集成 | 每行独立提交、后续行不被前行失败阻断、四次执行时间表、defer 不消耗 job attempts、阈值两侧、同代 revival、完整重生成 |
 | 并发/幂等 | 两个 worker、lease 过期、issue 创建后进程中断、人工 retry 与 running job、cancel fence；断言 origin 唯一且无 orphan issue |
-| prompt/客户端 | local/cs-cloud 共享主体、`task` 标题生成 `task.md`、普通 deliverable 路径冲突被拒、split phase 注入 repo env、结构化错误 malformed-response fallback、当前代进度渲染 |
+| prompt/客户端 | local/cs-cloud 共享主体、`task` 标题生成 `task.md`、普通 deliverable 路径冲突被拒、split phase 注入 repo env、`CS_CLOUD_REPO_*`/`CS_CLOUD_GITEA_*` 别名一致、服务端路径原样消费、cs-cloud 完成指令、结构化错误 malformed-response fallback、当前代进度渲染 |
 
 ## 10. 风险与开放项
 
+已核实，不再是 integration gate：
+
+- `cs-cloud` 的 `deliverable submit --file` 会消费服务端注入路径、在当前分支提交并回注 PR URL；同 head 的 open PR 通过 409 查询确定性复用，clean tree 重试仍会 push/开 PR/回注；`task complete` 只调用设备 localserver。Multica 仍保留同／新 PR 容错、generation stale gate 与服务端 host/owner/repo/head/base 校验。
+- 工作区下的全部成员均具有对应 Gitea repo 的写权限，可以直接修改 node 分支；「从 PR 进入 Gitea 编辑 task.md」不再需要 costrict-web 权限调整或 Multica 服务端代写兜底。权限结论记录在 ticket [06](../wayfinder/split-deliverable-flow/tickets/06-verify-member-gitea-write-access.md)。
+
+范围决策：本期不考虑已安装桌面端版本漂移，也不设置桌面端最低版本门禁；packages/core 的 parse-with-fallback 仅作为客户端健壮性要求保留。
+
 | 项 | 状态 |
 |---|---|
-| 成员在 Gitea org 的写权限（能否在 node 分支网页编辑） | **review surface 集成/上线门禁，非 parser/materializer 开工门禁**——继续执行 ticket [06](../wayfinder/split-deliverable-flow/tickets/06-verify-member-gitea-write-access.md)。若失败，回到原备选「Multica 内编辑 + 服务端代写 node branch」（仿 `UploadMemberDeliverable`）单独评审；本期不悄悄扩入 hosted editor |
-| `cs-cloud` CLI 在仓库外 | integration gate：核对 `deliverable submit --file`、同 PR 更新/新 PR、task complete 和请求头。设计同时接受同/新 PR；共享 prompt、generation gate 与服务端测试可先开工 |
 | 存量 draft 数据生产规模 | 未知；M4 保守软处置为 discarded。rollout 前输出计数与 active node 清单，命中 §7.2 STOP 条件就不迁移 |
 | 物化重试的具体机制 | **已锁定**为行级 +1m/+5m/+15m、dispatch attempts 仅管协调器；实现不得复用现有 job-level `handleFailure` 代替 |
 | conditional merge 支持 | 实现时探测当前 Gitea client/API；不支持则固定走 `manual_required`，因此不阻塞批准和物化 |
 | 重复 workflow_split origin | M5 硬门禁；先报告并人工修复，禁止跳过唯一索引上线 |
-| 已安装桌面端 API 漂移 | **上线 STOP**：响应新增字段必须 schema parse-with-fallback；approve/reject 请求契约和 draft 端点退役只有在最低支持桌面版本理解 generation/结构化错误后才能启用 |
 | `missing` submission 状态枚举 | 疑似遗留（research 01）；本设计不依赖 |
 
-至此，核心数据模型、事务边界和失败恢复已可开工。仍需完成的外部门禁是 Gitea 网页编辑权限、cs-cloud CLI 契约和桌面端最低版本；它们决定启用/集成方式，不允许实现阶段自行改写本文的核心语义。
+至此，核心数据模型、事务边界和失败恢复已可开工，当前没有待确认的外部门禁。上线前仍须执行 §7.2 的生产数据 preflight；实现阶段不得自行改写本文的核心语义。

@@ -16,7 +16,7 @@ task.md 以哪条路径接入 Gitea 交付物体系，approve 时刻的「拉最
 
 **A. 正式 deliverable 流**：task.md 注册为拆分节点的 deliverable definition → agent 经 node 分支推送 + 开 node→inst PR + submission 记 PR URL → 人在 Gitea 上 review PR / 在 node 分支上编辑 → Multica approve = merge PR（merge commit 即天然快照点）+ 回读内容入库。
 - 复用全链路（provisioning、分支、PR、评审权限门、前端 PR 链接跳转）；approve 语义与现有 deliverable approve 一致（现状 approve 本来就 merge PR）
-- 但：读取内容/SHA 仍需新建 API；「人在 node 分支上编辑」依赖成员对 repo 的写权限（现状未查清，在 costrict-web 侧）
+- 但：读取内容/SHA 仍需新建 API；「人在 node 分支上编辑」依赖成员对 repo 的写权限（当时未查清，现已由 ticket [06](06-verify-member-gitea-write-access.md) 确认工作区全体成员具备 write 权限）
 
 **B. 轻量直写流**：agent 会话内 git push（或服务端代写）把 task.md 直写 inst 分支（类 `ArchiveSubIssueAddress` 模式）→ 人在 Gitea 直接编辑 inst 分支文件 → Multica approve = 服务端用新建的 read API 拉 inst 最新内容 + HEAD SHA 入库。
 - 无 PR、无 submission、不进评审门；人的编辑路径最短（Gitea `_edit` 链接直跳）

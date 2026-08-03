@@ -2,9 +2,10 @@
 wayfinder: ticket
 title: 验证成员在 Gitea 的写权限与编辑路径
 type: task
-status: open
+status: closed
 assignee: null
 blocked_by: []
+resolved: 2026-08-03
 ---
 
 ## Question
@@ -20,4 +21,11 @@ blocked_by: []
 
 ## Resolution
 
-（验证后记录：权限事实 + 结论「网页编辑可行」或「需服务端代写通道」）
+已确认：工作区下的全部成员同步到 Gitea 后都具有对应 repo 的 write 权限，可以直接修改 workflow node 分支。由此锁定：
+
+1. 「从 node→inst PR 进入 Gitea，在 PR 源分支上编辑 task.md」的权限前提成立；
+2. 不需要调整 costrict-web `members:sync` 的 team/repo 权限；
+3. 不需要为本期增加「Multica 内编辑 + 服务端用 bot 身份代写 node branch」通道；
+4. ticket 关闭，不再阻塞 review surface 集成或上线。
+
+此处记录的是已经确认的外部权限事实；实际「编辑 → commit → 原 PR diff 更新 → Multica approve 读取新 head」流程仍由设计 spec §9 的端到端验收覆盖，不重复作为权限门禁。

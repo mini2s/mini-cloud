@@ -3,11 +3,12 @@
 > 对应 ticket: `docs/wayfinder/split-deliverable-flow/tickets/01-gitea-deliverable-flow.md`
 > 目的：为「拆分节点产出 task.md 作为文档交付物存 Gitea」的设计提供现状事实。
 > 所有结论标注源码锚点；标注「未找到/不确定」的条目为显式空白，不要当作事实引用。
+> 跨仓核实快照：相邻 `cs-cloud` 仓库 commit `85bcebd`，实现锚点位于 `internal/cli/gitea.go`、`internal/cli/task.go` 及对应测试。
 
 ## TL;DR
 
 1. **存储拓扑**：每个 workspace 一个私有 Gitea org `t-<ws[:8]>`，每个 workflow 一个 repo `wf-<wf[:8]>`（默认 workflow 用 `wf-deliverable-archive`）；每次 run 一条 `inst-<run[:8]>` 分支作为长期归档分支，每个 node run 一条 `node/<NN>-<nodeRunShort>` 分支，文档经 node→inst PR 评审、approve 时由服务端 merge 进 inst。锚点：`server/internal/gitea/topology.go:31,37,57,85,92`。
-2. **写入路径有两条**：(a) agent 侧——服务端在派发/认领时把 owner/repo/带 token 的 clone URL/分支/交付物路径注入 env，agent 用**外部二进制 `cs-cloud`** 的 `workflow deliverable submit` 完成 push + 开 PR + 回注 PR URL（该 CLI 实现不在本仓库）；(b) 人侧——`POST /api/issues/{id}/deliverables/upload` 服务端代写 Gitea + 开 PR。
+2. **写入路径有两条**：(a) agent 侧——服务端在派发/认领时把 owner/repo/普通与带 token 的 clone URL/分支/交付物路径注入 env，agent 用**外部二进制 `cs-cloud`** 的 `workflow deliverable submit` 完成 push + 开 PR + 回注 PR URL；该 CLI 已跨仓核实：路径按注入值原样消费，同 head 的 open PR 在创建返回 409 后复用，clean tree 重试仍继续 push/开 PR/回注；(b) 人侧——`POST /api/issues/{id}/deliverables/upload` 服务端代写 Gitea + 开 PR。
 3. **读取路径是空白**：本仓库的 Gitea client 没有公开的「读文件内容 / 读 commit SHA」API（只有私有 `getFileSHA` 服务于 UpsertFile 的更新分支）；approve 时只 merge PR，从不回读内容或记录 SHA。「approve 时刻拉最新内容 + 记录 SHA」需要新建能力。
 4. **与 DB 的关系**：Gitea 上的文档与 `multica_workflow_node_deliverable_submission` 仅靠 `pull_request_url`（node→inst PR 的 web URL）关联；submission 不存内容、不存路径、不存 SHA。document 场景下 `content`/`attachment_id` 在 Gitea 配置启用时被显式禁用（422）。
 5. ticket 中提到的 `/ns/upload`、`gitea-ns` 路由**已不存在**，被新路由替代（见 Q2/Q4）。
@@ -57,12 +58,14 @@ provisioning 实际经由 **costrict-web team-namespace 内部 API**（不是直
 
 ### 2a. agent 流（云端 cs-cloud / 本地 daemon 同一模型）
 
-**执行提交的 CLI 是 `cs-cloud workflow deliverable submit --deliverable <id> --file <path>`，其实现不在本仓库**（`server/cmd/` 下只有 `cs-workflow`、`server`、`migrate`、`backfill_*`；全仓 grep 无 `cs-cloud` 命令实现）。本仓库只负责把上下文与凭据喂给它：
+**执行提交的 CLI 是 `cs-cloud workflow deliverable submit --deliverable <id> --file <path>`。其实现不在本仓库，但已在相邻 `cs-cloud` 仓库 commit `85bcebd` 核实**（`internal/cli/gitea.go` 的 `deliverableCmd` → `runGiteaSubmit` → `submitDeliverable`）。Multica 负责生产上下文与凭据，CLI 负责消费并提交：
 
-- **cs-cloud（云 agent）派发时注入 env**：`CS_CLOUD_REPO_OWNER/NAME/BASE_URL/TOKEN/CLONE_URL/CLONE_URL_AUTHED/INST_BRANCH/NODE_BRANCH/DELIVERABLES`（+ 旧名 `CS_CLOUD_GITEA_*` 别名桥），其中 `CLONE_URL_AUTHED` 内嵌 bot PAT，`DELIVERABLES` 是 `[{deliverable_id,title,path}]`（path = `DeliverablePath`）。锚点：`task_cscloud_push.go:767`（`repositoryDeliverableEnv`）、`:869-905`（env map + 别名桥）、`:922`（`injectGiteaToken`）。prompt 模板：`task_cscloud_push.go:700`（`appendDeliverablePrompt`，明确指示 clone→checkout node 分支→逐 deliverable 提交）。同时 Gitea delivery repo 以 `role=delivery` 注入 `payload.Repos[]`：`task_cscloud_push.go:528`（`resolveDeliveryRepo`）。
+- **cs-cloud（云 agent）派发时注入 env**：`CS_CLOUD_REPO_OWNER/NAME/BASE_URL/TOKEN/CLONE_URL/CLONE_URL_AUTHED/INST_BRANCH/NODE_BRANCH/DELIVERABLES`（+ 旧名 `CS_CLOUD_GITEA_*` 别名桥），其中 `CLONE_URL_AUTHED` 内嵌 bot PAT，`DELIVERABLES` 是 `[{deliverable_id,title,path}]`（path = `DeliverablePath`）。锚点：`task_cscloud_push.go:767`（`repositoryDeliverableEnv`）、`:883-913`（env map + 别名桥）、`:925`（`injectGiteaToken`）。prompt 模板：`task_cscloud_push.go:700`（`appendDeliverablePrompt`，明确指示 clone→checkout node 分支→逐 deliverable 提交）。同时 Gitea delivery repo 以 `role=delivery` 注入 `payload.Repos[]`：`task_cscloud_push.go:528`（`resolveDeliveryRepo`）。
 - **本地 daemon agent**：claim 响应携带同样的 `gitea_deliverables` 上下文（owner/repo/clone_url/inst_branch/node_branch/deliverables+path），daemon 转成 `MULTICA_REPO_*` / `MULTICA_GITEA_*` env 给 agent 进程。锚点：`server/internal/handler/daemon.go:1656-1659`（claim 挂上下文）、`:1815,1827`（`buildGiteaDeliverableContext`/`giteaContextForNodeRun`）、`server/internal/daemon/daemon.go:2301-2325`（`buildAgentEnv`）、prompt 在 `server/internal/daemon/prompt.go:84-96`（同样指示跑 `cs-cloud workflow deliverable submit`）。
-- **该 CLI 的语义**（据本仓库注释描述）：从 inst 分支建/推 node 分支 → 把文件写到服务端预先算好的 path → 开 node→inst 评审 PR → 把 PR URL 回注 multica。回注走 HTTP API `POST /api/node-runs/{nodeRunId}/deliverables/{deliverableId}/submit`（body `pull_request_url`）。锚点：注释 `task_cscloud_push.go:695-699`、`server/internal/handler/issue_deliverable_upload.go:29-33`；回注 handler `server/internal/handler/workflow_run.go:1125`（`SubmitNodeRunDeliverable`），路由 `server/cmd/server/router.go:734`。
-- **凭据来源**：bot PAT 存在 `workspace.settings.gitea_pat`（provisioning 时由 costrict-web 铸），服务端直接注入 env；daemon/CLI 也可调 `GET /api/repositories/credential`（旧别名 `GET /api/gitea/credential`）取 `{base_url, provider:"gitea", token}`——daemon token 鉴权，workspace 从 token 推导。锚点：`server/internal/handler/repository_credential.go:60-97`、路由 `router.go:462-467`（注释原文 “Repository credential for the cs-workflow CLI document-deliverable flow”）。
+- **该 CLI 的已核实语义**：从 `CS_CLOUD_GITEA_DELIVERABLES` 按 ID 取服务端预先计算的 path → 在当前 worktree 分支写文件 → dirty tree 才 commit → push 当前分支 → 创建 node→inst PR → 把 PR URL 回注 Multica。创建 PR 返回 409 时，CLI 列出 open PR 并按 head ref 复用其 `html_url`；若没有匹配的 open PR，则本次提交失败而不是猜测其他 URL。回注走 `POST /api/node-runs/{nodeRunId}/deliverables/{deliverableId}/submit`，body 为 `{pull_request_url}`，并携带 `X-Workspace-ID`、`X-Agent-ID`、`X-Task-ID`。锚点：`cs-cloud/internal/cli/gitea.go` 的 `deliverablePath`、`submitDeliverable`、`openGiteaPR`、`findExistingGiteaPR`、`reportDeliverablePR`；Multica handler `server/internal/handler/workflow_run.go:1125`（`SubmitNodeRunDeliverable`）。
+- **分支前提**：服务端为 node run 注入确定性的 `NodeBranch`，prompt 要求先 checkout；当前 CLI 实际使用 `git` 当前分支作为 push/PR head，并不比较它与 `CS_CLOUD_GITEA_NODE_BRANCH`。因此正常路径会复用固定 head 的 open PR，但 approve 侧仍必须校验 expected host/owner/repo/head/base，不能把 PR URL 当作版本身份。
+- **凭据来源与边界**：bot PAT 存在 `workspace.settings.gitea_pat`（provisioning 时由 costrict-web 铸），Multica 以 `CS_CLOUD_REPO_*` 注入并提供 `CS_CLOUD_GITEA_*` 别名桥。当前 `cs-cloud` 直接读取 `CS_CLOUD_GITEA_TOKEN` 访问 Gitea，不调用 Multica credential relay；`CS_CLOUD_TOKEN` 只用于回注 Multica。local daemon/其他 CLI 仍可调 `GET /api/repositories/credential`（旧别名 `GET /api/gitea/credential`）取 `{base_url, provider:"gitea", token}`。锚点：`server/internal/service/task_cscloud_push.go:883-913`（env + 别名桥）、`server/internal/handler/repository_credential.go:60-97`。
+- **task 完成契约**：`cs-cloud workflow task complete --summary <text>` 必须作为 agent 最后一步；它 POST 到设备 localserver 的 `/api/v1/workflow/tasks/{id}/complete`，由 driver 收口 task，不直接调用 Multica node API。锚点：`cs-cloud/internal/cli/task.go` 的 `runTaskComplete`、`postTaskCompletion`。
 
 **注意**：本仓库的 `cs-workflow` CLI **没有** document deliverable submit 命令；只有只读的 `cs-workflow issue deliverables <issue-id> [--descendants]`（打印 repo 地址 + 交付物清单，`server/cmd/cs-workflow/cmd_issue_workflow.go:131-199`，底层调 `GET /api/daemon/issues/{issue}/gitea-deliverables`）。ticket 里的 `/ns/upload`、`gitea-ns` 路由在全仓 grep 无匹配，已被上述路由取代。
 
@@ -114,7 +117,7 @@ provisioning 实际经由 **costrict-web team-namespace 内部 API**（不是直
 - workspace 创建/run 启动时把全体成员同步进 workspace 的 Gitea org：`syncWorkspaceMembers`（`workflow_deliverable_repo.go:448`）→ costrict-web `members:sync`（`teamnamespace/client.go:136`）。成员身份用 cs-user `subject_id`（`usr_<uuid>`）解析（`workflow_deliverable_repo.go:89-100`）。
 - org 是 **private**（`client.go:122-131` `CreateOrg` 的 `visibility:"private"`、`members_can_create_repos:false`），repo 也是 private（`client.go:163-168`）。
 - 写路径收紧：main 有分支保护禁直推（`client.go:332` `ProtectBranch`；注释明确 inst 不做保护因为 daemon/multica 要直推）；文档统一经 node 分支 + PR，merge 由服务端用 admin token 执行（`merge.go:23`）。bot 的 PAT（`write:repository`+`read:user`，`client.go:387` `CreateUserToken`）是 agent 推送凭据。
-- **不确定**：成员同步进 org 后落在哪个 Gitea team、对 repo 是 read 还是 write——这发生在 costrict-web 侧，本仓库不可见。本仓库内的直连兜底 `AddOrgMember`（`client.go:452`，加到 org 第一个 team 即 Owners）在 team-namespace 模式下似乎不被调用（未找到生产调用点，仅供兼容/测试）。Multica 侧的评审权限门（谁能 approve/reject）是另一套：workspace owner/admin、issue 创建者、issue 负责人、节点指定 critic（`server/internal/handler/deliverable_review_access.go:20-34`）。
+- **已确认（2026-08-03，外部权限事实）**：工作区下的全部成员同步到 Gitea 后都具有对应 repo 的 write 权限，可以直接修改 node 分支；因此 PR 源分支上的 task.md 网页编辑路径在权限模型上可行，不需要调整 costrict-web `members:sync` 或增加 Multica 服务端代写通道。该结论记录在 ticket [06](../tickets/06-verify-member-gitea-write-access.md)。Multica 侧的评审权限门（谁能 approve/reject）仍是另一套：workspace owner/admin、issue 创建者、issue 负责人、节点指定 critic（`server/internal/handler/deliverable_review_access.go:20-34`）。
 - router 注释提示：「Gitea UI routes are not proxied by Multica」（`router.go:469`）——浏览器直接访问 Gitea，登录态由 Gitea/cs-user 体系负责，Multica 不管。
 
 ---
@@ -149,8 +152,6 @@ Gitea 文件 ↔ submission 是 **1 个 deliverable（run 级快照行）: 1 条
 
 ## 明确未查清 / 不确定清单
 
-1. `cs-cloud workflow deliverable submit` 的具体实现（push、开 PR、错误处理、是否支持多文件/更新）——二进制在仓库外，仅能从 prompt/注释推断语义。
-2. 工作区成员在 Gitea org 内的 team/权限级别（read vs write）——发生在 costrict-web 侧，本仓库不可见。
-3. submission `status='missing'` 的写入路径——全仓未找到，疑似遗留枚举值。
-4. 前端无任何 Gitea 文件级 URL 拼接；`/_edit/` 链接需新建，且所需 owner/repo/branch/path 目前无面向浏览器的 API 暴露。
-5. ticket 提到的 `/ns/upload`、`gitea-ns` 路由已不存在（全仓 grep 无匹配）；现行为 Q2/Q4 所列路由。
+1. submission `status='missing'` 的写入路径——全仓未找到，疑似遗留枚举值。
+2. 前端无任何 Gitea 文件级 URL 拼接；`/_edit/` 链接需新建，且所需 owner/repo/branch/path 目前无面向浏览器的 API 暴露。
+3. ticket 提到的 `/ns/upload`、`gitea-ns` 路由已不存在（全仓 grep 无匹配）；现行为 Q2/Q4 所列路由。
