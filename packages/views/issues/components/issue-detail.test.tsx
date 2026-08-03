@@ -1,6 +1,6 @@
 import { forwardRef, useRef, useState, useImperativeHandle, type ComponentProps } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Issue, TimelineEntry } from "@multica/core/types";
 import { I18nProvider } from "@multica/core/i18n/react";
@@ -289,6 +289,8 @@ const mockApiObj = vi.hoisted(() => ({
   removeCommentReaction: vi.fn(),
   listMembers: vi.fn().mockResolvedValue([{ user_id: "user-1", name: "Test User", email: "test@test.com", role: "admin" }]),
   listAgents: vi.fn().mockResolvedValue([]),
+  listRuntimes: vi.fn().mockResolvedValue([]),
+  listWorkflows: vi.fn().mockResolvedValue({ workflows: [], total: 0 }),
   getProject: vi.fn(),
   listProjects: vi.fn().mockResolvedValue({ projects: [] }),
 }));
@@ -415,7 +417,10 @@ beforeEach(() => {
 // Mock modals
 vi.mock("@multica/core/modals", () => ({
   useModalStore: Object.assign(
-    () => ({ open: vi.fn() }),
+    (selector?: any) => {
+      const state = { open: vi.fn() };
+      return selector ? selector(state) : state;
+    },
     { getState: () => ({ open: vi.fn() }) },
   ),
 }));
@@ -590,6 +595,8 @@ describe("IssueDetail (shared)", () => {
       { user_id: "user-1", name: "Test User", email: "test@test.com", role: "admin" },
     ]);
     mockApiObj.listAgents.mockResolvedValue([]);
+    mockApiObj.listRuntimes.mockResolvedValue([]);
+    mockApiObj.listWorkflows.mockResolvedValue({ workflows: [], total: 0 });
     mockWorkspaceAgents.length = 0;
     // Reset project mock — individual tests override per case. Default fixture
     // has project_id: null so getProject is not invoked.
@@ -911,6 +918,76 @@ describe("IssueDetail (shared)", () => {
     // The "+ Add property" affordance is always offered while any
     // optional field is still hidden.
     expect(screen.getByText("Add property")).toBeInTheDocument();
+  });
+
+  it("updates the detail assignee without selecting a runtime", async () => {
+    mockWorkspaceAgents.push({
+      id: "agent-1",
+      workspace_id: "ws-1",
+      runtime_id: "",
+      name: "Claude Agent",
+      description: "",
+      instructions: "",
+      avatar_url: null,
+      runtime_mode: "local",
+      runtime_config: {},
+      custom_env: {},
+      custom_args: [],
+      custom_env_redacted: false,
+      visibility: "workspace",
+      status: "idle",
+      max_concurrent_tasks: 1,
+      model: "",
+      plugin_id: null,
+      is_builtin: true,
+      owner_id: null,
+      skills: [],
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+      archived_at: null,
+      archived_by: null,
+    });
+    mockApiObj.listRuntimes.mockResolvedValue([
+      {
+        id: "runtime-1",
+        workspace_id: "ws-1",
+        daemon_id: "daemon-1",
+        name: "Runtime One",
+        runtime_mode: "local",
+        provider: "csc",
+        status: "online",
+        version: null,
+        last_seen_at: "2026-01-01T00:00:00Z",
+        owner_id: "user-1",
+        visibility: "public",
+        metadata: {},
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      },
+    ]);
+
+    renderIssueDetail();
+
+    await screen.findByText("Properties");
+    const properties = screen.getByTestId("issue-detail-properties");
+    const currentAssigneeTriggers = within(properties).getAllByText("Test User");
+    fireEvent.click(currentAssigneeTriggers[currentAssigneeTriggers.length - 1]!);
+    await waitFor(() => {
+      expect(screen.getAllByText("Claude Agent").length).toBeGreaterThan(1);
+    });
+    const agentOptions = screen.getAllByText("Claude Agent");
+    fireEvent.click(agentOptions[agentOptions.length - 1]!);
+
+    await waitFor(() => {
+      expect(mockApiObj.updateIssue).toHaveBeenCalledWith("issue-1", {
+        assignee_type: "agent",
+        assignee_id: "agent-1",
+      });
+    });
+    expect(mockApiObj.updateIssue).not.toHaveBeenCalledWith(
+      "issue-1",
+      expect.objectContaining({ runtime_id: "runtime-1" }),
+    );
   });
 
   it("hides every optional property row when none are set", async () => {
