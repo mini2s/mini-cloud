@@ -13,7 +13,7 @@ export interface GitHubSettings {
 
 /**
  * Pure derivation from a workspace's settings JSONB. The integration is always
- * on; sub-flags default to on and only turn off when explicitly set to false.
+ * on; sub-flags default to off and only turn on when explicitly set to true.
  */
 export function deriveGitHubSettings(
   workspace: Pick<Workspace, "settings"> | null | undefined,
@@ -23,8 +23,8 @@ export function deriveGitHubSettings(
   // always on. Historical github_enabled values are ignored.
   return {
     enabled: true,
-    prSidebar: s.github_pr_sidebar_enabled !== false,
-    coAuthor: s.co_authored_by_enabled !== false,
-    autoLinkPRs: s.github_auto_link_prs_enabled !== false,
+    prSidebar: s.github_pr_sidebar_enabled === true,
+    coAuthor: s.co_authored_by_enabled === true,
+    autoLinkPRs: s.github_auto_link_prs_enabled === true,
   };
 }

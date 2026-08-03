@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { GitCommitHorizontal, Link2, PanelRight } from "lucide-react";
 import { Button } from "@multica/ui/components/ui/button";
 import { Card, CardContent } from "@multica/ui/components/ui/card";
 import {
@@ -19,22 +18,12 @@ import {
 import { useAuthStore } from "@multica/core/auth";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useCurrentWorkspace } from "@multica/core/paths";
-import { memberListOptions, workspaceKeys } from "@multica/core/workspace/queries";
-import {
-  deriveGitHubSettings,
-  githubInstallationsOptions,
-} from "@multica/core/github";
+import { memberListOptions } from "@multica/core/workspace/queries";
+import { githubInstallationsOptions } from "@multica/core/github";
 import { api } from "@multica/core/api";
-import type { Workspace } from "@multica/core/types";
 import { useT } from "../../i18n";
 import { GitHubMark } from "./github-mark";
-import { FeatureRow } from "./feature-row";
 import { RepositoriesSection } from "./repositories-section";
-
-type SettingsKey =
-  | "github_pr_sidebar_enabled"
-  | "co_authored_by_enabled"
-  | "github_auto_link_prs_enabled";
 
 export function GitHubTab() {
   const { t } = useT("settings");
@@ -61,30 +50,9 @@ export function GitHubTab() {
   const connected = installations.length > 0;
   const primaryInstallation = installations[0] ?? null;
 
-  const flags = deriveGitHubSettings(workspace);
-  const [savingKey, setSavingKey] = useState<SettingsKey | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [disconnectTarget, setDisconnectTarget] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
-
-  async function persistSetting(key: SettingsKey, next: boolean) {
-    if (!workspace || savingKey) return;
-    setSavingKey(key);
-    try {
-      const merged = {
-        ...((workspace.settings as Record<string, unknown>) ?? {}),
-        [key]: next,
-      };
-      const updated = await api.updateWorkspace(workspace.id, { settings: merged });
-      qc.setQueryData(workspaceKeys.list(), (old: Workspace[] | undefined) =>
-        old?.map((ws) => (ws.id === updated.id ? updated : ws)),
-      );
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t(($) => $.github.toast_failed));
-    } finally {
-      setSavingKey(null);
-    }
-  }
 
   async function handleConnect() {
     setConnecting(true);
@@ -213,59 +181,6 @@ export function GitHubTab() {
                 {t(($) => $.github.read_only_hint)}
               </p>
             )}
-          </CardContent>
-        </Card>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold">{t(($) => $.github.section_features)}</h2>
-        <Card>
-          <CardContent className="space-y-4">
-            <FeatureRow
-              id="github-pr-sidebar"
-              icon={<PanelRight className="h-4 w-4" />}
-              label={t(($) => $.github.feature_pr_sidebar_label)}
-              description={
-                <p className="text-sm text-muted-foreground">
-                  {t(($) => $.github.feature_pr_sidebar_description)}
-                </p>
-              }
-              checked={flags.prSidebar}
-              disabled={!canManage || savingKey === "github_pr_sidebar_enabled"}
-              onCheckedChange={(v) => persistSetting("github_pr_sidebar_enabled", v)}
-            />
-
-            <FeatureRow
-              id="github-coauthor"
-              icon={<GitCommitHorizontal className="h-4 w-4" />}
-              label={t(($) => $.github.feature_co_author_label)}
-              description={
-                <p className="text-sm text-muted-foreground">
-                  {t(($) => $.github.feature_co_author_description_prefix)}{" "}
-                  <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                    {"Co-authored-by: multica-agent <github@multica.ai>"}
-                  </code>{" "}
-                  {t(($) => $.github.feature_co_author_description_suffix)}
-                </p>
-              }
-              checked={flags.coAuthor}
-              disabled={!canManage || savingKey === "co_authored_by_enabled"}
-              onCheckedChange={(v) => persistSetting("co_authored_by_enabled", v)}
-            />
-
-            <FeatureRow
-              id="github-auto-link"
-              icon={<Link2 className="h-4 w-4" />}
-              label={t(($) => $.github.feature_auto_link_label)}
-              description={
-                <p className="text-sm text-muted-foreground">
-                  {t(($) => $.github.feature_auto_link_description)}
-                </p>
-              }
-              checked={flags.autoLinkPRs}
-              disabled={!canManage || savingKey === "github_auto_link_prs_enabled"}
-              onCheckedChange={(v) => persistSetting("github_auto_link_prs_enabled", v)}
-            />
           </CardContent>
         </Card>
       </section>

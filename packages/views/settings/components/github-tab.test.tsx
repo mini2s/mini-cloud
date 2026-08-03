@@ -217,13 +217,4 @@ describe("GitHubTab", () => {
     expect(screen.getByRole("button", { name: /Add repository/ })).toBeTruthy();
   });
 
-  it("feature switches are editable by an admin (no master gate)", () => {
-    render(<GitHubTab />, { wrapper: I18nWrapper });
-    const switches = screen.getAllByRole("switch");
-    // No master switch anymore; every switch is a feature toggle and enabled for the owner.
-    for (const sw of switches) {
-      expect(sw.getAttribute("aria-disabled") !== "true" && !sw.hasAttribute("disabled")).toBe(true);
-    }
-  });
-
 });

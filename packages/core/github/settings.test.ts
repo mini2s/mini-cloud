@@ -13,14 +13,14 @@ describe("deriveGitHubSettings", () => {
     expect(deriveGitHubSettings(ws({ github_enabled: false })).enabled).toBe(true);
   });
 
-  it("sub-flags keep their default-on semantics independently of master", () => {
-    expect(deriveGitHubSettings(null)).toMatchObject({ prSidebar: true, coAuthor: true, autoLinkPRs: true });
+  it("sub-flags default OFF and only turn on when explicitly true", () => {
+    expect(deriveGitHubSettings(null)).toMatchObject({ prSidebar: false, coAuthor: false, autoLinkPRs: false });
+    expect(deriveGitHubSettings(ws({}))).toMatchObject({ prSidebar: false, coAuthor: false, autoLinkPRs: false });
+    // explicit true turns them on
+    expect(deriveGitHubSettings(ws({ github_pr_sidebar_enabled: true })).prSidebar).toBe(true);
+    expect(deriveGitHubSettings(ws({ co_authored_by_enabled: true })).coAuthor).toBe(true);
+    expect(deriveGitHubSettings(ws({ github_auto_link_prs_enabled: true })).autoLinkPRs).toBe(true);
+    // explicit false stays off
     expect(deriveGitHubSettings(ws({ github_pr_sidebar_enabled: false })).prSidebar).toBe(false);
-    expect(deriveGitHubSettings(ws({ co_authored_by_enabled: false })).coAuthor).toBe(false);
-    expect(deriveGitHubSettings(ws({ github_auto_link_prs_enabled: false })).autoLinkPRs).toBe(false);
-    // master off no longer forces sub-flags off
-    expect(
-      deriveGitHubSettings(ws({ github_enabled: false, github_pr_sidebar_enabled: true })).prSidebar,
-    ).toBe(true);
   });
 });
