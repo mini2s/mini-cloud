@@ -31,7 +31,7 @@ export function PluginSelect({ value, onChange }: PluginSelectProps) {
   const { t } = useT("agents");
   const { searchQuery, setSearchQuery, debouncedSearch } = useDebouncedPluginSearch();
   const { data: plugins, isFetching: isLoading } = useQuery(
-    builtinPluginListOptions(),
+    builtinPluginListOptions(debouncedSearch),
   );
   const { data: catalogPlugins, isFetching: isCatalogLoading } = useQuery(
     catalogPluginListOptions(debouncedSearch),

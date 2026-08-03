@@ -331,7 +331,9 @@ function PluginPickerPopover({
   const { t } = useT("agents");
 
   const { searchQuery, setSearchQuery, debouncedSearch } = useDebouncedPluginSearch();
-  const { data: plugins, isFetching: isLoading } = useQuery(builtinPluginListOptions());
+  const { data: plugins, isFetching: isLoading } = useQuery(
+    builtinPluginListOptions(debouncedSearch),
+  );
   const { data: catalogPlugins, isFetching: isCatalogLoading } = useQuery(
     catalogPluginListOptions(debouncedSearch),
   );
