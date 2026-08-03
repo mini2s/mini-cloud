@@ -1976,7 +1976,10 @@ func (h *Handler) UpdateWorkflowAdmins(w http.ResponseWriter, r *http.Request) {
 
 // InviteWorkflowAdmin looks up a user by email and grants them workflow admin permission.
 func (h *Handler) InviteWorkflowAdmin(w http.ResponseWriter, r *http.Request) {
-	userID, _ := requireUserID(w, r)
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
 	currentUser, err := h.Queries.GetUser(r.Context(), parseUUID(userID))
 	if err != nil || !h.effectiveCanManageWorkflows(r.Context(), currentUser) {
 		writeError(w, http.StatusForbidden, "only platform admins can manage workflow admins")
