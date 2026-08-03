@@ -126,3 +126,54 @@ func TestQuickCreateWithBuiltinAgentSucceeds(t *testing.T) {
 		t.Fatalf("expected built-in agent quick-create task to be enqueued, got 0")
 	}
 }
+
+// TestCreateIssueRunNowBuiltinAgentEnqueuesWithSpecifiedRuntime verifies that a
+// run-now dispatch (status=in_progress at creation) for a built-in agent honors
+// the specified_runtime_first policy by enqueuing the task on the runtime the
+// caller picked, resolved through the shared workflow runtime selection path.
+func TestCreateIssueRunNowBuiltinAgentEnqueuesWithSpecifiedRuntime(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("handler test fixture not available")
+	}
+	ctx := context.Background()
+
+	// Mirror the builtin-agent + runtime fixture used by
+	// TestCreateIssueAssignedToBuiltinAgentWaitsUntilInProgress (same file):
+	// builtinAgentID is the seeded built-in agent constant; handlerTestRuntimeID
+	// returns the online runtime seeded by setupHandlerTestFixture.
+	runtimeID := handlerTestRuntimeID(t)
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":                    "Run now builtin",
+		"status":                   "in_progress",
+		"assignee_type":            "agent",
+		"assignee_id":              builtinAgentID,
+		"runtime_selection_policy": "specified_runtime_first",
+		"runtime_id":               runtimeID,
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var created IssueResponse
+	json.NewDecoder(w.Body).Decode(&created)
+
+	defer func() {
+		cleanupReq := newRequest("DELETE", "/api/issues/"+created.ID, nil)
+		cleanupReq = withURLParam(cleanupReq, "id", created.ID)
+		testHandler.DeleteIssue(httptest.NewRecorder(), cleanupReq)
+	}()
+
+	var taskRuntimeID string
+	if err := testPool.QueryRow(ctx, `
+		SELECT runtime_id::text FROM multica_agent_task_queue
+		WHERE issue_id = $1 AND agent_id = $2 AND status = 'queued'
+		ORDER BY created_at DESC LIMIT 1
+	`, created.ID, builtinAgentID).Scan(&taskRuntimeID); err != nil {
+		t.Fatalf("no queued task enqueued: %v", err)
+	}
+	if taskRuntimeID != runtimeID {
+		t.Fatalf("expected task runtime %s, got %s", runtimeID, taskRuntimeID)
+	}
+}
