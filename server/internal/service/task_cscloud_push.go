@@ -386,7 +386,7 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		// document deliverables. Separate from code repos — has its own alias
 		// ("delivery") so appendCodeRepoPrompt's listing is unaffected.
 	}
-	if isDeliverableProducerPhase(phase) {
+	if requiresGiteaEnv {
 		if dr, ok := s.resolveDeliveryRepo(ctx, runtime.WorkspaceID); ok {
 			repos = append(repos, dr)
 		}
