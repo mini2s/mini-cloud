@@ -56,7 +56,22 @@ func registerListeners(bus *events.Bus, b realtime.Broadcaster) {
 		if !ok {
 			return
 		}
-		recipientID, _ := item["recipient_id"].(string)
+		// recipient_id arrives as *string: inboxItemToResponse (and
+		// publishQuickCreateInbox) build the payload with util.UUIDToPtr.
+		// A bare .(string) assertion silently fails, yields "", and
+		// sendToRecipient then returns early — dropping every inbox:new
+		// event (the inbox row is still written, so a manual refresh shows
+		// it, but the realtime push never reaches the recipient). Accept
+		// both shapes.
+		var recipientID string
+		switch v := item["recipient_id"].(type) {
+		case string:
+			recipientID = v
+		case *string:
+			if v != nil {
+				recipientID = *v
+			}
+		}
 		sendToRecipient(b, e, recipientID)
 	})
 
