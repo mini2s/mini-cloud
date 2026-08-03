@@ -1,0 +1,448 @@
+{
+  "format": "multica.cloud-proxy.tool-call-capture.v1",
+  "capturedAt": "2026-07-20",
+  "source": {
+    "agent": "build",
+    "model": {
+      "providerID": "costrict",
+      "modelID": "DeepSeek-V4-Flash"
+    },
+    "historyLimit": 200,
+    "sanitized": true,
+    "collapsed": true,
+    "notes": [
+      "Captured from one authorized, read-only pwd tool call.",
+      "Repeated message.part.delta events are represented once.",
+      "Identifiers, paths, timestamps, reasoning, text, and tool output are synthetic.",
+      "No cookies, authorization headers, proxy host, device identifier, workspace identifier, or conversation identifier are retained."
+    ]
+  },
+  "requests": {
+    "events": {
+      "method": "GET",
+      "path": "/api/v1/events",
+      "responseContentType": "text/event-stream",
+      "status": 200
+    },
+    "promptAsync": {
+      "method": "POST",
+      "path": "/api/v1/conversations/conversation-1/prompt/async",
+      "status": 200,
+      "body": {
+        "sessionID": "conversation-1",
+        "messageID": "message-user-1",
+        "agent": "build",
+        "model": {
+          "providerID": "costrict",
+          "modelID": "DeepSeek-V4-Flash"
+        },
+        "parts": [
+          {
+            "id": "part-user-text-1",
+            "type": "text",
+            "text": "Run pwd without modifying files."
+          }
+        ]
+      }
+    },
+    "history": {
+      "method": "GET",
+      "path": "/api/v1/conversations/conversation-1/messages?limit=200",
+      "responseContentType": "application/json",
+      "status": 200,
+      "envelope": "array"
+    }
+  },
+  "sse": {
+    "captureSummary": {
+      "sawTargetConversationEvent": true,
+      "sawSessionIdle": true,
+      "eventCounts": {
+        "message.part.delta": 120,
+        "message.part.updated": 12,
+        "message.updated": 6,
+        "session.diff": 1,
+        "session.idle": 1,
+        "session.info": 1,
+        "session.result": 1,
+        "session.status": 4
+      }
+    },
+    "representativeEvents": [
+      {
+        "type": "session.status",
+        "properties": {
+          "sessionID": "conversation-1",
+          "status": {
+            "type": "busy"
+          }
+        }
+      },
+      {
+        "type": "message.updated",
+        "properties": {
+          "sessionID": "conversation-1",
+          "info": {
+            "id": "message-user-1",
+            "role": "user",
+            "modelID": "DeepSeek-V4-Flash",
+            "providerID": "costrict",
+            "time": {
+              "created": 1000
+            }
+          }
+        }
+      },
+      {
+        "type": "session.info",
+        "properties": {
+          "sessionID": "conversation-1",
+          "subtype": "init"
+        }
+      },
+      {
+        "type": "message.part.updated",
+        "properties": {
+          "sessionID": "conversation-1",
+          "part": {
+            "id": "part-reasoning-1",
+            "sessionID": "conversation-1",
+            "messageID": "message-assistant-tool-1",
+            "type": "reasoning",
+            "text": "Fixture reasoning"
+          }
+        }
+      },
+      {
+        "type": "message.part.delta",
+        "properties": {
+          "sessionID": "conversation-1",
+          "messageID": "message-assistant-tool-1",
+          "partID": "part-reasoning-1",
+          "field": "text",
+          "delta": "Fixture streamed reasoning"
+        }
+      },
+      {
+        "type": "message.part.updated",
+        "properties": {
+          "sessionID": "conversation-1",
+          "part": {
+            "id": "part-tool-1",
+            "sessionID": "conversation-1",
+            "messageID": "message-assistant-tool-1",
+            "type": "tool",
+            "callID": "call-1",
+            "tool": "bash",
+            "state": {
+              "status": "pending",
+              "input": {
+                "command": "pwd",
+                "description": "Print the current directory"
+              },
+              "raw": "{\"command\":\"pwd\"}"
+            }
+          }
+        }
+      },
+      {
+        "type": "message.part.updated",
+        "properties": {
+          "sessionID": "conversation-1",
+          "part": {
+            "id": "part-tool-1",
+            "sessionID": "conversation-1",
+            "messageID": "message-assistant-tool-1",
+            "type": "tool",
+            "callID": "call-1",
+            "tool": "bash",
+            "state": {
+              "status": "running",
+              "input": {
+                "command": "pwd",
+                "description": "Print the current directory"
+              },
+              "time": {
+                "start": 1001
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "message.part.updated",
+        "properties": {
+          "sessionID": "conversation-1",
+          "part": {
+            "id": "part-tool-1",
+            "sessionID": "conversation-1",
+            "messageID": "message-assistant-tool-1",
+            "type": "tool",
+            "callID": "call-1",
+            "tool": "bash",
+            "state": {
+              "status": "completed",
+              "input": {
+                "command": "pwd",
+                "description": "Print the current directory"
+              },
+              "output": "/workspace",
+              "title": "Print the current directory",
+              "time": {
+                "start": 1001,
+                "end": 1002
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "message.part.updated",
+        "properties": {
+          "sessionID": "conversation-1",
+          "part": {
+            "id": "part-step-finish-1",
+            "sessionID": "conversation-1",
+            "messageID": "message-assistant-tool-1",
+            "type": "step-finish",
+            "reason": "stop",
+            "cost": 0,
+            "tokens": {
+              "input": 100,
+              "output": 10,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "message.updated",
+        "properties": {
+          "sessionID": "conversation-1",
+          "info": {
+            "id": "message-assistant-final-1",
+            "sessionID": "conversation-1",
+            "role": "assistant",
+            "modelID": "DeepSeek-V4-Flash",
+            "providerID": "costrict",
+            "finish": "end_turn",
+            "time": {
+              "created": 1003,
+              "completed": 1004
+            }
+          }
+        }
+      },
+      {
+        "type": "session.result",
+        "properties": {
+          "sessionID": "conversation-1",
+          "subtype": "success",
+          "isError": false,
+          "stopReason": "end_turn",
+          "usage": {
+            "input_tokens": 100,
+            "output_tokens": 10,
+            "cache_read_input_tokens": 0,
+            "server_tool_use": {
+              "web_fetch_requests": 0,
+              "web_search_requests": 0
+            }
+          }
+        }
+      },
+      {
+        "type": "session.status",
+        "properties": {
+          "sessionID": "conversation-1",
+          "status": {
+            "type": "idle"
+          }
+        }
+      },
+      {
+        "type": "session.idle",
+        "properties": {
+          "sessionID": "conversation-1"
+        }
+      },
+      {
+        "type": "session.diff",
+        "properties": {
+          "sessionID": "conversation-1",
+          "diff": []
+        }
+      }
+    ]
+  },
+  "history": {
+    "totalMessagesInCapture": 9,
+    "selectedMessages": [
+      {
+        "info": {
+          "id": "message-user-1",
+          "sessionID": "conversation-1",
+          "role": "user",
+          "agent": "build",
+          "content": "Run pwd without modifying files.",
+          "time": {
+            "created": 1000,
+            "completed": 1000
+          }
+        },
+        "parts": [
+          {
+            "id": "part-user-text-1",
+            "sessionID": "conversation-1",
+            "messageID": "message-user-1",
+            "type": "text",
+            "text": "Run pwd without modifying files."
+          }
+        ]
+      },
+      {
+        "info": {
+          "id": "message-assistant-tool-1",
+          "sessionID": "conversation-1",
+          "parentID": "message-user-1",
+          "role": "assistant",
+          "agent": "build",
+          "mode": "build",
+          "model": "DeepSeek-V4-Flash",
+          "modelID": "DeepSeek-V4-Flash",
+          "content": [
+            {
+              "type": "thinking",
+              "thinking": "Fixture reasoning",
+              "signature": ""
+            },
+            {
+              "type": "tool_use",
+              "id": "call-1",
+              "name": "Bash",
+              "input": {
+                "command": "pwd",
+                "description": "Print the current directory"
+              }
+            }
+          ],
+          "time": {
+            "created": 1001,
+            "completed": 1002
+          }
+        },
+        "parts": [
+          {
+            "id": "part-reasoning-1",
+            "sessionID": "conversation-1",
+            "messageID": "message-assistant-tool-1",
+            "type": "reasoning",
+            "text": "Fixture reasoning"
+          },
+          {
+            "id": "part-tool-1",
+            "sessionID": "conversation-1",
+            "messageID": "message-assistant-tool-1",
+            "type": "tool",
+            "callID": "call-1",
+            "tool": "bash",
+            "state": {
+              "status": "completed",
+              "input": {
+                "command": "pwd",
+                "description": "Print the current directory"
+              },
+              "output": "/workspace",
+              "title": "Print the current directory",
+              "time": {
+                "start": 1001,
+                "end": 1002
+              }
+            }
+          },
+          {
+            "id": "part-step-finish-1",
+            "sessionID": "conversation-1",
+            "messageID": "message-assistant-tool-1",
+            "type": "step-finish",
+            "reason": "stop",
+            "cost": 0,
+            "tokens": {
+              "input": 100,
+              "output": 10,
+              "reasoning": 0,
+              "cache": {
+                "read": 0,
+                "write": 0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "info": {
+          "id": "message-assistant-final-1",
+          "sessionID": "conversation-1",
+          "parentID": "message-assistant-tool-1",
+          "role": "assistant",
+          "agent": "build",
+          "mode": "build",
+          "model": "DeepSeek-V4-Flash",
+          "modelID": "DeepSeek-V4-Flash",
+          "content": [
+            {
+              "type": "thinking",
+              "thinking": "Fixture reasoning",
+              "signature": ""
+            },
+            {
+              "type": "text",
+              "text": "The current directory is /workspace."
+            }
+          ],
+          "time": {
+            "created": 1003,
+            "completed": 1004
+          }
+        },
+        "parts": [
+          {
+            "id": "part-reasoning-2",
+            "sessionID": "conversation-1",
+            "messageID": "message-assistant-final-1",
+            "type": "reasoning",
+            "text": "Fixture reasoning"
+          },
+          {
+            "id": "part-text-1",
+            "sessionID": "conversation-1",
+            "messageID": "message-assistant-final-1",
+            "type": "text",
+            "text": "The current directory is /workspace."
+          },
+          {
+            "id": "part-step-finish-2",
+            "sessionID": "conversation-1",
+            "messageID": "message-assistant-final-1",
+            "type": "step-finish",
+            "reason": "stop",
+            "cost": 0,
+            "tokens": {
+              "input": 110,
+              "output": 10,
+              "reasoning": 0,
+              "cache": {
+                "read": 100,
+                "write": 0
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
