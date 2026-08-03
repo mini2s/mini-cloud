@@ -646,3 +646,107 @@ func TestShouldEnqueueSquadLeaderOnComment_OnlyWhenInProgress(t *testing.T) {
 		t.Fatal("shouldEnqueueSquadLeaderOnComment() = false for status in_progress, want true")
 	}
 }
+
+// TestCreateIssueRunNowSquadLeaderIdleFirstPicksIdleRuntime mirrors
+// TestCreateIssueRunNowBuiltinAgentIdleFirstPicksIdleRuntime (agent path) for
+// the squad dispatch path. The squad's leader is a built-in agent, and an
+// idle_first run-now must land the LEADER task on the idle runtime — not the
+// busy oldest one that resolveRuntimeForAgent would auto-pick.
+//
+// Pre-fix EnqueueTaskForSquadLeader ignored the policy override, so the leader
+// task landed on the busy fixture runtime (first online in ListAgentRuntimes).
+// Post-fix the squad branch resolves the runtime by policy and passes it
+// through, landing on the idle runtime.
+func TestCreateIssueRunNowSquadLeaderIdleFirstPicksIdleRuntime(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+
+	// Runtime A: the shared fixture runtime — oldest created_at in the
+	// workspace, so ListAgentRuntimes (ORDER BY created_at ASC) returns it
+	// first. This is what the pre-Task-4 fallback picks regardless of load.
+	busyRuntimeID := handlerTestRuntimeID(t)
+
+	// Seed a non-terminal task against runtime A so its ActiveTaskCount > 0 in
+	// ListWorkflowRuntimeCandidates. The row carries no issue_id, so
+	// CancelTasksForIssue on the new issue below cannot touch it.
+	var seedTaskID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_agent_task_queue (agent_id, runtime_id, status, priority)
+		VALUES ($1, $2, 'running', 0)
+		RETURNING id
+	`, builtinAgentID, busyRuntimeID).Scan(&seedTaskID); err != nil {
+		t.Fatalf("seed busy task on fixture runtime: %v", err)
+	}
+
+	// Runtime B: a second online runtime, created AFTER runtime A (newer
+	// created_at), zero active tasks — the idle_first target.
+	var idleRuntimeID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_agent_runtime (
+			workspace_id, daemon_id, name, runtime_mode, provider, status, device_info, metadata, last_seen_at
+		)
+		VALUES ($1, NULL, $2, 'cloud', $3, 'online', '', '{}'::jsonb, now())
+		RETURNING id
+	`, testWorkspaceID, "Squad Leader Idle First Runtime", "squad_idle_first_runtime").Scan(&idleRuntimeID); err != nil {
+		t.Fatalf("create idle runtime B: %v", err)
+	}
+
+	// Squad with the built-in agent as leader (leader.IsBuiltin gates the
+	// resolveIssueRuntime call that honors idle_first).
+	var squadID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_squad (workspace_id, name, description, leader_id, creator_id)
+		VALUES ($1, $2, '', $3, $4)
+		RETURNING id
+	`, testWorkspaceID, "Squad Leader Idle First", builtinAgentID, testUserID).Scan(&squadID); err != nil {
+		t.Fatalf("create squad: %v", err)
+	}
+
+	// FK on multica_agent_task_queue.runtime_id is ON DELETE RESTRICT, so scrub
+	// task rows before the runtime row goes away. Squad + issue rows are
+	// removed by their own cleanups below.
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(ctx, `DELETE FROM multica_squad WHERE id = $1`, squadID)
+		_, _ = testPool.Exec(ctx, `DELETE FROM multica_agent_task_queue WHERE runtime_id = $1`, idleRuntimeID)
+		_, _ = testPool.Exec(ctx, `DELETE FROM multica_agent_task_queue WHERE id = $1`, seedTaskID)
+		_, _ = testPool.Exec(ctx, `DELETE FROM multica_agent_runtime WHERE id = $1`, idleRuntimeID)
+	})
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":                    "Run now idle_first squad leader",
+		"status":                   "in_progress",
+		"assignee_type":            "squad",
+		"assignee_id":              squadID,
+		"runtime_selection_policy": "idle_first",
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var created IssueResponse
+	if err := json.NewDecoder(w.Body).Decode(&created); err != nil {
+		t.Fatalf("decode issue: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(ctx, `DELETE FROM multica_agent_task_queue WHERE issue_id = $1`, created.ID)
+		_, _ = testPool.Exec(ctx, `DELETE FROM multica_issue WHERE id = $1`, created.ID)
+	})
+
+	// The squad leader's queued task must exist and be on the idle runtime.
+	var taskRuntimeID string
+	err := testPool.QueryRow(ctx, `
+		SELECT runtime_id::text FROM multica_agent_task_queue
+		WHERE issue_id = $1 AND agent_id = $2 AND status = 'queued'
+		ORDER BY created_at DESC LIMIT 1
+	`, created.ID, builtinAgentID).Scan(&taskRuntimeID)
+	if err != nil {
+		t.Fatalf("no queued task enqueued for squad leader: %v", err)
+	}
+	if taskRuntimeID != idleRuntimeID {
+		t.Fatalf("idle_first should dispatch squad leader to the idle runtime %s, got %s (busy runtime was %s)",
+			idleRuntimeID, taskRuntimeID, busyRuntimeID)
+	}
+}

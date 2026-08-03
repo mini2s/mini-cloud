@@ -168,7 +168,13 @@ func (s *IssueAssignmentService) AfterIssueAssigned(
 		if err != nil || hasPending {
 			return err
 		}
-		_, err = s.Tasks.EnqueueTaskForSquadLeader(ctx, issue, squad.LeaderID, pgtype.UUID{})
+		runtimeID := runtimeSelection.RuntimeID
+		if leader.IsBuiltin {
+			if resolved := s.resolveIssueRuntime(ctx, issue, actor, runtimeSelection.Policy, runtimeID); resolved.Valid {
+				runtimeID = resolved
+			}
+		}
+		_, err = s.Tasks.EnqueueTaskForSquadLeader(ctx, issue, squad.LeaderID, pgtype.UUID{}, runtimeID)
 		return err
 	case "member":
 		s.startDefaultWorkflow(ctx, issue)
