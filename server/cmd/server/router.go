@@ -697,6 +697,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Post("/api/node-runs/{nodeRunId}/review", h.ReviewNodeRun)
 			r.Post("/api/node-runs/{nodeRunId}/skip", h.SkipNodeRun)
 			r.Post("/api/node-runs/{nodeRunId}/retry", h.RetryNodeRun)
+			r.Put("/api/node-runs/{nodeRunId}/assignees", h.UpdateNodeRunAssignees)
 			r.Post("/api/node-runs/{nodeRunId}/split/generate", h.GenerateSplitTasks)
 			r.Post("/api/node-runs/{nodeRunId}/split/recover", h.RecoverSplitDraftTasks)
 			r.Post("/api/node-runs/{nodeRunId}/split/reset-original", h.ResetSplitDraftTasksToOriginal)

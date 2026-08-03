@@ -1,0 +1,7 @@
+{
+  "//": "multica uses Vitest, not Jest. A VS Code Jest extension (if installed globally) auto-discovers *.test.tsx and tries to run it with Jest, which crashes the worker because multica has no jest config/deps. Disable Jest auto-run here; run tests via `pnpm test` or the Vitest VS Code extension (vitest.vscode).",
+  "jest.autoEnable": false,
+  "jest.autoRun": "off",
+  "jest.enable": false,
+  "jest.restartSessionOnConfigFileChange": false
+}
