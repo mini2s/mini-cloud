@@ -85,3 +85,25 @@ func TestWorkflowAdminsManagedExternallyInPlatformMode(t *testing.T) {
 		t.Fatalf("platform mode, non-platform-admin caller: got %d, want 403", w.Code)
 	}
 }
+
+func TestGetMeWorkflowAdminFields(t *testing.T) {
+	suffix := fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())
+	userID := insertWorkflowAdminTestUser(t, suffix+"-me", true)
+
+	h := &Handler{Queries: db.New(testPool)} // local fallback mode
+	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	req.Header.Set("X-User-ID", userID)
+	w := httptest.NewRecorder()
+	h.GetMe(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"can_manage_workflows":true`) {
+		t.Fatalf("expected can_manage_workflows:true, body: %s", body)
+	}
+	if !strings.Contains(body, `"workflow_admin_source":"local"`) {
+		t.Fatalf("expected workflow_admin_source:local, body: %s", body)
+	}
+}
