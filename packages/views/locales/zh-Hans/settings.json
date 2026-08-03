@@ -61,9 +61,17 @@
         "label": "分配",
         "description": "你被分配或取消分配某个任务时"
       },
+      "workflow_roles": {
+        "label": "工作流角色",
+        "description": "你被指定为工作流节点执行者或审核者时"
+      },
       "status_changes": {
         "label": "状态变更",
         "description": "你订阅的任务状态变化时（例如 todo、in progress、done）"
+      },
+      "workflow_node_status": {
+        "label": "工作流节点状态",
+        "description": "你作为执行者或审核者的工作流节点状态变化时"
       },
       "comments": {
         "label": "评论与提及",

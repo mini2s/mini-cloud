@@ -31,6 +31,10 @@ func registerSubscriberListeners(bus *events.Bus, queries *db.Queries) {
 			addSubscriber(bus, queries, e.WorkspaceID, issue.ID, "member", *issue.ResponsibleUserID, "responsible")
 		}
 
+		if issue.AssigneeType != nil && issue.AssigneeID != nil && *issue.AssigneeID != "" {
+			addSubscriber(bus, queries, e.WorkspaceID, issue.ID, *issue.AssigneeType, *issue.AssigneeID, "assignee")
+		}
+
 		// Subscribe @mentioned users in description
 		if issue.Description != nil && *issue.Description != "" {
 			for _, m := range parseMentions(*issue.Description) {
@@ -128,16 +132,33 @@ func extractIssueFields(v any) (handler.IssueResponse, bool) {
 	issue := handler.IssueResponse{}
 	issue.ID, _ = m["id"].(string)
 	issue.WorkspaceID, _ = m["workspace_id"].(string)
+	issue.Title, _ = m["title"].(string)
+	issue.Status, _ = m["status"].(string)
+	issue.Priority, _ = m["priority"].(string)
 	issue.CreatorType, _ = m["creator_type"].(string)
 	issue.CreatorID, _ = m["creator_id"].(string)
-	issue.AssigneeType, _ = m["assignee_type"].(*string)
-	issue.AssigneeID, _ = m["assignee_id"].(*string)
-	issue.ResponsibleUserID, _ = m["responsible_user_id"].(*string)
-	issue.Description, _ = m["description"].(*string)
+	issue.AssigneeType = optionalString(m["assignee_type"])
+	issue.AssigneeID = optionalString(m["assignee_id"])
+	issue.ResponsibleUserID = optionalString(m["responsible_user_id"])
+	issue.Description = optionalString(m["description"])
 	if issue.ID == "" || issue.CreatorID == "" {
 		return handler.IssueResponse{}, false
 	}
 	return issue, true
+}
+
+func optionalString(value any) *string {
+	switch v := value.(type) {
+	case *string:
+		return v
+	case string:
+		if v == "" {
+			return nil
+		}
+		return &v
+	default:
+		return nil
+	}
 }
 
 // addSubscriber adds a user as an issue subscriber and publishes a

@@ -3,9 +3,13 @@ import type { IssueStatus } from "./issue";
 export type InboxSeverity = "action_required" | "attention" | "info";
 
 export type InboxItemType =
+  | "responsible_assigned"
   | "issue_assigned"
   | "unassigned"
   | "assignee_changed"
+  | "workflow_executor_assigned"
+  | "workflow_reviewer_assigned"
+  | "workflow_node_status_changed"
   | "status_changed"
   | "priority_changed"
   | "start_date_changed"

@@ -13,9 +13,13 @@ import { useT } from "../../i18n";
 export function useTypeLabels(): Record<InboxItemType, string> {
   const { t } = useT("inbox");
   return {
+    responsible_assigned: t(($) => $.types.responsible_assigned),
     issue_assigned: t(($) => $.types.issue_assigned),
     unassigned: t(($) => $.types.unassigned),
     assignee_changed: t(($) => $.types.assignee_changed),
+    workflow_executor_assigned: t(($) => $.types.workflow_executor_assigned),
+    workflow_reviewer_assigned: t(($) => $.types.workflow_reviewer_assigned),
+    workflow_node_status_changed: t(($) => $.types.workflow_node_status_changed),
     status_changed: t(($) => $.types.status_changed),
     priority_changed: t(($) => $.types.priority_changed),
     start_date_changed: t(($) => $.types.start_date_changed),
@@ -83,6 +87,16 @@ export function InboxDetailLabel({ item }: { item: InboxItem }) {
         return <span>{t(($) => $.labels.assigned_to, { name: getActorName(details.new_assignee_type ?? "member", details.new_assignee_id) })}</span>;
       }
       return <span>{typeLabels[item.type]}</span>;
+    }
+    case "responsible_assigned":
+      return <span>{typeLabels[item.type]}</span>;
+    case "workflow_executor_assigned":
+      return <span>{typeLabels[item.type]}</span>;
+    case "workflow_reviewer_assigned":
+      return <span>{typeLabels[item.type]}</span>;
+    case "workflow_node_status_changed": {
+      if (!details.to) return <span>{typeLabels[item.type]}</span>;
+      return <span>{t(($) => $.labels.workflow_node_status_to, { status: details.to })}</span>;
     }
     case "start_date_changed": {
       if (details.to) return <span>{t(($) => $.labels.set_start_date_to, { date: shortDate(details.to) })}</span>;

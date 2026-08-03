@@ -59,11 +59,19 @@
     "groups": {
       "assignments": {
         "label": "Assignments",
-        "description": "When you are assigned or unassigned from an issue"
+        "description": "When you become the responsible owner or assignee of an issue"
+      },
+      "workflow_roles": {
+        "label": "Workflow roles",
+        "description": "When you are assigned as a workflow node executor or reviewer"
       },
       "status_changes": {
         "label": "Status changes",
-        "description": "When an issue you follow changes status (e.g. todo, in progress, done)"
+        "description": "When an issue you own, handle, or follow changes status"
+      },
+      "workflow_node_status": {
+        "label": "Workflow node status",
+        "description": "When a workflow node where you are executor or reviewer changes status"
       },
       "comments": {
         "label": "Comments & Mentions",
