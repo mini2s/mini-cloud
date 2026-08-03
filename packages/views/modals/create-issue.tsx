@@ -385,36 +385,36 @@ export function ManualCreatePanel({
             <span className="font-medium">{t(($) => $.create_issue.manual_breadcrumb)}</span>
           </div>
           <div className="flex items-center gap-1">
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                onClick={() => setIsExpanded(!isExpanded)}
-                className="rounded-sm p-1.5 opacity-70 hover:opacity-100 hover:bg-accent/60 transition-all cursor-pointer"
-              >
-                {isExpanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
-              </button>
-            }
-          />
-          <TooltipContent side="bottom">
-            {isExpanded
-              ? t(($) => $.common.collapse_tooltip)
-              : t(($) => $.common.expand_tooltip)}
-          </TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                onClick={onClose}
-                className="rounded-sm p-1.5 opacity-70 hover:opacity-100 hover:bg-accent/60 transition-all cursor-pointer"
-              >
-                <XIcon className="size-4" />
-              </button>
-            }
-          />
-          <TooltipContent side="bottom">{t(($) => $.common.close)}</TooltipContent>
-        </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    onClick={() => setIsExpanded(!isExpanded)}
+                    className="rounded-sm p-1.5 opacity-70 hover:opacity-100 hover:bg-accent/60 transition-all cursor-pointer"
+                  >
+                    {isExpanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+                  </button>
+                }
+              />
+              <TooltipContent side="bottom">
+                {isExpanded
+                  ? t(($) => $.common.collapse_tooltip)
+                  : t(($) => $.common.expand_tooltip)}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    onClick={onClose}
+                    className="rounded-sm p-1.5 opacity-70 hover:opacity-100 hover:bg-accent/60 transition-all cursor-pointer"
+                  >
+                    <XIcon className="size-4" />
+                  </button>
+                }
+              />
+              <TooltipContent side="bottom">{t(($) => $.common.close)}</TooltipContent>
+            </Tooltip>
           </div>
         </div>
 

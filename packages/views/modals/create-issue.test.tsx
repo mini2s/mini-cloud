@@ -221,8 +221,6 @@ vi.mock("../issues/components", () => ({
             : {
                 assignee_type: "workflow",
                 assignee_id: "workflow-1",
-                runtime_selection_policy: "specified_runtime_first",
-                runtime_id: "runtime-1",
               },
         )
       }
