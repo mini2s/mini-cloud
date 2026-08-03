@@ -1112,10 +1112,7 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if shouldClearPluginId {
-		updated, err = h.Queries.ClearAgentPluginId(r.Context(), db.ClearAgentPluginIdParams{
-			ID:          updated.ID,
-			WorkspaceID: existing.WorkspaceID,
-		})
+		updated, err = h.Queries.ClearAgentPluginId(r.Context(), updated.ID)
 		if err != nil {
 			slog.Warn("clear agent plugin_id failed", append(logger.RequestAttrs(r), "error", err, "agent_id", id)...)
 			writeError(w, http.StatusInternalServerError, "failed to clear plugin_id: "+err.Error())
@@ -1123,10 +1120,7 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if shouldClearPluginName {
-		updated, err = h.Queries.ClearAgentPluginName(r.Context(), db.ClearAgentPluginNameParams{
-			ID:          updated.ID,
-			WorkspaceID: existing.WorkspaceID,
-		})
+		updated, err = h.Queries.ClearAgentPluginName(r.Context(), updated.ID)
 		if err != nil {
 			slog.Warn("clear agent plugin_name failed", append(logger.RequestAttrs(r), "error", err, "agent_id", id)...)
 			writeError(w, http.StatusInternalServerError, "failed to clear plugin_name: "+err.Error())

@@ -599,16 +599,19 @@ RETURNING *;
 -- name: ClearAgentPluginId :one
 -- Explicit NULL-clear for plugin_id. COALESCE-based UpdateAgent cannot
 -- set the column back to NULL, so the API layer routes "user removed plugin"
--- through this dedicated query.
+-- through this dedicated query. Filters on id only (no workspace_id): built-in
+-- agents have workspace_id IS NULL, and `workspace_id = NULL` never matches,
+-- which would leave the clear silently hitting zero rows. Authorization is
+-- already enforced upstream by loadAgentForUser + canManageAgent.
 UPDATE multica_agent SET plugin_id = NULL, updated_at = now()
-WHERE id = $1 AND workspace_id = $2
+WHERE id = $1
 RETURNING *;
 
 -- name: ClearAgentPluginName :one
 -- Explicit NULL-clear for plugin_name, paired with ClearAgentPluginId so a
 -- plugin unbind clears both the catalog id and the install slug together.
 UPDATE multica_agent SET plugin_name = NULL, updated_at = now()
-WHERE id = $1 AND workspace_id = $2
+WHERE id = $1
 RETURNING *;
 
 -- name: ListBuiltinAgents :many

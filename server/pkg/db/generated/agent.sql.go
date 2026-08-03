@@ -578,20 +578,18 @@ func (q *Queries) ClearAgentMcpConfig(ctx context.Context, id pgtype.UUID) (Mult
 
 const clearAgentPluginId = `-- name: ClearAgentPluginId :one
 UPDATE multica_agent SET plugin_id = NULL, updated_at = now()
-WHERE id = $1 AND workspace_id = $2
+WHERE id = $1
 RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name
 `
 
-type ClearAgentPluginIdParams struct {
-	ID          pgtype.UUID `json:"id"`
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
-}
-
 // Explicit NULL-clear for plugin_id. COALESCE-based UpdateAgent cannot
 // set the column back to NULL, so the API layer routes "user removed plugin"
-// through this dedicated query.
-func (q *Queries) ClearAgentPluginId(ctx context.Context, arg ClearAgentPluginIdParams) (MulticaAgent, error) {
-	row := q.db.QueryRow(ctx, clearAgentPluginId, arg.ID, arg.WorkspaceID)
+// through this dedicated query. Filters on id only (no workspace_id): built-in
+// agents have workspace_id IS NULL, and `workspace_id = NULL` never matches,
+// which would leave the clear silently hitting zero rows. Authorization is
+// already enforced upstream by loadAgentForUser + canManageAgent.
+func (q *Queries) ClearAgentPluginId(ctx context.Context, id pgtype.UUID) (MulticaAgent, error) {
+	row := q.db.QueryRow(ctx, clearAgentPluginId, id)
 	var i MulticaAgent
 	err := row.Scan(
 		&i.ID,
@@ -625,19 +623,14 @@ func (q *Queries) ClearAgentPluginId(ctx context.Context, arg ClearAgentPluginId
 
 const clearAgentPluginName = `-- name: ClearAgentPluginName :one
 UPDATE multica_agent SET plugin_name = NULL, updated_at = now()
-WHERE id = $1 AND workspace_id = $2
+WHERE id = $1
 RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name
 `
 
-type ClearAgentPluginNameParams struct {
-	ID          pgtype.UUID `json:"id"`
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
-}
-
 // Explicit NULL-clear for plugin_name, paired with ClearAgentPluginId so a
 // plugin unbind clears both the catalog id and the install slug together.
-func (q *Queries) ClearAgentPluginName(ctx context.Context, arg ClearAgentPluginNameParams) (MulticaAgent, error) {
-	row := q.db.QueryRow(ctx, clearAgentPluginName, arg.ID, arg.WorkspaceID)
+func (q *Queries) ClearAgentPluginName(ctx context.Context, id pgtype.UUID) (MulticaAgent, error) {
+	row := q.db.QueryRow(ctx, clearAgentPluginName, id)
 	var i MulticaAgent
 	err := row.Scan(
 		&i.ID,
