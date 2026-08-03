@@ -1,28 +1,64 @@
 {
   "title": "首页",
-  "mock_badge": "示例数据",
+  "status_bar": {
+    "in_progress": "{{count}} 个任务进行中",
+    "agents_working": "{{count}} 个 Agent 工作中",
+    "unread": "{{count}} 条待处理通知",
+    "blocked": "{{count}} 项受阻",
+    "all_clear": "一切正常"
+  },
+  "action_required": {
+    "section": "需要你处理",
+    "inbox_title": "收件箱未读",
+    "my_tasks_title": "我的任务",
+    "view_all": "查看全部",
+    "inbox_empty": "没有未读通知",
+    "my_tasks_empty": "暂无指派给你的未完成任务"
+  },
+  "status": {
+    "backlog": "待规划",
+    "todo": "待办",
+    "in_progress": "进行中",
+    "in_review": "评审中",
+    "blocked": "受阻"
+  },
+  "agents": {
+    "section": "AI 同事状态",
+    "distribution_title": "Agent 状态分布",
+    "running_title": "正在执行",
+    "trend_title": "近 7 天活动",
+    "working": "工作中",
+    "queued": "排队中",
+    "stuck": "受阻",
+    "idle": "空闲",
+    "offline": "离线",
+    "running_empty": "当前没有正在执行的任务",
+    "tasks_completed": "完成任务 {{count}}",
+    "duration_now": "刚刚",
+    "duration_minutes": "{{count}} 分钟",
+    "duration_hours": "{{count}} 小时"
+  },
   "stats": {
     "section": "效能统计",
+    "period": "近 7 天",
     "completion_rate": "完成率",
+    "completion_hint": "{{done}} / {{total}} 已完成",
     "active_tasks": "进行中任务",
     "done_this_week": "本周完成",
-    "avg_cycle_time": "平均周期",
-    "period": "近 7 天"
+    "failure_rate": "失败率"
   },
   "quick_nav": {
     "section": "快捷导航",
     "issues": "需求",
     "my_issues": "我的任务",
     "projects": "项目",
-    "inbox": "收件箱",
+    "agents": "Agents",
     "workflows": "工作流",
     "skills": "技能"
   },
-  "lists": {
-    "section_my_work": "我的工作",
-    "section_watching": "我关注的工作",
-    "section_assigned": "指派给我",
-    "view_all": "查看全部",
-    "empty": "暂无内容"
+  "workflows": {
+    "section": "运行中的工作流",
+    "active_count": "{{count}} 个活跃工作流",
+    "nodes": "{{count}} 个节点"
   }
 }

@@ -1,28 +1,64 @@
 {
   "title": "Home",
-  "mock_badge": "Mock data",
+  "status_bar": {
+    "in_progress": "{{count}} tasks in progress",
+    "agents_working": "{{count}} agents working",
+    "unread": "{{count}} unread notifications",
+    "blocked": "{{count}} blocked",
+    "all_clear": "All clear"
+  },
+  "action_required": {
+    "section": "Action required",
+    "inbox_title": "Unread inbox",
+    "my_tasks_title": "My tasks",
+    "view_all": "View all",
+    "inbox_empty": "No unread notifications",
+    "my_tasks_empty": "No unfinished tasks assigned to you"
+  },
+  "status": {
+    "backlog": "Backlog",
+    "todo": "Todo",
+    "in_progress": "In progress",
+    "in_review": "In review",
+    "blocked": "Blocked"
+  },
+  "agents": {
+    "section": "AI teammates",
+    "distribution_title": "Agent status",
+    "running_title": "Running now",
+    "trend_title": "Last 7 days",
+    "working": "Working",
+    "queued": "Queued",
+    "stuck": "Stuck",
+    "idle": "Idle",
+    "offline": "Offline",
+    "running_empty": "No tasks running right now",
+    "tasks_completed": "{{count}} tasks completed",
+    "duration_now": "just now",
+    "duration_minutes": "{{count}}m",
+    "duration_hours": "{{count}}h"
+  },
   "stats": {
     "section": "Performance",
+    "period": "Last 7 days",
     "completion_rate": "Completion rate",
+    "completion_hint": "{{done}} / {{total}} done",
     "active_tasks": "Active tasks",
     "done_this_week": "Done this week",
-    "avg_cycle_time": "Avg. cycle time",
-    "period": "Last 7 days"
+    "failure_rate": "Failure rate"
   },
   "quick_nav": {
     "section": "Quick navigation",
     "issues": "Issues",
     "my_issues": "My tasks",
     "projects": "Projects",
-    "inbox": "Inbox",
+    "agents": "Agents",
     "workflows": "Workflows",
     "skills": "Skills"
   },
-  "lists": {
-    "section_my_work": "My work",
-    "section_watching": "Watching",
-    "section_assigned": "Assigned to me",
-    "view_all": "View all",
-    "empty": "Nothing here yet"
+  "workflows": {
+    "section": "Active workflows",
+    "active_count": "{{count}} active workflows",
+    "nodes": "{{count}} nodes"
   }
 }
