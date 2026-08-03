@@ -106,7 +106,7 @@ export function SettingsPage({ extraAccountTabs }: SettingsPageProps = {}) {
   // costrict-integrated deployments admin membership lives in costrict's
   // console, so the tab is hidden even for platform admins.
   const isWorkflowAdmin =
-    user?.can_manage_workflows === true && user?.workflow_admin_source !== "platform";
+    user?.can_manage_workflows === true && user?.workflow_admin_source === "local";
 
   // Keep existing GitHub PR integrations reachable for workspaces that already
   // use GitHub, while the Repositories tab no longer exposes platform switching.
