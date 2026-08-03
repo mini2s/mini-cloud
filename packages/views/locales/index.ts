@@ -21,9 +21,13 @@ import enModals from "./en/modals.json";
 import enRuntimes from "./en/runtimes.json";
 import enLayout from "./en/layout.json";
 import enUsage from "./en/usage.json";
+import enHome from "./en/home.json";
 import enUi from "./en/ui.json";
 import enSquads from "./en/squads.json";
 import enWorkflows from "./en/workflows.json";
+import enHub from "./en/hub.json";
+import enMe from "./en/me.json";
+import enChannels from "./en/channels.json";
 import zhHansCommon from "./zh-Hans/common.json";
 import zhHansAuth from "./zh-Hans/auth.json";
 import zhHansSettings from "./zh-Hans/settings.json";
@@ -46,9 +50,13 @@ import zhHansModals from "./zh-Hans/modals.json";
 import zhHansRuntimes from "./zh-Hans/runtimes.json";
 import zhHansLayout from "./zh-Hans/layout.json";
 import zhHansUsage from "./zh-Hans/usage.json";
+import zhHansHome from "./zh-Hans/home.json";
 import zhHansUi from "./zh-Hans/ui.json";
 import zhHansSquads from "./zh-Hans/squads.json";
 import zhHansWorkflows from "./zh-Hans/workflows.json";
+import zhHansHub from "./zh-Hans/hub.json";
+import zhHansMe from "./zh-Hans/me.json";
+import zhHansChannels from "./zh-Hans/channels.json";
 
 // Single source of truth for the resource bundle. Both apps (web layout +
 // desktop App.tsx) import from here so adding a locale or namespace happens
@@ -77,9 +85,13 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     runtimes: enRuntimes,
     layout: enLayout,
     usage: enUsage,
+    home: enHome,
     ui: enUi,
     squads: enSquads,
     workflows: enWorkflows,
+    hub: enHub,
+    me: enMe,
+    channels: enChannels,
   },
   "zh-Hans": {
     common: zhHansCommon,
@@ -104,8 +116,12 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     runtimes: zhHansRuntimes,
     layout: zhHansLayout,
     usage: zhHansUsage,
+    home: zhHansHome,
     ui: zhHansUi,
     squads: zhHansSquads,
     workflows: zhHansWorkflows,
+    hub: zhHansHub,
+    me: zhHansMe,
+    channels: zhHansChannels,
   },
 };

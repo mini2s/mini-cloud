@@ -4,7 +4,10 @@ import type { NextRequest } from "next/server";
 // Runtime-proxy routes: these rewrites are evaluated on every request so
 // REMOTE_API_URL can be overridden at runtime (e.g. via Helm extraEnv)
 // without rebuilding the image. Static rewrites (/docs) stay in next.config.ts.
-const proxyPrefixes = ["/api/", "/auth/", "/uploads/"];
+// `/kanban/` is forwarded to the Go backend, which reverse-proxies it to the
+// efficiency-dashboard (kanban) upstream with Basic Auth injected — see
+// server/internal/handler/kanban_proxy.go.
+const proxyPrefixes = ["/api/", "/auth/", "/uploads/", "/kanban/"];
 const proxyExact = ["/ws"];
 
 function configuredApiBasePath(): string | undefined {

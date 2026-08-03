@@ -26,6 +26,10 @@ dist-electron
 
 # test coverage
 coverage
+# ...except the admin Metrics "Coverage" route, which is a real source
+# directory that happens to share the name with the coverage output folder.
+!apps/admin/app/[workspaceSlug]/(dashboard)/metrics/coverage/
+!apps/admin/app/[workspaceSlug]/(dashboard)/metrics/coverage/**
 
 # Go
 server/bin/

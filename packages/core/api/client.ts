@@ -150,6 +150,50 @@ import type {
   SessionPermissionResponse,
   CreateRuntimePermissionRequest,
   UpdateRuntimePermissionRequest,
+  CapabilityItem,
+  CapabilityVersion,
+  CapabilityRegistry,
+  CapabilityArtifact,
+  ItemTag,
+  Category,
+  ScanResult,
+  Repository,
+  RepoMember,
+  SearchedUser,
+  EnterpriseCustomer,
+  AdminEnterpriseCustomer,
+  DistributionResult,
+  DistributionReceipt,
+  ItemFilterOptions,
+  SearchResult,
+  HubItemListParams,
+  HubItemCreateParams,
+  HubItemUpdateParams,
+  HubDistributionCreateParams,
+  HubDistributionAuthority,
+  HubRepoCreateParams,
+  HubRepoUpdateParams,
+  HubRepoMemberAddParams,
+  HubRepoInviteParams,
+  HubMcpConfigFields,
+  HubBehaviorLogBody,
+  HubTagListParams,
+  HubSemanticSearchParams,
+  HubUploadPluginParams,
+  HubUploadPluginProgress,
+  HubRepoSyncStatusResult,
+  HubRepoSyncTriggerResult,
+  HubRepoSyncLogListResult,
+  EnterpriseCustomerInput,
+  UserQuota,
+  UsageStatsParams,
+  UsageStatsResult,
+  ChannelConfig,
+  ChannelType,
+  ChannelUpdateInput,
+  AuthIdentity,
+  IdentityUnbindResult,
+  MergeResult,
 } from "../types";
 import type { OnboardingCompletionPath } from "../onboarding/types";
 import type {
@@ -2815,8 +2859,583 @@ export class ApiClient {
       endpoint: "PUT /api/workflows/:id/runs/:runId/role-resolutions",
     }).resolutions;
   }
+async retryWorkflowRoleResolutions(workflowId: string, runId: string): Promise<{ job_id: string; status: string }> {
+  return this.fetch(`/api/workflows/${workflowId}/runs/${runId}/role-resolutions/retry`, { method: "POST" });
+}
 
-  async retryWorkflowRoleResolutions(workflowId: string, runId: string): Promise<{ job_id: string; status: string }> {
-    return this.fetch(`/api/workflows/${workflowId}/runs/${runId}/role-resolutions/retry`, { method: "POST" });
+// ═══════════════════════════════════════════════════════════════════════════
+// Hub Items API
+// ═══════════════════════════════════════════════════════════════════════════
+
+async hubListItems(params?: HubItemListParams): Promise<{ items: CapabilityItem[]; total: number; hasMore?: boolean }> {
+  const p = new URLSearchParams();
+  if (params?.type) p.set("type", params.type);
+  if (params?.search) p.set("search", params.search);
+  if (params?.category) p.set("category", params.category);
+  if (params?.categories?.length) p.set("categories", params.categories.join(","));
+  if (params?.source?.length) p.set("source", params.source.join(","));
+  if (params?.tags?.length) p.set("tags", params.tags.join(","));
+  if (params?.securityStatuses?.length) p.set("securityStatuses", params.securityStatuses.join(","));
+  if (params?.riskGroup) p.set("riskGroup", params.riskGroup);
+  if (params?.sort) p.set("sortBy", params.sort);
+  if (params?.order) p.set("sortOrder", params.order);
+  if (params?.page) p.set("page", String(params.page));
+  if (params?.pageSize) p.set("pageSize", String(params.pageSize));
+  if (params?.hideForks) p.set("hideForks", "true");
+  if (params?.hideSubItems) p.set("hideSubItems", "true");
+  if (params?.registryId) p.set("registryId", params.registryId);
+  if (params?.status) p.set("status", params.status);
+  if (params?.favorited) p.set("favorited", "true");
+  if (params?.createdBy) p.set("createdBy", params.createdBy);
+  if (params?.includeForks) p.set("includeForks", "true");
+  if (params?.paginated) p.set("paginated", "true");
+  if (params?.parentPluginId) p.set("parentPluginId", params.parentPluginId);
+  if (params?.excludeSubSkills) p.set("excludeSubSkills", "true");
+  const qs = p.toString();
+  return this.fetch(`/api/items${qs ? `?${qs}` : ""}`);
+}
+
+/**
+ * List items created by the current user (server resolves "me" from the session
+ * token). Mirrors the source project's `itemApi.listMy` -> `/api/items/my`.
+ * Only filter params meaningful for "my items" are serialized.
+ */
+async hubListMyItems(params?: HubItemListParams): Promise<{ items: CapabilityItem[]; total: number; hasMore?: boolean }> {
+  const p = new URLSearchParams();
+  if (params?.type) p.set("type", params.type);
+  if (params?.search) p.set("search", params.search);
+  if (params?.categories?.length) p.set("categories", params.categories.join(","));
+  if (params?.source?.length) p.set("source", params.source.join(","));
+  if (params?.tags?.length) p.set("tags", params.tags.join(","));
+  if (params?.securityStatuses?.length) p.set("securityStatuses", params.securityStatuses.join(","));
+  if (params?.sort) p.set("sortBy", params.sort);
+  if (params?.order) p.set("sortOrder", params.order);
+  if (params?.page) p.set("page", String(params.page));
+  if (params?.pageSize) p.set("pageSize", String(params.pageSize));
+  const qs = p.toString();
+  return this.fetch(`/api/items/my${qs ? `?${qs}` : ""}`);
+}
+
+async hubGetItem(id: string): Promise<CapabilityItem> {
+  return this.fetch(`/api/items/${encodeURIComponent(id)}`);
+}
+
+async hubCreateItem(data: HubItemCreateParams): Promise<CapabilityItem> {
+  if (data.file) {
+    const form = new FormData();
+    form.append("file", data.file);
+    if (data.itemType) form.append("itemType", data.itemType);
+    if (data.name) form.append("name", data.name);
+    if (data.slug) form.append("slug", data.slug);
+    if (data.description) form.append("description", data.description);
+    if (data.category) form.append("category", data.category);
+    if (data.version) form.append("version", data.version);
+    if (data.registryId) form.append("registryId", data.registryId);
+    if (data.createdBy) form.append("createdBy", data.createdBy);
+    return this.fetch("/api/items", { method: "POST", body: form });
   }
+  const { file: _, ...rest } = data;
+  return this.fetch("/api/items", { method: "POST", body: JSON.stringify(rest) });
+}
+
+async hubUpdateItem(id: string, data: HubItemUpdateParams): Promise<CapabilityItem> {
+  if (data.file) {
+    const form = new FormData();
+    form.append("file", data.file);
+    if (data.name) form.append("name", data.name);
+    if (data.description) form.append("description", data.description);
+    if (data.category) form.append("category", data.category);
+    if (data.version) form.append("version", data.version);
+    if (data.commitMsg) form.append("commitMsg", data.commitMsg);
+    return this.fetch(`/api/items/${encodeURIComponent(id)}`, { method: "PUT", body: form });
+  }
+  const { file: _, ...rest } = data;
+  return this.fetch(`/api/items/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(rest) });
+}
+
+async hubDeleteItem(id: string): Promise<void> {
+  await this.fetch(`/api/items/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+async hubBatchDeleteItems(ids: string[]): Promise<{ deleted: number; skipped: number; forbidden: number; deletedIds: string[]; forbiddenIds: string[] }> {
+  return this.fetch("/api/items", { method: "DELETE", body: JSON.stringify({ ids }) });
+}
+
+async hubForkItem(id: string): Promise<CapabilityItem> {
+  return this.fetch(`/api/items/${encodeURIComponent(id)}/fork`, { method: "POST" });
+}
+
+async hubGetItemVersions(id: string): Promise<CapabilityVersion[]> {
+  const res = await this.fetch<{ versions: CapabilityVersion[] }>(`/api/items/${encodeURIComponent(id)}/versions`);
+  return res.versions ?? [];
+}
+
+async hubGetItemVersion(id: string, rev: number): Promise<CapabilityVersion> {
+  return this.fetch(`/api/items/${encodeURIComponent(id)}/versions/${rev}`);
+}
+
+// Uploads a plugin package to the hub (SD-05). Multipart POST to
+// /api/plugins/upload with auth headers injected internally — callers never
+// touch tokens/CSRF. `onProgress` receives (loaded, total) byte snapshots.
+async hubUploadPlugin(
+  params: HubUploadPluginParams,
+  onProgress?: (progress: HubUploadPluginProgress) => void,
+): Promise<CapabilityItem> {
+  const form = new FormData();
+  form.append("repo_id", params.repoId);
+  form.append("file", params.file);
+
+  const path = "/api/plugins/upload";
+
+  // fetch() cannot report upload progress without request streaming (limited
+  // browser support), so the progress-capable path uses XHR. Unlike the old
+  // dialog implementation, the XHR lives inside the client where baseUrl and
+  // auth headers are injected internally.
+  if (typeof XMLHttpRequest !== "undefined") {
+    return this.uploadWithProgress(path, form, onProgress);
+  }
+
+  // Non-browser fallback (tests / SSR): plain fetch, progress only brackets
+  // the transfer.
+  const total = params.file.size;
+  onProgress?.({ loaded: 0, total });
+  const res = await this.fetchRaw(path, { method: "POST", body: form });
+  onProgress?.({ loaded: total, total });
+  const json = (await res.json()) as { data?: CapabilityItem } | CapabilityItem;
+  return ("data" in json && json.data ? json.data : json) as CapabilityItem;
+}
+
+// XHR-backed multipart upload with progress events. Centralized here so the
+// auth/CSRF/identity headers stay private to the client and error handling
+// mirrors fetchRaw (401 → handleUnauthorized, structured ApiError).
+private uploadWithProgress(
+  path: string,
+  form: FormData,
+  onProgress?: (progress: HubUploadPluginProgress) => void,
+): Promise<CapabilityItem> {
+  const rid = createRequestId();
+  const start = Date.now();
+  this.logger.debug(`→ POST ${path}`, { rid });
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${this.baseUrl}${path}`, true);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader("X-Request-ID", rid);
+    for (const [key, value] of Object.entries(this.authHeaders())) {
+      xhr.setRequestHeader(key, value);
+    }
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        onProgress?.({ loaded: e.loaded, total: e.total });
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        this.logger.debug(`← ${xhr.status} ${path}`, { rid, duration: `${Date.now() - start}ms` });
+        try {
+          const json = JSON.parse(xhr.responseText) as { data?: CapabilityItem } | CapabilityItem;
+          resolve(("data" in json && json.data ? json.data : json) as CapabilityItem);
+        } catch {
+          reject(new ApiError("Invalid response from server", xhr.status, xhr.statusText));
+        }
+        return;
+      }
+      if (xhr.status === 401) this.handleUnauthorized();
+      let message = `Upload failed: ${xhr.status} ${xhr.statusText}`;
+      let body: unknown;
+      try {
+        body = JSON.parse(xhr.responseText) as { error?: string; message?: string };
+        const b = body as { error?: string; message?: string };
+        if (typeof b.error === "string" && b.error) message = b.error;
+        else if (typeof b.message === "string" && b.message) message = b.message;
+      } catch {
+        // Ignore non-JSON error bodies.
+      }
+      const logLevel = xhr.status === 404 ? "warn" : "error";
+      this.logger[logLevel](`← ${xhr.status} ${path}`, { rid, duration: `${Date.now() - start}ms`, error: message });
+      reject(new ApiError(message, xhr.status, xhr.statusText, body));
+    };
+
+    xhr.onerror = () => {
+      this.logger.error(`← network error ${path}`, { rid, duration: `${Date.now() - start}ms` });
+      reject(new ApiError("Network error", 0, ""));
+    };
+    xhr.send(form);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Hub Behavior API
+// ═══════════════════════════════════════════════════════════════════════════
+
+async hubFavoriteItem(id: string): Promise<{ favorited: boolean; favoriteCount: number }> {
+  return this.fetch(`/api/items/${encodeURIComponent(id)}/favorite`, { method: "POST" });
+}
+
+async hubUnfavoriteItem(id: string): Promise<{ favorited: boolean; favoriteCount: number }> {
+  return this.fetch(`/api/items/${encodeURIComponent(id)}/favorite`, { method: "DELETE" });
+}
+
+async hubLogBehavior(id: string, body: HubBehaviorLogBody): Promise<void> {
+  await this.fetch(`/api/items/${encodeURIComponent(id)}/behavior`, { method: "POST", body: JSON.stringify(body) });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Hub Distribution API
+// ═══════════════════════════════════════════════════════════════════════════
+
+async hubDistributeItem(id: string, data: HubDistributionCreateParams): Promise<DistributionResult> {
+  const res = await this.fetch<{ distributions: DistributionResult[] }>(`/api/items/${encodeURIComponent(id)}/distribute`, { method: "POST", body: JSON.stringify(data) });
+  return res.distributions[0]!;
+}
+
+async hubListDistributions(itemId: string): Promise<DistributionResult[]> {
+  const res = await this.fetch<{ distributions: DistributionResult[] }>(`/api/items/${encodeURIComponent(itemId)}/distributions`);
+  return res.distributions ?? [];
+}
+
+async hubMySentDistributions(): Promise<DistributionResult[]> {
+  const res = await this.fetch<{ distributions: DistributionResult[] }>("/api/distributions/my/sent");
+  return res.distributions ?? [];
+}
+
+async hubMyReceivedDistributions(): Promise<DistributionReceipt[]> {
+  const res = await this.fetch<{ receipts: DistributionReceipt[] }>("/api/distributions/my/received");
+  return res.receipts ?? [];
+}
+
+async hubMyDistributionAuthority(): Promise<HubDistributionAuthority> {
+  return this.fetch("/api/distributions/my/authority");
+}
+
+async hubSearchEligibleUsers(q: string): Promise<SearchedUser[]> {
+  const res = await this.fetch<{ users: SearchedUser[] }>(`/api/distributions/eligible-users?q=${encodeURIComponent(q)}`);
+  return res.users ?? [];
+}
+
+async hubRevokeDistribution(id: string): Promise<void> {
+  await this.fetch(`/api/distributions/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+async hubDismissDistribution(id: string): Promise<void> {
+  await this.fetch(`/api/distributions/${encodeURIComponent(id)}/dismiss`, { method: "POST" });
+}
+
+async hubMarkDistributionRead(id: string): Promise<void> {
+  await this.fetch(`/api/distributions/${encodeURIComponent(id)}/read`, { method: "POST" });
+}
+
+async hubForkDistribution(id: string): Promise<CapabilityItem> {
+  return this.fetch(`/api/distributions/${encodeURIComponent(id)}/fork`, { method: "POST" });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Hub MCP Config API
+// ═══════════════════════════════════════════════════════════════════════════
+
+async hubUpsertMcpConfig(itemId: string, fields: HubMcpConfigFields): Promise<void> {
+  await this.fetch(`/api/items/${encodeURIComponent(itemId)}/mcp-config`, { method: "PUT", body: JSON.stringify({ fields }) });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Hub Repo API
+// ═══════════════════════════════════════════════════════════════════════════
+
+async hubListMyRepos(): Promise<Repository[]> {
+  const res = await this.fetch<{ repositories: Repository[] }>("/api/repositories/my");
+  return res.repositories ?? [];
+}
+
+async hubCreateRepo(data: HubRepoCreateParams): Promise<Repository> {
+  return this.fetch("/api/repositories", { method: "POST", body: JSON.stringify(data) });
+}
+
+async hubUpdateRepo(id: string, data: HubRepoUpdateParams): Promise<Repository> {
+  return this.fetch(`/api/repositories/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(data) });
+}
+
+async hubDeleteRepo(id: string): Promise<void> {
+  await this.fetch(`/api/repositories/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+async hubListRepoMembers(repoId: string): Promise<RepoMember[]> {
+  const res = await this.fetch<{ members: RepoMember[] }>(`/api/repositories/${encodeURIComponent(repoId)}/members`);
+  return res.members ?? [];
+}
+
+async hubAddRepoMember(repoId: string, data: HubRepoMemberAddParams): Promise<void> {
+  await this.fetch(`/api/repositories/${encodeURIComponent(repoId)}/members`, { method: "POST", body: JSON.stringify(data) });
+}
+
+async hubRemoveRepoMember(repoId: string, userId: string): Promise<void> {
+  await this.fetch(`/api/repositories/${encodeURIComponent(repoId)}/members/${encodeURIComponent(userId)}`, { method: "DELETE" });
+}
+
+async hubInviteRepoMember(repoId: string, data: HubRepoInviteParams): Promise<void> {
+  await this.fetch(`/api/repositories/${encodeURIComponent(repoId)}/invitations`, { method: "POST", body: JSON.stringify(data) });
+}
+
+async hubGetRegistry(repoId: string): Promise<CapabilityRegistry> {
+  return this.fetch(`/api/repositories/${encodeURIComponent(repoId)}/registry`);
+}
+
+// ── Hub Repo Sync API (FR-04) ────────────────────────────────────────────
+// Paths mirror the source store project's syncApi (`/api/repositories/{id}/sync*`),
+// already covered by the hubProxy prefix — zero server-side change. Upstream
+// may answer 404/501 when the sync service is absent; callers degrade via
+// `isHubSyncUnavailableError` in @multica/core/hub.
+
+async hubTriggerRepoSync(
+  repoId: string,
+  opts?: { dryRun?: boolean; registryId?: string },
+): Promise<HubRepoSyncTriggerResult> {
+  const params = new URLSearchParams();
+  if (opts?.dryRun) params.set("dryRun", "true");
+  if (opts?.registryId) params.set("registryId", opts.registryId);
+  const qs = params.toString();
+  return this.fetch(
+    `/api/repositories/${encodeURIComponent(repoId)}/sync${qs ? `?${qs}` : ""}`,
+    { method: "POST" },
+  );
+}
+
+async hubGetRepoSyncStatus(repoId: string, registryId?: string): Promise<HubRepoSyncStatusResult> {
+  const qs = registryId ? `?registryId=${encodeURIComponent(registryId)}` : "";
+  return this.fetch(`/api/repositories/${encodeURIComponent(repoId)}/sync-status${qs}`);
+}
+
+async hubListRepoSyncLogs(
+  repoId: string,
+  params?: { page?: number; pageSize?: number; registryId?: string },
+): Promise<HubRepoSyncLogListResult> {
+  const search = new URLSearchParams({
+    page: String(params?.page ?? 1),
+    pageSize: String(params?.pageSize ?? 20),
+  });
+  if (params?.registryId) search.set("registryId", params.registryId);
+  return this.fetch(`/api/repositories/${encodeURIComponent(repoId)}/sync-logs?${search.toString()}`);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Hub Enterprise API
+// ═══════════════════════════════════════════════════════════════════════════
+
+async hubListEnterpriseCustomers(): Promise<EnterpriseCustomer[]> {
+  const res = await this.fetch<{ customers: EnterpriseCustomer[] }>("/api/enterprise-customers");
+  return res.customers ?? [];
+}
+
+async hubAdminListEnterpriseCustomers(): Promise<AdminEnterpriseCustomer[]> {
+  const res = await this.fetch<{ customers: AdminEnterpriseCustomer[] }>("/api/admin/enterprise-customers");
+  return res.customers ?? [];
+}
+
+async hubCreateEnterpriseCustomer(data: EnterpriseCustomerInput): Promise<EnterpriseCustomer> {
+  return this.fetch("/api/admin/enterprise-customers", { method: "POST", body: JSON.stringify(data) });
+}
+
+async hubUpdateEnterpriseCustomer(id: string, data: EnterpriseCustomerInput): Promise<EnterpriseCustomer> {
+  return this.fetch(`/api/admin/enterprise-customers/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(data) });
+}
+
+async hubRemoveEnterpriseCustomer(id: string): Promise<void> {
+  await this.fetch(`/api/admin/enterprise-customers/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Hub Misc API
+// ═══════════════════════════════════════════════════════════════════════════
+
+async hubListCategories(): Promise<Category[]> {
+  const res = await this.fetch<{ categories: Category[] }>("/api/categories");
+  return res.categories ?? [];
+}
+
+async hubListTags(params?: HubTagListParams): Promise<ItemTag[]> {
+  const p = new URLSearchParams();
+  if (params?.query) p.set("q", params.query);
+  if (params?.page) p.set("page", String(params.page));
+  if (params?.pageSize) p.set("pageSize", String(params.pageSize));
+  if (params?.tagClass) p.set("tagClass", params.tagClass);
+  const qs = p.toString();
+  const res = await this.fetch<{ tags: ItemTag[] }>(`/api/tags${qs ? `?${qs}` : ""}`);
+  return res.tags ?? [];
+}
+
+async hubListFilterOptions(): Promise<ItemFilterOptions> {
+  return this.fetch("/api/items/filter-options");
+}
+
+async hubScanItem(id: string): Promise<void> {
+  await this.fetch(`/api/items/${encodeURIComponent(id)}/scan`, { method: "POST" });
+}
+
+async hubGetScanResults(id: string): Promise<ScanResult[]> {
+  const res = await this.fetch<{ results: ScanResult[] }>(`/api/items/${encodeURIComponent(id)}/scan-results`);
+  return res.results ?? [];
+}
+
+async hubListArtifacts(id: string): Promise<CapabilityArtifact[]> {
+  const res = await this.fetch<{ artifacts: CapabilityArtifact[] }>(`/api/items/${encodeURIComponent(id)}/artifacts`);
+  return res.artifacts ?? [];
+}
+
+/**
+ * Authenticated artifact download: rides the same fetch + credentials path as
+ * every other call (a bare `<a href>` to an /api/* URL can neither carry
+ * non-cookie auth nor survive SPA fallbacks), then triggers a browser save
+ * from the resulting blob. Mirrors the source store's downloadViaFetch.
+ */
+async hubDownloadArtifact(artifactId: string, filename: string): Promise<void> {
+  const res = await this.fetchRaw(`/api/artifacts/${encodeURIComponent(artifactId)}/download`);
+  const blob = await res.blob();
+  const objUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(objUrl);
+}
+
+async hubSemanticSearch(params: HubSemanticSearchParams): Promise<CapabilityItem[]> {
+  const res = await this.fetch<SearchResult>("/api/marketplace/items/search", { method: "POST", body: JSON.stringify(params) });
+  return res.items ?? [];
+}
+
+async hubSearchUsers(q: string): Promise<SearchedUser[]> {
+  const res = await this.fetch<{ users: SearchedUser[] }>(`/api/users/search?q=${encodeURIComponent(q)}`);
+  return res.users ?? [];
+}
+
+async hubGetUserNames(ids: string[]): Promise<Record<string, string>> {
+  const res = await this.fetch<{ names: Record<string, string> }>(`/api/users/names?ids=${ids.map(encodeURIComponent).join(",")}`);
+  return res.names ?? {};
+}
+
+// ── Personal quota (My Quota page) ────────────────────────────────────────
+// Both endpoints are reverse-proxied to the external quota-manager service
+// (see server/internal/handler/quota_manager_proxy.go). The frontend calls the
+// relative paths below; the Go server forwards them upstream.
+
+/**
+ * Fetch the current user's quota overview: used/total credits and the per-batch
+ * validity list. Mirrors the quota-manager `GET /quota-manager/api/v1/quota`.
+ * The upstream wraps the payload in a `{code, message, success, data}` envelope;
+ * unwrap to `data`.
+ */
+async quotaGetUserQuota(): Promise<UserQuota> {
+  const res = await this.fetch<{ data: UserQuota }>("/api/quota-manager/api/v1/quota");
+  return res.data;
+}
+
+/**
+ * Fetch paginated usage-consumption records, optionally filtered by a preset
+ * time range or a custom start/end window. Mirrors the quota-manager
+ * `GET /quota-manager/api/v1/usage/statistics`. The upstream wraps the payload
+ * in a `{code, message, success, data}` envelope; unwrap to `data`.
+ */
+async quotaGetUsageStatistics(params: UsageStatsParams): Promise<UsageStatsResult> {
+  const p = new URLSearchParams();
+  p.set("page", String(params.page));
+  p.set("page_size", String(params.page_size));
+  if (params.start_time) p.set("start_time", params.start_time);
+  if (params.end_time) p.set("end_time", params.end_time);
+  if (params.time_range) p.set("time_range", params.time_range);
+  const res = await this.fetch<{ data: UsageStatsResult }>(
+    `/api/quota-manager/api/v1/usage/statistics?${p.toString()}`,
+  );
+  return res.data;
+}
+
+// ── Notification channels (通知渠道) ──────────────────────────────────────
+// Reverse-proxied to the cloud-store backend (same as Hub items). Powers the
+// "通知渠道" page: list available types, list configured channels, toggle /
+// delete / test, and resolve linked auth identities for the IDTrust gate.
+
+/**
+ * List the current user's configured notification channels. Mirrors
+ * `GET /api/channels` → `{ channels }`.
+ */
+async channelList(): Promise<ChannelConfig[]> {
+  const res = await this.fetch<{ channels: ChannelConfig[] }>("/api/channels");
+  return res.channels ?? [];
+}
+
+/** List the channel types the backend makes available. `GET /api/channels/available`. */
+async channelAvailable(): Promise<ChannelType[]> {
+  const res = await this.fetch<{ channelTypes: ChannelType[] }>("/api/channels/available");
+  return res.channelTypes ?? [];
+}
+
+/** Partially update a channel (name / config / enabled). `PUT /api/channels/{id}`. */
+async channelUpdate(id: string, input: ChannelUpdateInput): Promise<ChannelConfig> {
+  const res = await this.fetch<{ channel: ChannelConfig }>(`/api/channels/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+  return res.channel;
+}
+
+/** Delete a channel. `DELETE /api/channels/{id}`. */
+async channelDelete(id: string): Promise<void> {
+  await this.fetch(`/api/channels/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/** Send a test notification through a channel. `POST /api/channels/{id}/test`. */
+async channelTest(id: string): Promise<void> {
+  await this.fetch(`/api/channels/${encodeURIComponent(id)}/test`, { method: "POST" });
+}
+
+/**
+ * List the linked auth identities (used by the IDTrust gate for wecom channels).
+ * `GET /api/auth/identities` → `{ identities }`.
+ */
+async listIdentities(): Promise<AuthIdentity[]> {
+  const res = await this.fetch<{ identities: AuthIdentity[] }>("/api/auth/identities");
+  return res.identities ?? [];
+}
+
+/**
+ * Start binding an external auth identity (e.g. IDTrust). Returns the authorize
+ * URL the caller should redirect to. `POST /api/auth/bind/start`.
+ */
+async startIdentityBind(provider: string): Promise<string> {
+  const res = await this.fetch<{ authUrl: string }>("/api/auth/bind/start", {
+    method: "POST",
+    body: JSON.stringify({ provider }),
+  });
+  return res.authUrl;
+}
+
+/**
+ * Unbind a linked identity. `POST /api/auth/identities/{provider}/unbind`.
+ * Returns `requireRelogin` — when true the caller must log out (the unbound
+ * identity was the session's backing credential).
+ */
+async unbindIdentity(provider: string): Promise<IdentityUnbindResult> {
+  return this.fetch(`/api/auth/identities/${encodeURIComponent(provider)}/unbind`, {
+    method: "POST",
+  });
+}
+
+/** Confirm merging two accounts after an OAuth bind conflict. `POST /api/auth/bind/confirm-merge`. */
+async confirmMerge(mergeToken: string): Promise<MergeResult> {
+  return this.fetch("/api/auth/bind/confirm-merge", {
+    method: "POST",
+    body: JSON.stringify({ merge_token: mergeToken }),
+  });
+}
+
+/** Cancel a pending account merge. `POST /api/auth/bind/cancel-merge`. */
+async cancelMerge(mergeToken: string): Promise<MergeResult> {
+  return this.fetch("/api/auth/bind/cancel-merge", {
+    method: "POST",
+    body: JSON.stringify({ merge_token: mergeToken }),
+  });
+}
 }

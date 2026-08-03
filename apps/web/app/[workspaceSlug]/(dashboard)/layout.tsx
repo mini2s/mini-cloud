@@ -8,6 +8,7 @@ import { useCurrentWorkspace } from "@multica/core/paths";
 import { useInboxTitle } from "@multica/core/inbox";
 import { useFaviconBadge } from "@multica/core/inbox";
 import { useInboxToast } from "@multica/views/inbox";
+import { useDistributionPushWatcher } from "@multica/views/hub";
 
 function InboxNotificationLayer() {
   // Inbox chrome (title count, favicon badge, toast) is non-critical, so it
@@ -23,6 +24,7 @@ function InboxNotificationLayer() {
   useInboxTitle(wsId);
   useFaviconBadge(wsId);
   useInboxToast();
+  useDistributionPushWatcher();
   return null;
 }
 

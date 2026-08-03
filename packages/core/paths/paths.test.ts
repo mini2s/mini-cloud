@@ -29,6 +29,14 @@ describe("paths.workspace(slug)", () => {
   it("URL-encodes special characters in ids", () => {
     expect(ws.issueDetail("id with space")).toBe("/acme/issues/id%20with%20space");
   });
+
+  it("builds efficiency dashboard paths", () => {
+    // Overview lives at the /metrics root; the dimension pages nest under it.
+    expect(ws.metricsOverview()).toBe("/acme/metrics");
+    expect(ws.metricsEfficiency()).toBe("/acme/metrics/efficiency");
+    expect(ws.metricsCost()).toBe("/acme/metrics/cost");
+    expect(ws.metricsContribution()).toBe("/acme/metrics/contribution");
+  });
 });
 
 describe("paths (global)", () => {

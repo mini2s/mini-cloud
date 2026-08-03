@@ -203,6 +203,12 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		CasdoorOrgName:          os.Getenv("CASDOOR_ORG_NAME"),
 		CasdoorAppName:          os.Getenv("CASDOOR_APP_NAME"),
 		BuiltinPluginAPIBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("BUILTIN_PLUGIN_API_BASE_URL")), "/"),
+		// Quota-manager service — reverse-proxies personal quota overview and
+		// usage-consumption statistics. Empty -> routes return 503.
+		QuotaManagerAPIBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("QUOTA_MANAGER_API_BASE_URL")), "/"),
+		// Efficiency-dashboard (kanban) backend — reverse-proxies /kanban/*
+		// with Basic Auth injected. Empty -> routes return 503.
+		KanbanAPIBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("KANBAN_API_BASE_URL")), "/"),
 		// CSC plugin marketplace identity delivered to the daemon. No default:
 		// when unset, the daemon falls back to its own built-in github default.
 		CSCPluginMarketplaceName: strings.TrimSpace(os.Getenv("CSC_PLUGIN_MARKETPLACE_NAME")),
@@ -371,6 +377,78 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.Get("/api/catalog/skills", h.ListCatalogSkills)
 	r.Get("/api/catalog/skills/{id}", h.GetCatalogSkill)
 	r.With(contactSalesRL).Post("/api/contact-sales", h.CreateContactSales)
+
+	// Hub (capability store) proxy — ALL hub routes are proxied to the cloud-store
+	// backend here (outside the auth group). The cloud-store backend has its own
+	// authentication (Casdoor JWT via HUB_DEV_TOKEN in dev, or shared session in
+	// prod), so mini-cloud's Auth middleware must NOT gate these routes.
+	if hubProxy := h.HubProxy(); hubProxy != nil {
+		r.MethodFunc(http.MethodGet, "/api/items", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/items", hubProxy)
+		r.MethodFunc(http.MethodDelete, "/api/items", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/items/*", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/items/*", hubProxy)
+		r.MethodFunc(http.MethodPut, "/api/items/*", hubProxy)
+		r.MethodFunc(http.MethodDelete, "/api/items/*", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/distributions/*", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/distributions/*", hubProxy)
+		r.MethodFunc(http.MethodDelete, "/api/distributions/*", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/repositories/*", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/repositories/*", hubProxy)
+		r.MethodFunc(http.MethodPut, "/api/repositories/*", hubProxy)
+		r.MethodFunc(http.MethodDelete, "/api/repositories/*", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/registries/*", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/registries/*", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/categories", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/tags", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/marketplace/*", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/marketplace/*", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/enterprise-customers", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/plugins/upload", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/users/search", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/users/names", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/users/info", hubProxy)
+		// Notification channels (通知渠道) + identity binding — same cloud-store
+		// backend. /api/channels covers CRUD; /api/channels/* covers /available,
+		// /{id}, /{id}/test.
+		r.MethodFunc(http.MethodGet, "/api/channels", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/channels", hubProxy)
+		r.MethodFunc(http.MethodDelete, "/api/channels", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/channels/*", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/channels/*", hubProxy)
+		r.MethodFunc(http.MethodPut, "/api/channels/*", hubProxy)
+		r.MethodFunc(http.MethodDelete, "/api/channels/*", hubProxy)
+		r.MethodFunc(http.MethodGet, "/api/auth/identities", hubProxy)
+		// Identity unbind (/api/auth/identities/{provider}/unbind) + bind/merge
+		// flows — all POST, same cloud-store backend.
+		r.MethodFunc(http.MethodPost, "/api/auth/identities/*", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/auth/bind/start", hubProxy)
+		r.MethodFunc(http.MethodPost, "/api/auth/bind/*", hubProxy)
+	}
+
+	// Quota-manager proxy — personal-quota (usage statistics) routes are proxied
+	// to the quota-manager backend here (outside the auth group, same rationale
+	// as the Hub proxy). The quota-manager backend has its own authentication
+	// (Casdoor JWT via HUB_DEV_TOKEN in dev, or shared session in prod), so
+	// mini-cloud's Auth middleware must NOT gate these routes. GET only — both
+	// the quota overview and usage statistics endpoints are reads.
+	if quotaProxy := h.QuotaManagerProxy(); quotaProxy != nil {
+		r.MethodFunc(http.MethodGet, "/api/quota-manager/*", quotaProxy)
+	}
+
+	// Kanban proxy — efficiency-dashboard (metrics/efficiency/cost/usage)
+	// routes are proxied to the separately deployed kanban backend here
+	// (outside the auth group, same rationale as the Hub/quota-manager proxies).
+	// The kanban backend authenticates via HTTP Basic Auth injected from
+	// KANBAN_API_USERNAME/PASSWORD, so mini-cloud's Auth middleware must NOT
+	// gate these routes. All four methods — the kanban API has many writes
+	// (create project, update pricing, delete datasource, sync tasks, etc.).
+	if kanbanProxy := h.KanbanProxy(); kanbanProxy != nil {
+		r.MethodFunc(http.MethodGet, "/kanban/*", kanbanProxy)
+		r.MethodFunc(http.MethodPost, "/kanban/*", kanbanProxy)
+		r.MethodFunc(http.MethodPut, "/kanban/*", kanbanProxy)
+		r.MethodFunc(http.MethodDelete, "/kanban/*", kanbanProxy)
+	}
 
 	// Webhook ingress for autopilots. Outside the authenticated group on
 	// purpose: the bearer token in the URL path IS the credential. Workspace

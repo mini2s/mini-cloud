@@ -42,8 +42,74 @@ function workspaceScoped(slug: string) {
     workflowRuns: (id: string) => `${ws}/workflows/${encode(id)}/runs`,
     workflowRunDetail: (workflowId: string, runId: string) => `${ws}/workflows/${encode(workflowId)}/runs/${encode(runId)}`,
     settings: () => `${ws}/settings`,
+    // Efficiency settings/ops shell — one sidebar entry that surfaces the
+    // eight efficiency sub-pages (pricing / datasources / sync / config +
+    // platform overview / health / realtime / realtime query) via tabs. The
+    // eight sub-routes below stay reachable directly for deep-linking.
+    efficiencySettings: () => `${ws}/settings/efficiency`,
     roles: () => `${ws}/roles`,
     attachmentPreview: (id: string) => `${ws}/attachments/${encode(id)}/preview`,
+    // Upcoming product surface — placeholder pages, web-only for now.
+    home: () => `${ws}/home`,
+    sessions: () => `${ws}/sessions`,
+    reviews: () => `${ws}/reviews`,
+    hub: () => `${ws}/hub`,
+    hubSkill: () => `${ws}/hub?type=skill`,
+    hubSubagent: () => `${ws}/hub?type=subagent`,
+    hubCommand: () => `${ws}/hub?type=command`,
+    hubMcp: () => `${ws}/hub?type=mcp`,
+    hubPlugin: () => `${ws}/hub?type=plugin`,
+    hubManager: () => `${ws}/hub/manager`,
+    hubDetail: (id: string) => `${ws}/hub/${encode(id)}`,
+    hubEditor: () => `${ws}/hub/editor`,
+    hubEditorItem: (id: string) => `${ws}/hub/editor/${encode(id)}`,
+    dispatch: () => `${ws}/dispatch`,
+    wiki: () => `${ws}/wiki`,
+    memory: () => `${ws}/memory`,
+    metricsOverview: () => `${ws}/metrics`,
+    metricsEfficiency: () => `${ws}/metrics/efficiency`,
+    metricsQuality: () => `${ws}/metrics/quality`,
+    metricsCost: () => `${ws}/metrics/cost`,
+    metricsCoverage: () => `${ws}/metrics/coverage`,
+    metricsContribution: () => `${ws}/metrics/contribution`,
+    metricsNeeds: () => `${ws}/metrics/needs`,
+    metricsTasks: () => `${ws}/metrics/tasks`,
+    metricsCommits: () => `${ws}/metrics/commits`,
+    // Efficiency drill-down detail pages. These are parametric (each takes the
+    // entity id), so they're NOT part of the parameterless sidebar set — they're
+    // used by dimension rankings/list views to push into a detail page.
+    //   - repoAddr carries slashes and is encoded as one route segment.
+    //   - needId is encoded as one application-route value, matching the
+    //     source dashboard. This prevents the client router from truncating a
+    //     branch-style ID at its first slash. The detail route restores the
+    //     complete value before the API client targets Gin's catch-all route.
+    //   - branch (repo only) is optional and is also encoded as one segment.
+    metricsUserDetail: (userId: string) => `${ws}/metrics/user/${encode(userId)}`,
+    metricsUserGroupDetail: (groupId: string) =>
+      `${ws}/metrics/user/group/${encode(groupId)}`,
+    metricsRepoDetail: (repoAddr: string, branch?: string) => {
+      const addrPath = encode(repoAddr);
+      const branchPath = branch ? `/${encode(branch)}` : "";
+      return `${ws}/metrics/repo/${addrPath}${branchPath}`;
+    },
+    metricsProjectDetail: (projectId: string) =>
+      `${ws}/metrics/project/${encode(projectId)}`,
+    metricsNeedDetail: (needId: string) =>
+      `${ws}/metrics/need/${encode(needId)}`,
+    metricsTaskDetail: (taskId: string) => `${ws}/metrics/task/${encode(taskId)}`,
+    metricsWorkdirDetail: (workDirId: string) =>
+      `${ws}/metrics/workdir/${workDirId.split("/").map(encode).join("/")}`,
+    metricsCommitDetail: (commitId: string) =>
+      `${ws}/metrics/commit/${encode(commitId)}`,
+    permissions: () => `${ws}/permissions`,
+    devices: () => `${ws}/devices`,
+    connectors: () => `${ws}/connectors`,
+    channels: () => `${ws}/channels`,
+    quotas: () => `${ws}/quotas`,
+    meProfile: () => `${ws}/me/profile`,
+    meQuota: () => `${ws}/me/quota`,
+    meNotifications: () => `${ws}/me/notifications`,
+    meDevices: () => `${ws}/me/devices`,
   };
 }
 

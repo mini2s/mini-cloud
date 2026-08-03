@@ -1,0 +1,35 @@
+{
+  "title": "用量统计",
+  "quotaOverview": "额度概览",
+  "quotaOverviewDesc": "查看您的额度使用情况和有效期",
+  "usedQuota": "已用 {{used}} / {{total}} Credits",
+  "remainingQuota": "剩余 {{remaining}} Credits",
+  "quotaValidity": "额度有效期",
+  "quota": {
+    "empty": "暂无额度记录",
+    "expiryDate": "到期时间",
+    "amount": "Credit数",
+    "source": "来源"
+  },
+  "consumptionTitle": "用量消耗统计",
+  "consumptionDesc": "查看您的用量消耗详细记录",
+  "filter": {
+    "today": "今天",
+    "within7Days": "近7天",
+    "within30Days": "近30天",
+    "custom": "自定义"
+  },
+  "table": {
+    "startTime": "时间",
+    "model": "模型",
+    "mode": "模式",
+    "creditsUsed": "Credits消耗",
+    "package": "套餐",
+    "empty": "暂无用量记录"
+  },
+  "pagination": {
+    "summary": "显示 {{from}} - {{to}}，共 {{total}} 条",
+    "empty": "暂无数据",
+    "page": "页"
+  }
+}

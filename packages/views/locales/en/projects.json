@@ -47,6 +47,14 @@
   "detail": {
     "not_found": "Project not found",
     "breadcrumb_fallback": "Projects",
+    "tabs": {
+      "overview": "Overview",
+      "backlog": "Backlog",
+      "issues": "Issues",
+      "design": "Design",
+      "review": "Review",
+      "settings": "Settings"
+    },
     "title_placeholder": "Project title",
     "icon_tooltip": "Change icon",
     "pin_tooltip": "Pin to sidebar",
