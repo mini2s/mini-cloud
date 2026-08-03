@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import {
   AlertCircle,
   ArrowDown,
@@ -32,7 +32,6 @@ import {
   runtimeListOptions,
 } from "@multica/core/runtimes";
 import { useAgentPermissions } from "@multica/core/permissions";
-import { useWorkflowAdmins } from "@multica/core/workflows/queries";
 import { Button } from "@multica/ui/components/ui/button";
 import { CapabilityBanner } from "@multica/ui/components/common/capability-banner";
 import {
@@ -108,14 +107,7 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
   // and restore identically to edit, so a single `canEdit` covers them all.
   const { canEdit } = useAgentPermissions(agent, wsId);
 
-  const { data: workflowAdmins = [] } = useWorkflowAdmins();
-
-  const canManageWorkflows = useMemo(() => {
-    if (!currentUser) return false;
-    return workflowAdmins.some(
-      (a) => a.id === currentUser.id && a.can_manage_workflows,
-    );
-  }, [workflowAdmins, currentUser]);
+  const canManageWorkflows = currentUser?.can_manage_workflows === true;
 
   const isBuiltinReadOnly = !!(agent?.is_builtin) && !canManageWorkflows;
 

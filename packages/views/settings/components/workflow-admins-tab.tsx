@@ -94,7 +94,9 @@ export function WorkflowAdminsTab() {
   const updateMutation = useUpdateWorkflowAdmins();
 
   // Check if current user is a workflow admin (by user.id matching admin.id)
-  const isWorkflowAdmin = user ? admins.some((a) => a.id === user.id) : false;
+  // The tab itself only renders in local mode (see settings-page); here we
+  // only need the effective permission for the permission_denied empty state.
+  const isWorkflowAdmin = user?.can_manage_workflows === true;
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [initialized, setInitialized] = useState(false);

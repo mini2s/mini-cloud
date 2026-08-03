@@ -20,18 +20,22 @@ vi.mock("@multica/core/paths", () => ({
   useCurrentWorkspace: () => workspaceRef.current,
 }));
 
+const authRef = vi.hoisted(() => ({
+  user: {
+    id: "user-1",
+    can_manage_workflows: false,
+    workflow_admin_source: "local",
+  } as { id: string; can_manage_workflows: boolean; workflow_admin_source: string },
+}));
+
 vi.mock("@multica/core/auth", () => {
   const useAuthStore = Object.assign(
-    (sel?: (s: { user: { id: string } }) => unknown) =>
-      sel ? sel({ user: { id: "user-1" } }) : { user: { id: "user-1" } },
-    { getState: () => ({ user: { id: "user-1" } }) },
+    (sel?: (s: { user: typeof authRef.user }) => unknown) =>
+      sel ? sel({ user: authRef.user }) : { user: authRef.user },
+    { getState: () => ({ user: authRef.user }) },
   );
   return { useAuthStore };
 });
-
-vi.mock("@multica/core/workflows/queries", () => ({
-  useWorkflowAdmins: () => ({ data: [] }),
-}));
 
 vi.mock("./account-tab", () => ({ AccountTab: () => <div>Profile content</div> }));
 vi.mock("./preferences-tab", () => ({ PreferencesTab: () => <div>Preferences content</div> }));
@@ -79,6 +83,11 @@ describe("SettingsPage workspace integration tabs", () => {
       repos: [],
       settings: { code_platform: "github" },
     };
+    authRef.user = {
+      id: "user-1",
+      can_manage_workflows: false,
+      workflow_admin_source: "local",
+    };
   });
 
   it("keeps the GitHub tab available for workspaces using GitHub PRs", () => {
@@ -87,5 +96,35 @@ describe("SettingsPage workspace integration tabs", () => {
     const tabList = screen.getByRole("tablist");
     expect(within(tabList).getByRole("tab", { name: "GitHub" })).toBeTruthy();
     expect(within(tabList).queryByRole("tab", { name: "GitLab" })).toBeNull();
+  });
+});
+
+describe("SettingsPage workflow-admins tab visibility", () => {
+  beforeEach(() => {
+    authRef.user = {
+      id: "user-1",
+      can_manage_workflows: false,
+      workflow_admin_source: "local",
+    };
+  });
+
+  it("shows the workflow-admins tab for local workflow admins", async () => {
+    authRef.user = {
+      id: "user-1",
+      can_manage_workflows: true,
+      workflow_admin_source: "local",
+    };
+    render(<SettingsPage />, { wrapper: TestWrapper });
+    expect(await screen.findByRole("tab", { name: /workflow admin/i })).toBeInTheDocument();
+  });
+
+  it("hides the workflow-admins tab in platform mode even for platform admins", () => {
+    authRef.user = {
+      id: "user-1",
+      can_manage_workflows: true,
+      workflow_admin_source: "platform",
+    };
+    render(<SettingsPage />, { wrapper: TestWrapper });
+    expect(screen.queryByRole("tab", { name: /workflow admin/i })).not.toBeInTheDocument();
   });
 });
