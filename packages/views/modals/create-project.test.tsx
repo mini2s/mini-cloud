@@ -147,7 +147,12 @@ vi.mock("@multica/ui/components/ui/button", () => ({
     onClick?: () => void;
     type?: "button" | "submit" | "reset";
   }) => (
-    <button type={type} disabled={disabled} onClick={onClick}>
+    <button
+      type={type}
+      disabled={disabled}
+      onClick={onClick}
+      data-testid="ui-button"
+    >
       {children}
     </button>
   ),
@@ -240,5 +245,33 @@ describe("CreateProjectModal", () => {
 
     expect(screen.getByText("Active Lead")).toBeInTheDocument();
     expect(screen.queryByText("Pending Lead")).not.toBeInTheDocument();
+  });
+
+  it("only offers workspace members as project leads", () => {
+    mocks.members = [
+      {
+        id: "m-active",
+        workspace_id: "workspace-1",
+        user_id: "user-active",
+        role: "member",
+        status: "active",
+        name: "Active Lead",
+        email: "active@example.test",
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ];
+    mocks.agents = [
+      {
+        id: "agent-1",
+        workspace_id: "workspace-1",
+        name: "Agent Lead",
+        archived_at: null,
+      },
+    ];
+
+    render(<CreateProjectModal onClose={vi.fn()} />);
+
+    expect(screen.getByText("Active Lead")).toBeInTheDocument();
+    expect(screen.queryByText("Agent Lead")).not.toBeInTheDocument();
   });
 });
