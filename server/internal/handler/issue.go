@@ -2677,6 +2677,7 @@ func (h *Handler) startDefaultWorkflowRunForIssue(ctx context.Context, issue db.
 		ID:            issue.ID,
 		AssigneeType:  issue.AssigneeType,
 		AssigneeID:    issue.AssigneeID,
+		ResponsibleUserID: issue.ResponsibleUserID,
 		StartDate:     issue.StartDate,
 		DueDate:       issue.DueDate,
 		ParentIssueID: issue.ParentIssueID,
@@ -2937,16 +2938,17 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 		}
 
 		params := db.UpdateIssueParams{
-			ID:            prevIssue.ID,
-			AssigneeType:  prevIssue.AssigneeType,
-			AssigneeID:    prevIssue.AssigneeID,
-			StartDate:     prevIssue.StartDate,
-			DueDate:       prevIssue.DueDate,
-			ParentIssueID: prevIssue.ParentIssueID,
-			ProjectID:     prevIssue.ProjectID,
-			WorkflowID:    prevIssue.WorkflowID,
-			WorkflowRunID: prevIssue.WorkflowRunID,
-			StageID:       prevIssue.StageID,
+			ID:                prevIssue.ID,
+			AssigneeType:      prevIssue.AssigneeType,
+			AssigneeID:        prevIssue.AssigneeID,
+			ResponsibleUserID: prevIssue.ResponsibleUserID,
+			StartDate:         prevIssue.StartDate,
+			DueDate:           prevIssue.DueDate,
+			ParentIssueID:     prevIssue.ParentIssueID,
+			ProjectID:         prevIssue.ProjectID,
+			WorkflowID:        prevIssue.WorkflowID,
+			WorkflowRunID:     prevIssue.WorkflowRunID,
+			StageID:           prevIssue.StageID,
 		}
 
 		if req.Updates.Title != nil {
@@ -3496,6 +3498,7 @@ func (h *Handler) injectDownstreamContext(ctx context.Context, run db.MulticaWor
 			Priority:      pgtype.Text{String: issue.Priority, Valid: true},
 			AssigneeType:  issue.AssigneeType,
 			AssigneeID:    issue.AssigneeID,
+			ResponsibleUserID: issue.ResponsibleUserID,
 			Position:      pgtype.Float8{Float64: issue.Position, Valid: true},
 			StartDate:     issue.StartDate,
 			DueDate:       issue.DueDate,
