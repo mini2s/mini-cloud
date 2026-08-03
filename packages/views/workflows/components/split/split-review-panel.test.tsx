@@ -15,11 +15,15 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: mocks.data, isLoading: false }),
+  useQuery: (options: { kind?: string }) => ({
+    data: options.kind === "split" ? mocks.data : { deliverables: [], submissions: [] },
+    isLoading: false,
+  }),
 }));
 
 vi.mock("@multica/core/workflows/queries", () => ({
-  splitTasksOptions: () => ({}),
+  splitTasksOptions: () => ({ kind: "split" }),
+  nodeRunDeliverableSubmissionsOptions: () => ({ kind: "deliverables" }),
   useApproveSplitTasks: () => ({ mutate: mocks.approve, isPending: false }),
   useRejectSplitTasks: () => ({ mutate: mocks.reject, isPending: false }),
   useGenerateSplitTasks: () => ({ mutate: mocks.generate, isPending: false }),
@@ -36,7 +40,7 @@ vi.mock("@multica/views/i18n", () => ({
       values?: Record<string, string | number>,
     ) => {
       const resources = {
-        detail_panel: {
+        detail_panel: new Proxy({
           split_plan_eyebrow: "Split plan",
           split_plan_close: "Close split plan",
           split_generation_label: "Generation {{generation}}",
@@ -57,7 +61,12 @@ vi.mock("@multica/views/i18n", () => ({
           split_issue_created: "Issue created",
           split_pending: "Pending",
           split_retry: "Retry",
-        },
+          split_drawer_approve: "Approve snapshot",
+          split_drawer_retry_failed: "Retry",
+          split_drawer_more: "More operations",
+        } as Record<string, string>, {
+          get: (target, property: string) => target[property] ?? property,
+        }),
       };
       return selector(resources).replace(/\{\{(\w+)\}\}/g, (_match, key) => String(values?.[key] ?? ""));
     },
@@ -130,9 +139,9 @@ describe("SplitReviewPanel", () => {
         cancelled: 0, skipped: 0, materialized: 0, retry_waiting: 0, exhausted: 1,
       },
     });
-    render(<SplitReviewPanel node={node} nodeRun={{ ...baseRun, status: "failed" }} wsId="ws-1" onClose={vi.fn()} />);
+    render(<SplitReviewPanel node={node} nodeRun={{ ...baseRun, status: "materializing" }} wsId="ws-1" onClose={vi.fn()} />);
 
-    expect(screen.getByText("Assignee inactive")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /More operations/ }));
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
     expect(mocks.retry).toHaveBeenCalledWith(expect.objectContaining({

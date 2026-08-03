@@ -70,6 +70,7 @@ import {
   sortStagesForDisplay,
 } from "../../../workflows/components/overview/constants";
 import { ExecutionDetailPanel } from "./execution-detail-panel";
+import { TaskNodeDetailPanel } from "./task-node-detail-panel";
 import { GlobalNotificationBar } from "./global-notification-bar";
 import {
   RUNTIME_SPLIT_SUBFLOW_CARD_WIDTH,
@@ -1505,6 +1506,14 @@ export function ExecutionPanoramaPage({
   const selectedChildParentTitle = selectedChildParentNodeId
     ? allNodes.find((node) => node.id === selectedChildParentNodeId)?.title ?? null
     : null;
+  const selectedPreviousRun = selectedChildParentNodeId
+    ? nodeRunMap.get(selectedChildParentNodeId) ?? null
+    : selectedNodeId
+      ? (() => {
+          const incoming = allEdges.find((edge) => edge.target_node_id === selectedNodeId);
+          return incoming ? nodeRunMap.get(incoming.source_node_id) ?? null : null;
+        })()
+      : null;
   const selectedNodeFormat = selectedNode ? parseNodeFormat(selectedNode.format_schema) : null;
   const isSplitSelectedNode = selectedNodeFormat?.kind === "split";
   const currentMemberRole =
@@ -1608,14 +1617,19 @@ export function ExecutionPanoramaPage({
           <SplitReviewPanel
             node={selectedNode}
             nodeRun={selectedRun}
+            previousNodeRun={selectedPreviousRun}
             wsId={wsId}
             workflowId={workflowId}
             runId={runId ?? undefined}
             plannerName={selectedWorkerName ?? undefined}
             parentIssueId={issueId}
+            onViewChildren={() => {
+              if (!expandedSplitNodeIds.has(selectedNode.id)) handleToggleSplitNode(selectedNode.id);
+              setSelectedNodeId(null);
+            }}
             onClose={() => setSelectedNodeId(null)}
           />
-        ) : (
+        ) : selectedNodeFormat?.kind === "gateway" ? (
           <ExecutionDetailPanel
             node={selectedNode}
             nodeRun={selectedRun}
@@ -1638,6 +1652,45 @@ export function ExecutionPanoramaPage({
                     const childIssuePath = paths.issueDetail(selectedChildDetail.issueId);
                     if (navigation.openInNewTab) {
                       navigation.openInNewTab(childIssuePath, selectedNode?.title ?? undefined, { activate: true });
+                      return;
+                    }
+                    window.open(navigation.getShareableUrl(childIssuePath), "_blank", "noopener,noreferrer");
+                  }
+                : undefined
+            }
+            isChildIssue={Boolean(selectedChildDetail)}
+            parentSplitTitle={selectedChildParentTitle}
+            childAssigneeName={selectedChildDetail?.workerName ?? null}
+            onRetry={
+              selectedRun && isRetryableSelectedRun && retryingNodeRunId !== selectedRun.id
+                ? () => void handleRetryNodeRun(selectedRun)
+                : undefined
+            }
+          />
+        ) : (
+          <TaskNodeDetailPanel
+            node={selectedNode}
+            nodeRun={selectedRun}
+            previousNodeRun={selectedPreviousRun}
+            workerName={selectedWorkerName}
+            criticName={selectedCriticName}
+            onClose={() => setSelectedNodeId(null)}
+            wsId={wsId}
+            issueId={issueId}
+            workflowId={workflowId}
+            runId={runId}
+            currentUserId={currentUserId}
+            currentMember={currentMember
+              ? { role: currentMember.role, status: currentMember.status }
+              : null}
+            mayReview={mayReviewSelectedRun}
+            runtimeSummary={selectedRuntimeSummary}
+            onOpenIssue={
+              selectedChildDetail
+                ? () => {
+                    const childIssuePath = paths.issueDetail(selectedChildDetail.issueId);
+                    if (navigation.openInNewTab) {
+                      navigation.openInNewTab(childIssuePath, selectedNode.title, { activate: true });
                       return;
                     }
                     window.open(navigation.getShareableUrl(childIssuePath), "_blank", "noopener,noreferrer");

@@ -444,6 +444,51 @@ vi.mock("./execution-detail-panel", () => ({
   ),
 }));
 
+vi.mock("./task-node-detail-panel", () => ({
+  TaskNodeDetailPanel: ({
+    node,
+    nodeRun,
+    onClose,
+    onOpenIssue,
+    onRetry,
+    mayReview,
+    isChildIssue,
+    parentSplitTitle,
+    workerName,
+    currentUserId,
+    currentMember,
+  }: {
+    node: { title: string };
+    nodeRun: { status: string } | null;
+    onClose: () => void;
+    onOpenIssue?: () => void;
+    onRetry?: () => void;
+    mayReview?: boolean;
+    isChildIssue?: boolean;
+    parentSplitTitle?: string | null;
+    workerName?: string | null;
+    currentUserId?: string | null;
+    currentMember?: { role: string; status: string } | null;
+  }) => (
+    <div
+      data-testid="execution-detail-panel"
+      ref={() => {
+        mocks.executionDetailProps = { currentUserId, currentMember, mayReview };
+      }}
+    >
+      <span data-testid="detail-panel-title">{node.title}</span>
+      <span data-testid="detail-panel-status">{nodeRun?.status ?? "no-run"}</span>
+      <span data-testid="detail-panel-is-child">{String(isChildIssue === true)}</span>
+      <span data-testid="detail-panel-parent-split">{parentSplitTitle ?? "no-parent"}</span>
+      <span data-testid="detail-panel-worker-name">{workerName ?? "no-worker"}</span>
+      <span data-testid="detail-panel-may-review">{String(mayReview === true)}</span>
+      {onOpenIssue ? <button type="button" onClick={onOpenIssue}>Open issue</button> : null}
+      {onRetry ? <button type="button" onClick={onRetry}>Retry from panel</button> : null}
+      <button onClick={onClose}>Close</button>
+    </div>
+  ),
+}));
+
 vi.mock("../../../workflows/components/split/split-review-panel", () => ({
   SplitReviewPanel: ({
     nodeRun,
