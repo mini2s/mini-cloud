@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -208,5 +209,35 @@ func TestWorkflowTaskPhase(t *testing.T) {
 	}
 	if workflowTaskRequiresDirectRetry([]byte(`{"phase":"split_generate"}`)) {
 		t.Fatal("split generation should use durable dispatch")
+	}
+}
+
+func TestChooseRuntimeByPolicy(t *testing.T) {
+	creator := util.MustParseUUID("11111111-1111-1111-1111-111111111111")
+	other := util.MustParseUUID("22222222-2222-2222-2222-222222222222")
+	spec := util.MustParseUUID("33333333-3333-3333-3333-333333333333")
+	candidates := []db.ListWorkflowRuntimeCandidatesRow{
+		{ID: other, OwnerID: pgtype.UUID{}, ActiveTaskCount: 0},
+		{ID: creator, OwnerID: creator, ActiveTaskCount: 2},
+		{ID: spec, OwnerID: pgtype.UUID{}, ActiveTaskCount: 1},
+	}
+
+	got, err := chooseRuntimeByPolicy(RuntimeSelectionPolicySpecifiedRuntimeFirst, spec, pgtype.UUID{}, candidates)
+	if err != nil || got.RuntimeID != spec {
+		t.Fatalf("specified: got=%v err=%v", got.RuntimeID, err)
+	}
+
+	got, err = chooseRuntimeByPolicy(RuntimeSelectionPolicyIdleFirst, pgtype.UUID{}, pgtype.UUID{}, candidates)
+	if err != nil || got.RuntimeID != other {
+		t.Fatalf("idle: got=%v err=%v", got.RuntimeID, err)
+	}
+
+	got, err = chooseRuntimeByPolicy(RuntimeSelectionPolicyIssueCreatorFirst, pgtype.UUID{}, creator, candidates)
+	if err != nil || got.RuntimeID != creator {
+		t.Fatalf("creator: got=%v err=%v", got.RuntimeID, err)
+	}
+
+	if _, err := chooseRuntimeByPolicy(RuntimeSelectionPolicyIdleFirst, pgtype.UUID{}, pgtype.UUID{}, nil); !errors.Is(err, ErrWorkflowRuntimeUnavailable) {
+		t.Fatalf("expected ErrWorkflowRuntimeUnavailable, got %v", err)
 	}
 }
