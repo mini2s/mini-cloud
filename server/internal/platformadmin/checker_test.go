@@ -27,6 +27,25 @@ func openTestPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
+const workflowAdminTableLockKey int64 = 872341
+
+// acquireWorkflowAdminTableLock serializes tests that mutate the shared
+// user_system_roles table across packages. The caller must release the returned
+// connection after any final DROP/unlock via t.Cleanup.
+func acquireWorkflowAdminTableLock(t *testing.T, pool *pgxpool.Pool) *pgxpool.Conn {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire connection: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, workflowAdminTableLockKey); err != nil {
+		conn.Release()
+		t.Fatalf("advisory lock: %v", err)
+	}
+	return conn
+}
+
 func userWith(subjectID string, localFlag bool) db.MulticaUser {
 	u := db.MulticaUser{CanManageWorkflows: localFlag}
 	if subjectID != "" {
@@ -37,9 +56,9 @@ func userWith(subjectID string, localFlag bool) db.MulticaUser {
 
 func TestCheckerLocalModeWithoutTable(t *testing.T) {
 	pool := openTestPool(t)
-	defer pool.Close()
 	ctx := context.Background()
-	if _, err := pool.Exec(ctx, `DROP TABLE IF EXISTS user_system_roles`); err != nil {
+	conn := acquireWorkflowAdminTableLock(t, pool)
+	if _, err := conn.Exec(ctx, `DROP TABLE IF EXISTS user_system_roles`); err != nil {
 		t.Fatalf("drop table: %v", err)
 	}
 
@@ -53,16 +72,23 @@ func TestCheckerLocalModeWithoutTable(t *testing.T) {
 	if c.CanManageWorkflows(ctx, userWith("usr_any", false)) {
 		t.Fatal("local mode must honor can_manage_workflows=false")
 	}
+
+	t.Cleanup(func() {
+		conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, workflowAdminTableLockKey)
+		conn.Release()
+		pool.Close()
+	})
 }
 
 func TestCheckerPlatformMode(t *testing.T) {
 	pool := openTestPool(t)
 	ctx := context.Background()
+	conn := acquireWorkflowAdminTableLock(t, pool)
 
-	if _, err := pool.Exec(ctx, `DROP TABLE IF EXISTS user_system_roles`); err != nil {
+	if _, err := conn.Exec(ctx, `DROP TABLE IF EXISTS user_system_roles`); err != nil {
 		t.Fatalf("drop table: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `
+	if _, err := conn.Exec(ctx, `
 		CREATE TABLE user_system_roles (
 			id text PRIMARY KEY, user_id text NOT NULL, role text NOT NULL,
 			granted_by text, created_at timestamptz, updated_at timestamptz,
@@ -71,20 +97,22 @@ func TestCheckerPlatformMode(t *testing.T) {
 		t.Fatalf("create table: %v", err)
 	}
 	t.Cleanup(func() {
-		if _, err := pool.Exec(context.Background(), `DROP TABLE IF EXISTS user_system_roles`); err != nil {
+		if _, err := conn.Exec(context.Background(), `DROP TABLE IF EXISTS user_system_roles`); err != nil {
 			t.Errorf("cleanup drop table: %v", err)
 		}
+		conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, workflowAdminTableLockKey)
+		conn.Release()
 		pool.Close()
 	})
 
-	if _, err := pool.Exec(ctx, `
+	if _, err := conn.Exec(ctx, `
 		INSERT INTO user_system_roles (id, user_id, role) VALUES
 		('r1', 'usr_admin', 'platform_admin'),
 		('r2', 'usr_revoked', 'platform_admin'),
 		('r3', 'usr_business', 'business_admin')`); err != nil {
 		t.Fatalf("seed roles: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `
+	if _, err := conn.Exec(ctx, `
 		UPDATE user_system_roles SET deleted_at = now() WHERE id = 'r2'`); err != nil {
 		t.Fatalf("soft-delete r2: %v", err)
 	}

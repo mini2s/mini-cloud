@@ -10,9 +10,29 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/multica-ai/multica/server/internal/platformadmin"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
+
+const workflowAdminTableLockKey int64 = 872341
+
+// acquireWorkflowAdminTableLock serializes tests that mutate the shared
+// user_system_roles table across packages. The caller must release the returned
+// connection after any final DROP/unlock via t.Cleanup.
+func acquireWorkflowAdminTableLock(t *testing.T) *pgxpool.Conn {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := testPool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire connection: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, workflowAdminTableLockKey); err != nil {
+		conn.Release()
+		t.Fatalf("advisory lock: %v", err)
+	}
+	return conn
+}
 
 // insertWorkflowAdminTestUser creates a user and returns its UUID string.
 func insertWorkflowAdminTestUser(t *testing.T, suffix string, canManage bool) string {
@@ -59,10 +79,11 @@ func TestWorkflowAdminsManagedExternallyInPlatformMode(t *testing.T) {
 	suffix := fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())
 	caller := insertWorkflowAdminTestUser(t, suffix+"-caller", false)
 
-	if _, err := testPool.Exec(ctx, `DROP TABLE IF EXISTS user_system_roles`); err != nil {
+	conn := acquireWorkflowAdminTableLock(t)
+	if _, err := conn.Exec(ctx, `DROP TABLE IF EXISTS user_system_roles`); err != nil {
 		t.Fatalf("drop table: %v", err)
 	}
-	if _, err := testPool.Exec(ctx, `
+	if _, err := conn.Exec(ctx, `
 		CREATE TABLE user_system_roles (
 			id text PRIMARY KEY, user_id text NOT NULL, role text NOT NULL,
 			granted_by text, created_at timestamptz, updated_at timestamptz,
@@ -71,9 +92,11 @@ func TestWorkflowAdminsManagedExternallyInPlatformMode(t *testing.T) {
 		t.Fatalf("create table: %v", err)
 	}
 	t.Cleanup(func() {
-		if _, err := testPool.Exec(context.Background(), `DROP TABLE IF EXISTS user_system_roles`); err != nil {
+		if _, err := conn.Exec(context.Background(), `DROP TABLE IF EXISTS user_system_roles`); err != nil {
 			t.Errorf("cleanup drop table: %v", err)
 		}
+		conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, workflowAdminTableLockKey)
+		conn.Release()
 	})
 	// The caller is NOT in user_system_roles -> even the gate denies.
 	checker := platformadmin.NewChecker(ctx, db.New(testPool))
