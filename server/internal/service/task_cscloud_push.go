@@ -332,17 +332,6 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	for k, v := range repoEnv {
 		env[k] = v
 	}
-	if workerType, criticType, actorType := s.workflowActorTypes(ctx, task, phase); workerType != "" || criticType != "" || actorType != "" {
-		if workerType != "" {
-			env["CS_CLOUD_WORKFLOW_WORKER_TYPE"] = workerType
-		}
-		if criticType != "" {
-			env["CS_CLOUD_WORKFLOW_CRITIC_TYPE"] = criticType
-		}
-		if actorType != "" {
-			env["CS_CLOUD_ACTOR_TYPE"] = actorType
-		}
-	}
 	if task.IssueID.Valid {
 		env["CS_CLOUD_ISSUE_ID"] = util.UUIDToString(task.IssueID)
 	}
@@ -370,11 +359,12 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	}
 
 	// Repos: code repos (workspace/project, role=code) + the Gitea delivery
-	// repo (role=delivery). Worker phase only — the critic/review phase doesn't
-	// code or submit documents.
+	// repo (role=delivery). All workflow node runtime tasks get this context so
+	// cs-cloud writes the same .cs-cloud.repos guide for agents, squads, critics,
+	// and checking phases; only worker emits Deliverables above.
 	repos := []csCloudRepoSpec{}
 	projectID := ""
-	if phase == "worker" {
+	if requiresGiteaEnv {
 		var codeTokens codeRepoTokens
 		repos, codeTokens, projectID = s.resolveCodeRepoAndProject(ctx, task, runtime.WorkspaceID)
 		if len(repos) > 0 {
@@ -799,25 +789,6 @@ func workflowPhaseFromTask(task db.MulticaAgentTaskQueue) string {
 
 func workflowNodeTaskRequiresGiteaEnv(task db.MulticaAgentTaskQueue) bool {
 	return task.WorkflowNodeRunID.Valid
-}
-
-func (s *TaskService) workflowActorTypes(ctx context.Context, task db.MulticaAgentTaskQueue, phase string) (workerType, criticType, actorType string) {
-	if !task.WorkflowNodeRunID.Valid {
-		return "", "", ""
-	}
-	nr, err := s.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID)
-	if err != nil {
-		return "", "", ""
-	}
-	workerType = strings.TrimSpace(nr.WorkerType)
-	criticType = strings.TrimSpace(nr.CriticType)
-	switch phase {
-	case "worker":
-		actorType = workerType
-	case "critic":
-		actorType = criticType
-	}
-	return workerType, criticType, actorType
 }
 
 // repositoryDeliverableRefJSON is the per-deliverable shape cs-cloud's

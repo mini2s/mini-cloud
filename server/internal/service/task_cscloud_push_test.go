@@ -2592,11 +2592,10 @@ func TestBuildCSCloudPayload_AddsDeliveryRepoAfterSafetyNet(t *testing.T) {
 	}
 }
 
-// TestBuildCSCloudPayload_NonWorkerPhaseHasNoDeliverables is a regression guard
-// for the Task-3 restructure (hoisting deliverables assembly out of the worker
-// block). Non-worker (critic) phases MUST keep Deliverables empty — critic tasks
-// don't submit, they review. Also no delivery repo should be emitted for them.
-func TestBuildCSCloudPayload_NonWorkerPhaseHasNoDeliverables(t *testing.T) {
+// TestBuildCSCloudPayload_NonWorkerPhaseHasRepoContextButNoDeliverables is a regression guard
+// for runtime node tasks: critic/checking phases do not submit deliverables, but
+// they still need the same code and delivery repository context in cs-cloud.
+func TestBuildCSCloudPayload_NonWorkerPhaseHasRepoContextButNoDeliverables(t *testing.T) {
 	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
 	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://gitea.test")
 
@@ -2610,7 +2609,12 @@ func TestBuildCSCloudPayload_NonWorkerPhaseHasNoDeliverables(t *testing.T) {
 	})
 
 	mdb := newEnsureRepoTestDB()
+	wsRepos, _ := json.Marshal([]struct{ URL string }{
+		{URL: "https://gitlab.local/root/demo.git"},
+	})
+	mdb.workspace.Repos = wsRepos
 	mdb.workspace.Settings = []byte(`{` +
+		`"gitlab_access_token":"gitlab-pat",` +
 		`"gitea_clone_url":"https://gitea.test/t-ws/wf-x.git",` +
 		`"last_instance_branch":"inst-x",` +
 		`"gitea_pat":"pat-x",` +
@@ -2648,67 +2652,30 @@ func TestBuildCSCloudPayload_NonWorkerPhaseHasNoDeliverables(t *testing.T) {
 			t.Errorf("critic phase missing %s in env: %+v", key, payload.Env)
 		}
 	}
+	if got := payload.Env["CS_CLOUD_GITLAB_TOKEN"]; got != "gitlab-pat" {
+		t.Fatalf("CS_CLOUD_GITLAB_TOKEN = %q, want gitlab-pat", got)
+	}
+	if got := payload.Env["CS_CLOUD_GITLAB_BASE_URL"]; got != "https://gitlab.local" {
+		t.Fatalf("CS_CLOUD_GITLAB_BASE_URL = %q, want https://gitlab.local", got)
+	}
+	if got := payload.Env["CS_CLOUD_CODE_PROVIDER"]; got != "gitlab" {
+		t.Fatalf("CS_CLOUD_CODE_PROVIDER = %q, want gitlab", got)
+	}
+	foundCode := false
+	foundDelivery := false
 	for _, r := range payload.Repos {
+		if r.Role == "code" && r.Provider == "gitlab" && r.URL == "https://gitlab.local/root/demo.git" {
+			foundCode = true
+		}
 		if r.Role == "delivery" {
-			t.Errorf("critic phase must not emit a delivery repo; got %+v", r)
+			foundDelivery = true
 		}
 	}
-}
-
-func TestBuildCSCloudPayload_WorkflowActorTypeEnv(t *testing.T) {
-	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
-	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://gitea.test")
-
-	tests := []struct {
-		name      string
-		phase     string
-		worker    string
-		critic    string
-		wantActor string
-	}{
-		{name: "worker uses worker type", phase: "worker", worker: "agent", critic: "human", wantActor: "agent"},
-		{name: "critic uses critic type", phase: "critic", worker: "agent", critic: "api", wantActor: "api"},
+	if !foundCode {
+		t.Fatalf("critic phase missing code repo context: %+v", payload.Repos)
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			mdb := newEnsureRepoTestDB()
-			mdb.nodeRun.WorkerType = tc.worker
-			mdb.nodeRun.CriticType = tc.critic
-			mdb.workspace.Settings = []byte(`{` +
-				`"gitea_clone_url":"https://gitea.test/t-ws/wf-x.git",` +
-				`"last_instance_branch":"inst-x",` +
-				`"gitea_pat":"pat-x",` +
-				`"gitea_bot_username":"bot-x"}`)
-
-			svc := &TaskService{
-				Queries: db.New(mdb),
-				Bus:     events.New(),
-			}
-
-			task := db.MulticaAgentTaskQueue{
-				ID:                testUUID(11),
-				AgentID:           mdb.agent.ID,
-				IssueID:           mdb.issue.ID,
-				RuntimeID:         mdb.runtime.ID,
-				WorkflowNodeRunID: mdb.nodeRun.ID,
-				Status:            "queued",
-				Context:           []byte(`{"phase":"` + tc.phase + `"}`),
-			}
-
-			payload, err := svc.buildCSCloudPayload(context.Background(), task, mdb.runtime)
-			if err != nil {
-				t.Fatalf("buildCSCloudPayload: %v", err)
-			}
-			if got := payload.Env["CS_CLOUD_ACTOR_TYPE"]; got != tc.wantActor {
-				t.Fatalf("CS_CLOUD_ACTOR_TYPE = %q, want %q", got, tc.wantActor)
-			}
-			if got := payload.Env["CS_CLOUD_WORKFLOW_WORKER_TYPE"]; got != tc.worker {
-				t.Fatalf("CS_CLOUD_WORKFLOW_WORKER_TYPE = %q, want %q", got, tc.worker)
-			}
-			if got := payload.Env["CS_CLOUD_WORKFLOW_CRITIC_TYPE"]; got != tc.critic {
-				t.Fatalf("CS_CLOUD_WORKFLOW_CRITIC_TYPE = %q, want %q", got, tc.critic)
-			}
-		})
+	if !foundDelivery {
+		t.Fatalf("critic phase missing delivery repo context: %+v", payload.Repos)
 	}
 }
 
