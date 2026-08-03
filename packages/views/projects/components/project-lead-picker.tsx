@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { UserMinus } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { memberListOptions, agentListOptions } from "@multica/core/workspace/queries";
+import { memberListOptions } from "@multica/core/workspace/queries";
 import { isActiveWorkspaceMember } from "@multica/core/workspace/members";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useActorName } from "@multica/core/workspace/hooks";
@@ -23,14 +23,12 @@ export function ProjectLeadPicker({ project, handleUpdate, renderTrigger, align 
   const wsId = useWorkspaceId();
   const { getActorName } = useActorName();
   const { data: members = [] } = useQuery(memberListOptions(wsId));
-  const { data: agents = [] } = useQuery(agentListOptions(wsId));
 
   const [leadOpen, setLeadOpen] = useState(false);
   const [leadFilter, setLeadFilter] = useState("");
   const leadQuery = leadFilter.toLowerCase();
 
   const filteredMembers = members.filter((m) => isActiveWorkspaceMember(m) && (m.name.toLowerCase().includes(leadQuery) || matchesPinyin(m.name, leadQuery)));
-  const filteredAgents = agents.filter((a) => !a.archived_at && (a.name.toLowerCase().includes(leadQuery) || matchesPinyin(a.name, leadQuery)));
 
   const leadId = project.lead_id;
   const leadType = project.lead_type;
@@ -74,23 +72,7 @@ export function ProjectLeadPicker({ project, handleUpdate, renderTrigger, align 
               ))}
             </>
           )}
-          {filteredAgents.length > 0 && (
-            <>
-              <div className="px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">{t(($) => $.lead.agents_group)}</div>
-              {filteredAgents.map((a) => (
-                <button
-                  type="button"
-                  key={a.id}
-                  onClick={() => { handleUpdate({ lead_type: "agent", lead_id: a.id }); setLeadOpen(false); }}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors"
-                >
-                  <ActorAvatar actorType="agent" actorId={a.id} size={16} showStatusDot />
-                  <span>{a.name}</span>
-                </button>
-              ))}
-            </>
-          )}
-          {filteredMembers.length === 0 && filteredAgents.length === 0 && leadFilter && (
+          {filteredMembers.length === 0 && leadFilter && (
             <div className="px-2 py-3 text-center text-sm text-muted-foreground">{t(($) => $.lead.no_results)}</div>
           )}
         </div>

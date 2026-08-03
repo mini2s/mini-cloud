@@ -30,7 +30,7 @@ import {
 } from "@multica/core/projects/config";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useCurrentWorkspace, useWorkspacePaths } from "@multica/core/paths";
-import { memberListOptions, agentListOptions, workspaceKeys } from "@multica/core/workspace/queries";
+import { memberListOptions, workspaceKeys } from "@multica/core/workspace/queries";
 import { isActiveWorkspaceMember } from "@multica/core/workspace/members";
 import { useActorName } from "@multica/core/workspace/hooks";
 import type { ProjectStatus, ProjectPriority, Workspace } from "@multica/core/types";
@@ -112,7 +112,6 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
   const wsPaths = useWorkspacePaths();
   const wsId = useWorkspaceId();
   const { data: members = [] } = useQuery(memberListOptions(wsId));
-  const { data: agents = [] } = useQuery(agentListOptions(wsId));
   const { getActorName } = useActorName();
   const projectStatusLabels = useProjectStatusLabels();
   const projectPriorityLabels = useProjectPriorityLabels();
@@ -125,8 +124,12 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
   const descEditorRef = useRef<ContentEditorRef>(null);
   const [status, setStatus] = useState<ProjectStatus>(draft.status);
   const [priority, setPriority] = useState<ProjectPriority>(draft.priority);
-  const [leadType, setLeadType] = useState<"member" | "agent" | undefined>(draft.leadType);
-  const [leadId, setLeadId] = useState<string | undefined>(draft.leadId);
+  const [leadType, setLeadType] = useState<"member" | undefined>(
+    draft.leadType === "member" ? draft.leadType : undefined,
+  );
+  const [leadId, setLeadId] = useState<string | undefined>(
+    draft.leadType === "member" ? draft.leadId : undefined,
+  );
   const [icon, setIcon] = useState<string | undefined>(draft.icon);
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -146,7 +149,7 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
   const updateTitle = (v: string) => { setTitle(v); setDraft({ title: v }); };
   const updateStatus = (v: ProjectStatus) => { setStatus(v); setDraft({ status: v }); };
   const updatePriority = (v: ProjectPriority) => { setPriority(v); setDraft({ priority: v }); };
-  const updateLead = (type?: "member" | "agent", id?: string) => {
+  const updateLead = (type?: "member", id?: string) => {
     setLeadType(type); setLeadId(id);
     setDraft({ leadType: type, leadId: id });
   };
@@ -157,9 +160,6 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
 
   const leadQuery = leadFilter.toLowerCase();
   const filteredMembers = members.filter((m) => isActiveWorkspaceMember(m) && (m.name.toLowerCase().includes(leadQuery) || matchesPinyin(m.name, leadQuery)));
-  const filteredAgents = agents.filter(
-    (a) => !a.archived_at && (a.name.toLowerCase().includes(leadQuery) || matchesPinyin(a.name, leadQuery)),
-  );
 
   const leadLabel =
     leadType && leadId ? getActorName(leadType, leadId) : t(($) => $.create_project.lead);
@@ -551,29 +551,7 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
                     ))}
                   </>
                 )}
-                {filteredAgents.length > 0 && (
-                  <>
-                    <div className="px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      {t(($) => $.create_project.agents_group)}
-                    </div>
-                    {filteredAgents.map((a) => (
-                      <button
-                        type="button"
-                        key={a.id}
-                        onClick={() => {
-                          updateLead("agent", a.id);
-                          setLeadOpen(false);
-                        }}
-                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors"
-                      >
-                        <ActorAvatar actorType="agent" actorId={a.id} size={16} showStatusDot />
-                        <span>{a.name}</span>
-                      </button>
-                    ))}
-                  </>
-                )}
                 {filteredMembers.length === 0 &&
-                  filteredAgents.length === 0 &&
                   leadFilter && (
                     <div className="px-2 py-3 text-center text-sm text-muted-foreground">
                       {t(($) => $.create_project.no_results)}
