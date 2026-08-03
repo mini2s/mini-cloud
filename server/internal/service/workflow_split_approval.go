@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 
@@ -30,15 +31,20 @@ type splitReviewEvidence struct {
 	NodeBranch string
 }
 
-func splitReviewHostAllowed(submitted *url.URL, providerHost, canonicalURL string) bool {
+func splitReviewHostAllowed(submitted *url.URL, providerHost string, trustedURLs ...string) bool {
 	if submitted == nil || submitted.Host == "" {
 		return false
 	}
 	if providerHost != "" && strings.EqualFold(submitted.Host, providerHost) {
 		return true
 	}
-	canonical, err := url.Parse(strings.TrimSpace(canonicalURL))
-	return err == nil && canonical.Host != "" && strings.EqualFold(submitted.Host, canonical.Host)
+	for _, rawURL := range trustedURLs {
+		trusted, err := url.Parse(strings.TrimSpace(rawURL))
+		if err == nil && trusted.Host != "" && strings.EqualFold(submitted.Host, trusted.Host) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *SplitOrchestrator) readSplitReviewEvidence(
@@ -80,13 +86,14 @@ func (s *SplitOrchestrator) readSplitReviewEvidence(
 		return splitReviewEvidence{}, NewSplitValidationAPIError("invalid_split_review_source", errors.New("split review URL points to an unexpected repository"), nil)
 	}
 	// This lookup never fetches the submitted URL. It addresses the expected
-	// repository through the configured provider, then uses Gitea's canonical
-	// HTML URL to recognize the public host paired with the provider's internal host.
+	// repository through the configured provider. Trust the provider host, Gitea's
+	// canonical HTML host, or the server-controlled public host used when dispatch
+	// rewrites internal Gitea URLs for cs-cloud.
 	metadata, err := provider.GetReviewRequest(ctx, owner, repo, index)
 	if err != nil {
 		return splitReviewEvidence{}, NewSplitAPIError(SplitErrorUpstream, "split_review_unavailable", err)
 	}
-	if !splitReviewHostAllowed(parsedURL, provider.ReviewHost(), metadata.HTMLURL) {
+	if !splitReviewHostAllowed(parsedURL, provider.ReviewHost(), metadata.HTMLURL, os.Getenv("GITEA_PUBLIC_BASE_URL")) {
 		return splitReviewEvidence{}, NewSplitValidationAPIError("invalid_split_review_source", errors.New("split review URL uses an unexpected host"), nil)
 	}
 	topo, err := RunNodeTopoOrder(ctx, s.Queries, run.ID)

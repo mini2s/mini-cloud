@@ -113,6 +113,19 @@ func TestReadSplitReviewEvidenceAcceptsCanonicalPublicHost(t *testing.T) {
 	}
 }
 
+func TestReadSplitReviewEvidenceAcceptsConfiguredPublicHostWhenMetadataIsInternal(t *testing.T) {
+	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://zgsmtest.xyz:30443")
+	fixture := newSplitReviewEvidenceFixture(t, "https://zgsmtest.xyz:30443", "http://10.20.19.101:33000")
+
+	evidence, err := fixture.orchestrator.readSplitReviewEvidence(context.Background(), fixture.nodeRun, fixture.generation)
+	if err != nil {
+		t.Fatalf("readSplitReviewEvidence() = %v, want configured public host accepted", err)
+	}
+	if evidence.Metadata.HTMLURL != fixture.canonicalURL {
+		t.Fatalf("evidence URL = %q, want internal canonical URL %q", evidence.Metadata.HTMLURL, fixture.canonicalURL)
+	}
+}
+
 func TestReadSplitReviewEvidenceRejectsUnknownHost(t *testing.T) {
 	fixture := newSplitReviewEvidenceFixture(t, "https://evil.example", "https://zgsmtest.xyz:30443")
 	_, err := fixture.orchestrator.readSplitReviewEvidence(context.Background(), fixture.nodeRun, fixture.generation)
