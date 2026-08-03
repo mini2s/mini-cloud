@@ -84,7 +84,11 @@ describe("shared conversation runtime controller", () => {
       baseUrl: "https://multica.test/proxy",
       directory: "/workspace",
       conversation: {
+        list: vi.fn(async () => []),
+        create: vi.fn(async () => ({ id: "conversation-1" })),
         get: vi.fn(async () => ({ id: "conversation-1" })),
+        update: vi.fn(async () => ({ id: "conversation-1" })),
+        delete: vi.fn(async () => undefined),
         messages: vi.fn(async () => []),
         status: vi.fn(async () => ({
           "conversation-1": { type: "idle" },

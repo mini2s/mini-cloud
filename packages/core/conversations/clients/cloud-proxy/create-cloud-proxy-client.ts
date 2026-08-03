@@ -1,5 +1,6 @@
 import { parseWithFallback } from "../../../api/schema";
 import type {
+  OpenCodeConversation,
   OpenCodeMessageWithParts,
   OpenCodeRecord,
   OpenCodeRuntimeEvent,
@@ -7,6 +8,8 @@ import type {
   OpenCodeTaskSnapshot,
 } from "../../types";
 import {
+  OpenCodeConversationListSchema,
+  OpenCodeConversationSchema,
   OpenCodeMessagesSchema,
   OpenCodeOptionalRecordSchema,
   OpenCodeRecordArraySchema,
@@ -28,6 +31,13 @@ export class CloudProxyHttpError extends Error {
   ) {
     super(message);
     this.name = "CloudProxyHttpError";
+  }
+}
+
+export class CloudProxyContentTypeError extends Error {
+  constructor(public readonly contentType: string) {
+    super(`Cloud proxy returned an unexpected content type: ${contentType}`);
+    this.name = "CloudProxyContentTypeError";
   }
 }
 
@@ -60,15 +70,16 @@ function normalizeTransportError(error: unknown): unknown {
 function buildUrl(
   baseUrl: string,
   path: string,
-  query?: Record<string, string | number | undefined>,
+  query?: Record<string, string | number | boolean | undefined>,
 ) {
-  const url = new URL(
-    `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`,
-  );
+  const joined = `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
+  const url = new URL(joined, "http://multica.invalid");
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value !== undefined) url.searchParams.set(key, String(value));
   }
-  return url.href;
+  return /^[a-z][a-z\d+.-]*:\/\//i.test(joined)
+    ? url.href
+    : `${url.pathname}${url.search}`;
 }
 
 async function readJson(response: Response): Promise<unknown> {
@@ -139,7 +150,7 @@ export function createCloudProxyClient({
     method: string,
     path: string,
     options?: {
-      query?: Record<string, string | number | undefined>;
+      query?: Record<string, string | number | boolean | undefined>;
       body?: unknown;
       signal?: AbortSignal;
       accept?: string;
@@ -172,17 +183,50 @@ export function createCloudProxyClient({
     method: string,
     path: string,
     options?: {
-      query?: Record<string, string | number | undefined>;
+      query?: Record<string, string | number | boolean | undefined>;
       body?: unknown;
       signal?: AbortSignal;
     },
-  ) => readJson(await request(method, path, options));
+  ) => {
+    const response = await request(method, path, options);
+    const contentType = response.headers.get("Content-Type") ?? "";
+    if (contentType && !/\bjson\b/i.test(contentType)) {
+      const error = new CloudProxyContentTypeError(contentType);
+      onProtocolError?.(error);
+      throw error;
+    }
+    return readJson(response);
+  };
 
   return {
     key: `${normalizedBaseUrl}\n${directory}`,
     baseUrl: normalizedBaseUrl,
     directory,
     conversation: {
+      async list(input, signal) {
+        const raw = await requestJson("GET", "/api/v1/conversations", {
+          query: input,
+          signal,
+        });
+        return parseWithFallback<OpenCodeConversation[]>(
+          readArrayPayload(raw, "conversations"),
+          OpenCodeConversationListSchema,
+          [],
+          { endpoint: "GET /api/v1/conversations" },
+        );
+      },
+      async create(input, signal) {
+        const raw = await requestJson("POST", "/api/v1/conversations", {
+          body: input ?? {},
+          signal,
+        });
+        return parseWithFallback<OpenCodeConversation>(
+          raw,
+          OpenCodeConversationSchema,
+          { id: "" },
+          { endpoint: "POST /api/v1/conversations" },
+        );
+      },
       async get(conversationId, signal) {
         const raw = await requestJson(
           "GET",
@@ -194,6 +238,26 @@ export function createCloudProxyClient({
           OpenCodeOptionalRecordSchema,
           null,
           { endpoint: "GET /api/v1/conversations/:id" },
+        );
+      },
+      async update(conversationId, input, signal) {
+        const raw = await requestJson(
+          "PATCH",
+          `/api/v1/conversations/${encodeURIComponent(conversationId)}`,
+          { body: input, signal },
+        );
+        return parseWithFallback<OpenCodeConversation>(
+          raw,
+          OpenCodeConversationSchema,
+          { id: "" },
+          { endpoint: "PATCH /api/v1/conversations/:id" },
+        );
+      },
+      async delete(conversationId, signal) {
+        await request(
+          "DELETE",
+          `/api/v1/conversations/${encodeURIComponent(conversationId)}`,
+          { signal },
         );
       },
       async messages(conversationId, input, signal) {

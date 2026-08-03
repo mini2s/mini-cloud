@@ -1,4 +1,5 @@
 import type {
+  OpenCodeConversation,
   OpenCodeMessageWithParts,
   OpenCodePromptPart,
   OpenCodeRecord,
@@ -22,7 +23,27 @@ export type CloudProxyClient = {
   baseUrl: string;
   directory: string;
   conversation: {
+    list: (
+      input?: {
+        directory?: string;
+        roots?: boolean;
+        archived?: boolean;
+        search?: string;
+        limit?: number;
+      },
+      signal?: AbortSignal,
+    ) => Promise<OpenCodeConversation[]>;
+    create: (
+      input?: Record<string, unknown>,
+      signal?: AbortSignal,
+    ) => Promise<OpenCodeConversation>;
     get: (conversationId: string, signal?: AbortSignal) => Promise<OpenCodeRecord | null>;
+    update: (
+      conversationId: string,
+      input: { title: string },
+      signal?: AbortSignal,
+    ) => Promise<OpenCodeConversation>;
+    delete: (conversationId: string, signal?: AbortSignal) => Promise<void>;
     messages: (
       conversationId: string,
       input?: { limit?: number },

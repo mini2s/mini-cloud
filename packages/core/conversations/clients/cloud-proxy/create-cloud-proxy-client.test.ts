@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createCloudProxyClient,
+  CloudProxyContentTypeError,
   CloudProxyHttpError,
 } from "./create-cloud-proxy-client";
 
@@ -12,6 +13,104 @@ function jsonResponse(value: unknown) {
 }
 
 describe("createCloudProxyClient", () => {
+  it("lists and mutates conversations through the collection contract", async () => {
+    const transport = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          conversations: [
+            {
+              id: "conversation-1",
+              title: "Migration",
+              time: { created: 10, updated: 20 },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ id: "conversation-2", title: "New session" }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ id: "conversation-2", title: "Renamed" }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const client = createCloudProxyClient({
+      baseUrl: "/cloud-api/cloud/device/device-1/proxy",
+      directory: "/workspace",
+      transport,
+    });
+
+    await expect(
+      client.conversation.list({ roots: true, limit: 50 }),
+    ).resolves.toEqual([
+      {
+        id: "conversation-1",
+        title: "Migration",
+        time: { created: 10, updated: 20 },
+      },
+    ]);
+    await expect(
+      client.conversation.create({ title: "New session" }),
+    ).resolves.toMatchObject({ id: "conversation-2" });
+    await expect(
+      client.conversation.update("conversation-2", { title: "Renamed" }),
+    ).resolves.toMatchObject({ title: "Renamed" });
+    await expect(
+      client.conversation.delete("conversation-2"),
+    ).resolves.toBeUndefined();
+
+    expect(transport.mock.calls.map((call) => call[0])).toEqual([
+      "/cloud-api/cloud/device/device-1/proxy/api/v1/conversations?roots=true&limit=50",
+      "/cloud-api/cloud/device/device-1/proxy/api/v1/conversations",
+      "/cloud-api/cloud/device/device-1/proxy/api/v1/conversations/conversation-2",
+      "/cloud-api/cloud/device/device-1/proxy/api/v1/conversations/conversation-2",
+    ]);
+    expect(transport.mock.calls[1]?.[1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({ title: "New session" }),
+    });
+    expect(transport.mock.calls[2]?.[1]).toMatchObject({
+      method: "PATCH",
+      body: JSON.stringify({ title: "Renamed" }),
+    });
+    expect(transport.mock.calls[3]?.[1]).toMatchObject({ method: "DELETE" });
+  });
+
+  it("degrades malformed conversation lists at the API boundary", async () => {
+    const client = createCloudProxyClient({
+      baseUrl: "https://multica.example.test/proxy",
+      directory: "/workspace",
+      transport: vi.fn().mockResolvedValue(
+        jsonResponse({ conversations: [{ id: null, title: 42 }] }),
+      ),
+    });
+
+    await expect(client.conversation.list()).resolves.toEqual([]);
+  });
+
+  it("rejects an HTML frontend fallback instead of treating it as empty JSON", async () => {
+    const onProtocolError = vi.fn();
+    const client = createCloudProxyClient({
+      baseUrl: "https://multica.example.test/proxy",
+      directory: "/workspace",
+      transport: vi.fn().mockResolvedValue(
+        new Response("<!doctype html><html></html>", {
+          status: 200,
+          headers: { "Content-Type": "text/html;charset=utf-8" },
+        }),
+      ),
+      onProtocolError,
+    });
+
+    await expect(client.conversation.list()).rejects.toEqual(
+      expect.objectContaining<Partial<CloudProxyContentTypeError>>({
+        name: "CloudProxyContentTypeError",
+        contentType: "text/html;charset=utf-8",
+      }),
+    );
+    expect(onProtocolError).toHaveBeenCalledTimes(1);
+  });
+
   it("uses the cs-cloud conversation paths and directory header", async () => {
     const transport = vi
       .fn()

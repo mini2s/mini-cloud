@@ -2,6 +2,28 @@ import { z } from "zod";
 
 const OpenCodeRecordSchema = z.record(z.string(), z.unknown());
 
+export const OpenCodeConversationSchema = z
+  .object({
+    id: z.string().min(1),
+    title: z.string().optional(),
+    directory: z.string().optional(),
+    parentID: z.string().optional(),
+    projectID: z.string().optional(),
+    workspaceID: z.string().optional(),
+    time: z
+      .object({
+        created: z.number(),
+        updated: z.number().optional(),
+        archived: z.number().optional(),
+      })
+      .optional(),
+  })
+  .loose();
+
+export const OpenCodeConversationListSchema = z.array(
+  OpenCodeConversationSchema,
+);
+
 export const OpenCodeMessageInfoSchema = z
   .object({
     id: z.string().min(1),

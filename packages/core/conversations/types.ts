@@ -1,10 +1,26 @@
-export type IssueConversationSession = {
+export type ConversationDescriptor = {
   conversationId: string;
   workspaceDirectory: string;
   proxyBaseUrl: string;
 };
 
+export type IssueConversationSession = ConversationDescriptor;
+
 export type OpenCodeRecord = Record<string, unknown>;
+
+export type OpenCodeConversation = OpenCodeRecord & {
+  id: string;
+  title?: string;
+  directory?: string;
+  parentID?: string;
+  projectID?: string;
+  workspaceID?: string;
+  time?: {
+    created: number;
+    updated?: number;
+    archived?: number;
+  };
+};
 
 export type OpenCodeMessageInfo = OpenCodeRecord & {
   id: string;
