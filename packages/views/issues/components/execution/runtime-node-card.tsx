@@ -602,7 +602,10 @@ export function RuntimeNodeCard({
             onUpdate={(updates) => onPendingWorkerUpdate?.(updates)}
             trigger={actorSlot}
             triggerRender={
-              <span className="grid row-span-2 min-w-0 cursor-pointer rounded-md px-1 -mx-1 transition-colors hover:bg-accent/35" />
+              <button
+                type="button"
+                className="grid row-span-2 min-w-0 cursor-pointer rounded-md border-0 bg-transparent px-1 -mx-1 text-left text-inherit transition-colors hover:bg-accent/35"
+              />
             }
             includeWorkflows={false}
             skipRuntimeSelection
@@ -624,7 +627,10 @@ export function RuntimeNodeCard({
             }
             trigger={actorSlot}
             triggerRender={
-              <span className="grid row-span-2 min-w-0 cursor-pointer rounded-md px-1 -mx-1 transition-colors hover:bg-accent/35" />
+              <button
+                type="button"
+                className="grid row-span-2 min-w-0 cursor-pointer rounded-md border-0 bg-transparent px-1 -mx-1 text-left text-inherit transition-colors hover:bg-accent/35"
+              />
             }
             allowedTypes={["member"]}
             allowUnassigned={false}

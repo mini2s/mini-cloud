@@ -22,6 +22,7 @@ const assigneePickerMocks = vi.hoisted(() => ({
     allowUnassigned?: boolean;
     onUpdate: (updates: Record<string, unknown>) => void;
     trigger?: React.ReactNode;
+    triggerElementType?: unknown;
   }>,
 }));
 
@@ -50,8 +51,12 @@ vi.mock("../pickers/assignee-picker", () => ({
     allowUnassigned?: boolean;
     onUpdate: (updates: Record<string, unknown>) => void;
     trigger?: React.ReactNode;
+    triggerRender?: React.ReactElement;
   }) => {
-    assigneePickerMocks.props.push(props);
+    assigneePickerMocks.props.push({
+      ...props,
+      triggerElementType: props.triggerRender?.type,
+    });
     return (
       <button type="button" data-testid={`mock-picker-${props.ariaLabel}`} onClick={() => props.onUpdate({
         assignee_type: "member",
@@ -326,6 +331,8 @@ describe("RuntimeNodeCard", () => {
       allowedTypes: ["member"],
       allowUnassigned: false,
     });
+    expect(assigneePickerMocks.props.find((props) => props.ariaLabel === "Change worker")?.triggerElementType).toBe("button");
+    expect(assigneePickerMocks.props.find((props) => props.ariaLabel === "Change critic")?.triggerElementType).toBe("button");
   });
 
   it("renders child issue progress context instead of executor and reviewer slots", () => {
