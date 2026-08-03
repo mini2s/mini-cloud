@@ -8,7 +8,6 @@ import {
   deptRankingOptions,
   deptTreeOptions,
   formatNumber,
-  glossaryTip,
 } from "@multica/core/efficiency";
 import {
   Select,
@@ -20,6 +19,7 @@ import {
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import type { DeptTreeNode } from "@multica/core/efficiency";
 import { useNavigation } from "../../navigation";
+import { useEfficiencyGlossary } from "../i18n";
 import { DRILLDOWN_ROW_CLASS } from "./drilldown-styles";
 import { RatioPill } from "./ratio-pill";
 
@@ -70,6 +70,7 @@ export function DeptPKCard({ startDate, endDate }: DeptPKCardProps) {
   const wsId = useWorkspaceId();
   const paths = useWorkspacePaths();
   const { push } = useNavigation();
+  const { glossaryTip } = useEfficiencyGlossary();
   const treeQ = useQuery(deptTreeOptions(wsId));
   const tree = treeQ.data ?? [];
   const [parentId, setParentId] = useState<string>(ROOT);

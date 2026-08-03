@@ -4,9 +4,9 @@ import {
   formatV2Ratio,
   formatPercent,
   formatNumber,
+  formatCurrency,
+  getDurationParts,
   fmtDays,
-  formatDuration,
-  formatVerifyMin,
   toPersonDays,
   personDaysValue,
   PERSON_DAY_MINUTES,
@@ -46,25 +46,24 @@ describe('formatPercent（百分比口径，不 ×100）', () => {
   })
 })
 
-describe('formatDuration（分钟自适应：分钟/小时/人天）', () => {
-  it('0/null → -', () => {
-    expect(formatDuration(0)).toBe('-')
-    expect(formatDuration(null)).toBe('-')
+describe('locale-neutral display values', () => {
+  it('formats numbers with an explicit locale', () => {
+    expect(formatNumber(1234.5, 1, 'en')).toBe('1,234.5')
+    expect(formatNumber(1234.5, 1, 'de')).toBe('1.234,5')
   })
-  it('<60 → 分钟', () => expect(formatDuration(45)).toBe('45分钟'))
-  it('整小时', () => expect(formatDuration(120)).toBe('2小时'))
-  it('小时+分钟', () => expect(formatDuration(125)).toBe('2小时5分钟'))
-  it('480 边界 = 8小时（含上界走小时支）', () => expect(formatDuration(480)).toBe('8小时'))
-  it('>480 → 人天（÷480）', () => expect(formatDuration(960)).toBe('2.0人天'))
-})
 
-describe('formatVerifyMin（验证时长：0 → 全角破折号 U+2014）', () => {
-  it('0/null → —', () => {
-    expect(formatVerifyMin(0)).toBe('—')
-    expect(formatVerifyMin(null)).toBe('—')
-    expect(formatVerifyMin(undefined)).toBe('—')
+  it('formats the configured currency without deriving it from locale', () => {
+    expect(formatCurrency(1234.5, 'CNY', 'en')).toContain('1,234.50')
+    expect(formatCurrency(1234.5, 'USD', 'zh-Hans')).toContain('1,234.50')
   })
-  it('非 0 走 formatDuration', () => expect(formatVerifyMin(45)).toBe('45分钟'))
+
+  it('returns structured duration parts without localized labels', () => {
+    expect(getDurationParts(45)).toEqual({ kind: 'minutes', minutes: 45 })
+    expect(getDurationParts(125)).toEqual({ kind: 'hours_minutes', hours: 2, minutes: 5 })
+    expect(getDurationParts(480)).toEqual({ kind: 'hours', hours: 8 })
+    expect(getDurationParts(960)).toEqual({ kind: 'person_days', personDays: 2 })
+    expect(getDurationParts(0)).toEqual({ kind: 'empty' })
+  })
 })
 
 describe('toPersonDays / personDaysValue（÷480）', () => {

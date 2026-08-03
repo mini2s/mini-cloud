@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { screen, fireEvent, cleanup } from "@testing-library/react";
 import {
   renderHook,
   act,
@@ -8,15 +8,17 @@ import {
   GranularityToggle,
   useGranularity,
 } from "./granularity-toggle";
+import { renderWithI18n } from "../../test/i18n";
 
 describe("GranularityToggle", () => {
   it("renders one button per option", () => {
-    render(
+    renderWithI18n(
       <GranularityToggle
         value="week"
         options={["day", "week", "month"]}
         onChange={() => {}}
       />,
+      { locale: "zh-Hans" },
     );
     expect(screen.getByText("按天")).toBeInTheDocument();
     expect(screen.getByText("按周")).toBeInTheDocument();
@@ -24,8 +26,9 @@ describe("GranularityToggle", () => {
   });
 
   it("returns null when fewer than 2 options (short ranges are day-only)", () => {
-    const { container } = render(
+    const { container } = renderWithI18n(
       <GranularityToggle value="day" options={["day"]} onChange={() => {}} />,
+      { locale: "zh-Hans" },
     );
     // null render → container has no toggle buttons.
     expect(container.firstChild).toBeNull();
@@ -33,12 +36,13 @@ describe("GranularityToggle", () => {
 
   it("marks the active option aria-pressed and calls onChange on click", () => {
     let captured: string | null = null;
-    render(
+    renderWithI18n(
       <GranularityToggle
         value="week"
         options={["day", "week", "month"]}
         onChange={(g) => (captured = g)}
       />,
+      { locale: "zh-Hans" },
     );
     const dayBtn = screen.getByText("按天");
     expect(dayBtn).toHaveAttribute("aria-pressed", "false");

@@ -3,15 +3,6 @@ import { cleanup, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { renderWithI18n } from "../../test/i18n";
-import {
-  ACTUAL_CALENDAR_TIP,
-  ACTUAL_WORK_TIP,
-  BASELINE_CALENDAR_TIP,
-  CALENDAR_RATIO_TIP,
-  FUSED_BASELINE_WORK_TIP,
-  VERIFY_UNAVAILABLE_TIP,
-  WORK_RATIO_TIP,
-} from "@multica/core/efficiency";
 
 // NeedDetail integration smoke test. Mirrors the efficiency-dimension /
 // usage-kanban test pattern: mock the workspace hook and intercept useQuery
@@ -119,13 +110,13 @@ describe("NeedDetail (smoke)", () => {
     // affordance, and the Sessions verification column explains unavailable
     // collection coverage through the same affordance.
     for (const tip of [
-      CALENDAR_RATIO_TIP,
-      WORK_RATIO_TIP,
-      ACTUAL_CALENDAR_TIP,
-      BASELINE_CALENDAR_TIP,
-      ACTUAL_WORK_TIP,
-      FUSED_BASELINE_WORK_TIP,
-      VERIFY_UNAVAILABLE_TIP,
+      "Calendar efficiency: the share of actual delivery time saved compared with the baseline estimate. Formula: (baseline delivery time − actual delivery time) ÷ actual delivery time.",
+      "Effort efficiency: the share of actual effort saved compared with the baseline estimate. Formula: (baseline effort − actual effort) ÷ actual effort.",
+      "Actual delivery time: elapsed time from the start of development until this Need was merged. Formula: end time − start time.",
+      "Baseline estimate: expected delivery time without AI at the team's usual working pace. Formula: baseline effort ÷ team work density.",
+      "Actual effort: effective work time spent on this Need with AI assistance. Formula: active session work time + estimated uncovered work.",
+      "Baseline estimate: estimated effort if AI were not used. Formula: combines code-volume estimation, similar historical tasks, and model estimates by confidence.",
+      "The current collection scope does not record command execution (bash, tests, or builds), so verification duration is unavailable.",
     ]) {
       expect(screen.getByRole("button", { name: tip })).toBeTruthy();
     }

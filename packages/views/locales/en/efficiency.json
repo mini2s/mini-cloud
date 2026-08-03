@@ -1,0 +1,178 @@
+{
+  "common": {
+    "entities": {
+      "need_one": "{{count}} Need",
+      "need_other": "{{count}} Needs"
+    },
+    "units": {
+      "minute_one": "{{count}} minute",
+      "minute_other": "{{count}} minutes",
+      "hour_one": "{{count}} hour",
+      "hour_other": "{{count}} hours",
+      "hours_minutes": "{{hours}} hr {{minutes}} min",
+      "person_day_one": "{{value}} person-day",
+      "person_day_other": "{{value}} person-days"
+    },
+    "granularity": {
+      "day": "Daily",
+      "week": "Weekly",
+      "month": "Monthly",
+      "aria_label": "Trend granularity"
+    },
+    "metric_tips": {
+      "verify_unavailable": "The current collection scope does not record command execution (bash, tests, or builds), so verification duration is unavailable.",
+      "stage_estimate": "Thinking and execution are approximate metrics inferred from conversation turns and code diffs, including duration estimates.",
+      "actual_effort": "Actual effort: effective work time spent on this Need with AI assistance. Formula: active session work time + estimated uncovered work.",
+      "baseline_effort": "Baseline estimate: estimated effort if AI were not used. Formula: combines code-volume estimation, similar historical tasks, and model estimates by confidence.",
+      "actual_delivery_time": "Actual delivery time: elapsed time from the start of development until this Need was merged. Formula: end time − start time.",
+      "baseline_delivery_time": "Baseline estimate: expected delivery time without AI at the team's usual working pace. Formula: baseline effort ÷ team work density.",
+      "effort_efficiency": "Effort efficiency: the share of actual effort saved compared with the baseline estimate. Formula: (baseline effort − actual effort) ÷ actual effort.",
+      "calendar_efficiency": "Calendar efficiency: the share of actual delivery time saved compared with the baseline estimate. Formula: (baseline delivery time − actual delivery time) ÷ actual delivery time."
+    },
+    "distribution": {
+      "granularity": {
+        "coarse": "Coarse",
+        "medium": "Medium",
+        "fine": "Fine"
+      },
+      "negative_efficiency": "Negative efficiency",
+      "exclusion": {
+        "impossible_loc_rate": "Physically impossible (>10k lines/day)",
+        "efficiency_ratio": "Extreme efficiency (>1000%)",
+        "actual_to_baseline": "Abnormal effort"
+      },
+      "loc_band": {
+        "human_reachable": "≤7 human-reachable",
+        "accelerated": "7–21",
+        "high": "21–50",
+        "bulk": ">50 bulk"
+      }
+    },
+    "date_range": {
+      "today": "Today",
+      "one_day_ago": "Past day",
+      "three_days_ago": "Past 3 days",
+      "one_week_ago": "Past week",
+      "one_month_ago": "Past month",
+      "three_months_ago": "Past 3 months"
+    },
+    "selector": {
+      "entity": {
+        "org": "Department",
+        "user": "User",
+        "project": "Project",
+        "repo": "Repository"
+      },
+      "select": "Select {{entity}}",
+      "all": "All {{entity}}",
+      "loading": "Loading…"
+    },
+    "project_create": {
+      "button": "Create project",
+      "title": "Create project",
+      "description": "After creation, the project focus view opens so you can add repository sources.",
+      "name": "Project name",
+      "description_label": "Description",
+      "cancel": "Cancel",
+      "submit": "Create",
+      "submitting": "Creating…",
+      "name_required": "Enter a project name.",
+      "missing_id": "The created project did not return a project ID.",
+      "failed": "Failed to create project.",
+      "failed_detail": "Failed to create project: {{detail}}"
+    },
+    "scorecard": {
+      "period_compare": "Period-over-period: current vs previous period",
+      "period_compare_flat": "Period-over-period: current vs previous period (unchanged)",
+      "weekly_trend": "Weekly trend"
+    }
+  },
+  "overview": {
+    "page_title": "AI Efficiency Overview"
+  },
+  "glossary": {
+    "labels": {
+      "formula": "Formula",
+      "scope": "Scope",
+      "separator": ": "
+    },
+    "efficiency_ratio": {
+      "term": "Calendar efficiency",
+      "description": "How much faster AI makes delivery; higher is better.",
+      "formula": "(Baseline delivery time − actual delivery time) ÷ actual delivery time",
+      "scope": "Decimal ratios are shown as percentages; only merged, eligible, non-outlier Needs are included."
+    },
+    "work_caliber": {
+      "term": "Effort efficiency",
+      "description": "Efficiency based on active work minutes instead of elapsed delivery time.",
+      "formula": "(Baseline effort − actual effort) ÷ actual effort",
+      "scope": "Calendar and effort metrics coexist and independently exclude their respective outliers."
+    },
+    "saved_person_days": {
+      "term": "Person-days saved",
+      "description": "Equivalent person-days saved by AI compared with the baseline.",
+      "formula": "max(0, baseline delivery minutes − actual delivery minutes) ÷ 480",
+      "scope": "1 person-day = 480 minutes; only merged, eligible, non-outlier Needs are included."
+    },
+    "roi": {
+      "term": "ROI",
+      "description": "Equivalent labor savings returned per unit of AI cost.",
+      "formula": "Equivalent savings ÷ AI cost; equivalent savings = person-days saved × person-day rate",
+      "scope": "The person-day rate comes from System configuration; AI cost uses the dashboard task scope."
+    },
+    "ai_code_ratio": {
+      "term": "AI code ratio",
+      "description": "The share of delivered code generated and adopted with AI.",
+      "formula": "AI-covered net added lines ÷ total net added lines",
+      "scope": "Decimal ratios are shown as percentages and weighted by eligible Needs."
+    },
+    "cost": {
+      "term": "AI cost",
+      "description": "Accumulated cost of model invocations.",
+      "formula": "Sum input and output token costs using each model's pricing",
+      "scope": "Dashboard task scope, grouped by session; repository-level commits do not carry token costs."
+    },
+    "active_users": {
+      "term": "Active users",
+      "description": "Unique users who delivered work with AI during the period.",
+      "formula": "Distinct users with eligible Needs during the period",
+      "scope": "Need participants are counted; commit-only users with no collected session are excluded."
+    },
+    "commit_diff_lines": {
+      "term": "Net code contribution",
+      "description": "Net changed lines committed during the period.",
+      "formula": "Sum commit-level net diff lines",
+      "scope": "Lines are aggregated directly from commit diffs."
+    },
+    "coverage_eligible": {
+      "term": "Eligible Need",
+      "description": "A Need with complete data that can be included in efficiency metrics.",
+      "formula": "Requires both time and delivery data",
+      "scope": "Needs missing either side, or classified as outliers, are isolated from efficiency calculations."
+    },
+    "wow": {
+      "term": "Period-over-period",
+      "description": "Change from the equally long period immediately before the current one.",
+      "formula": "(Current period − previous period) ÷ |previous period|",
+      "scope": "No direction indicator is shown when the previous-period value is zero."
+    },
+    "merged_need": {
+      "term": "Need",
+      "description": "A delivery Need grouped from a feature branch, and the basic unit of efficiency metrics.",
+      "formula": "Group delivery activity by feature branch",
+      "scope": "Commits on default branches such as main, master, develop, and release do not form Needs."
+    },
+    "silica": {
+      "term": "Silica",
+      "description": "The fingerprint-matched share of code attributable to AI.",
+      "formula": "Match delivered code against collected AI-generated code fingerprints",
+      "scope": "This is an experimental metric with very low current coverage and is not used as a quality dimension."
+    },
+    "dept_efficiency": {
+      "term": "Department efficiency",
+      "description": "Aggregated efficiency for comparing departments.",
+      "formula": "Aggregate calendar efficiency for eligible Needs",
+      "scope": "Includes members of the selected department and all child departments."
+    }
+  }
+}

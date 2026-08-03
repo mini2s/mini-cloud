@@ -13,7 +13,7 @@ export interface DistributionInput {
 }
 
 export interface DistributionBucket {
-  label: string;
+  kind: "negative" | "range" | "overflow";
   lo: number;
   hi: number;
   kept: number;
@@ -36,15 +36,24 @@ export interface DistributionResult {
   quantiles: DistributionQuantiles;
 }
 
+export type DistributionDiagnosticKey =
+  | "impossible_loc_rate"
+  | "efficiency_ratio"
+  | "actual_to_baseline"
+  | "human_reachable"
+  | "accelerated"
+  | "high"
+  | "bulk";
+
 export interface DistributionDiagnostic {
-  label: string;
+  key: DistributionDiagnosticKey;
   count: number;
 }
 
 export const DISTRIBUTION_GRANULARITIES = [
-  { label: "粗", bins: 6 },
-  { label: "中", bins: 12 },
-  { label: "细", bins: 24 },
+  { key: "coarse", bins: 6 },
+  { key: "medium", bins: 12 },
+  { key: "fine", bins: 24 },
 ] as const;
 
 const MAIN_RANGE_HIGH = 6;
@@ -67,13 +76,6 @@ function pickRatio(
   };
 }
 
-function formatBucketRatio(value: number): string {
-  const percentage = value * 100;
-  return Number.isInteger(percentage)
-    ? `${percentage}%`
-    : `${percentage.toFixed(1)}%`;
-}
-
 function normalizeBinCount(binCount: number): number {
   return Math.max(MIN_BINS, Math.min(MAX_BINS, Math.round(binCount)));
 }
@@ -82,7 +84,7 @@ function createBuckets(binCount: number): DistributionBucket[] {
   const step = MAIN_RANGE_HIGH / binCount;
   const buckets: DistributionBucket[] = [
     {
-      label: "负提效",
+      kind: "negative",
       lo: Number.NEGATIVE_INFINITY,
       hi: 0,
       kept: 0,
@@ -94,7 +96,7 @@ function createBuckets(binCount: number): DistributionBucket[] {
     const lo = index * step;
     const hi = (index + 1) * step;
     buckets.push({
-      label: `${formatBucketRatio(lo)}~${formatBucketRatio(hi)}`,
+      kind: "range",
       lo,
       hi,
       kept: 0,
@@ -103,7 +105,7 @@ function createBuckets(binCount: number): DistributionBucket[] {
   }
 
   buckets.push({
-    label: `>${formatBucketRatio(MAIN_RANGE_HIGH)}`,
+    kind: "overflow",
     lo: MAIN_RANGE_HIGH,
     hi: Number.POSITIVE_INFINITY,
     kept: 0,
@@ -196,17 +198,16 @@ export function computeDistribution(
 }
 
 const EXCLUSION_REASONS = [
-  { key: "impossible_loc_rate", label: "物理不可能（>1万行/日）" },
-  { key: "efficiency_ratio", label: "极端提效（>1000%）" },
-  { key: "actual_to_baseline", label: "工作量异常" },
+  "impossible_loc_rate",
+  "efficiency_ratio",
+  "actual_to_baseline",
 ] as const;
 
 export function computeDistributionExclusionReasons(
   rows: DistributionInput[],
 ): DistributionDiagnostic[] {
-  const counts = EXCLUSION_REASONS.map(({ key, label }) => ({
+  const counts = EXCLUSION_REASONS.map((key) => ({
     key,
-    label,
     count: 0,
   }));
 
@@ -218,17 +219,17 @@ export function computeDistributionExclusionReasons(
     }
   }
 
-  return counts.map(({ label, count }) => ({ label, count }));
+  return counts;
 }
 
 export function computeDistributionLocBands(
   rows: DistributionInput[],
 ): DistributionDiagnostic[] {
-  const bands = [
-    { label: "≤7 人力可达", count: 0 },
-    { label: "7-21", count: 0 },
-    { label: "21-50", count: 0 },
-    { label: ">50 bulk", count: 0 },
+  const bands: DistributionDiagnostic[] = [
+    { key: "human_reachable", count: 0 },
+    { key: "accelerated", count: 0 },
+    { key: "high", count: 0 },
+    { key: "bulk", count: 0 },
   ];
 
   for (const row of rows) {

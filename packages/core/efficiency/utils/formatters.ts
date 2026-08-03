@@ -27,12 +27,19 @@ export function formatPercent(value: number | string | null | undefined, digits 
   return `${num.toFixed(digits)}%`
 }
 
-/** Thousands separator */
-export function formatNumber(value: number | string | null | undefined, digits = 0): string {
+/** Locale-aware thousands separator. */
+export function formatNumber(
+  value: number | string | null | undefined,
+  digits = 0,
+  locale = 'en',
+): string {
   if (value == null || value === '') return '-'
   const num = Number(value)
   if (!Number.isFinite(num)) return '-'
-  return num.toLocaleString('zh-CN', { minimumFractionDigits: digits, maximumFractionDigits: digits })
+  return num.toLocaleString(locale, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })
 }
 
 /** Currency code → symbol (system_currency KV; unknown codes returned as-is, default CNY) */
@@ -40,6 +47,27 @@ const CURRENCY_SYMBOL: Record<string, string> = { CNY: '¥', USD: '$', EUR: '€
 export function currencySymbol(code: string | null | undefined): string {
   const c = (code || 'CNY').toUpperCase()
   return CURRENCY_SYMBOL[c] || c
+}
+
+/** Format a value in the configured business currency using the UI locale. */
+export function formatCurrency(
+  value: number | null | undefined,
+  currency: string,
+  locale: string,
+): string {
+  if (value == null || !Number.isFinite(value)) return '-'
+  const normalizedCurrency = currency.toUpperCase()
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency: normalizedCurrency,
+      currencyDisplay: 'symbol',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value)
+  } catch {
+    return `${currencySymbol(normalizedCurrency)}${formatNumber(value, 2, locale)}`
+  }
 }
 
 /** AI-estimated person-days (1 decimal place, 0 => '-') */
@@ -94,41 +122,36 @@ export function formatDateTimeNoYear(isoStr: string | null | undefined): string 
   return `${M}-${D} ${h}:${m}`
 }
 
-/** Adaptive minutes: minutes / hours[minutes] / person-days (480min=1 person-day=8h). 0 and empty => '-' */
-export function formatDuration(minutes: number | null | undefined): string {
-  if (minutes == null || minutes === 0) return '-'
-  const m = Math.round(Number(minutes))
-  if (m < 60) return `${m}分钟`
-  if (m <= 480) {
-    const h = Math.floor(m / 60)
-    const rem = m % 60
-    return rem === 0 ? `${h}小时` : `${h}小时${rem}分钟`
+export type DurationParts =
+  | { kind: 'empty' }
+  | { kind: 'minutes'; minutes: number }
+  | { kind: 'hours'; hours: number }
+  | { kind: 'hours_minutes'; hours: number; minutes: number }
+  | { kind: 'person_days'; personDays: number }
+
+/** Convert minutes to display-ready values without choosing localized labels. */
+export function getDurationParts(
+  minutes: number | null | undefined,
+): DurationParts {
+  const numericMinutes = Number(minutes)
+  if (!Number.isFinite(numericMinutes) || numericMinutes <= 0) {
+    return { kind: 'empty' }
   }
-  return (m / 480).toFixed(1) + '人天'
-}
-
-export const VERIFY_UNAVAILABLE_TIP = '当前采集口径未记录命令执行（bash / 测试 / 编译），验证时长不可用'
-export const STAGE_ESTIMATE_TIP = '思考 / 执行为粗略口径：基于对话轮与代码 diff 推断，含时长估算'
-
-// Need-list metric tooltips (口径说明), ported verbatim from the source's
-// needMetricTips.ts so the ⓘ hover text matches the original dashboard.
-export const ACTUAL_WORK_TIP =
-  '实际人力：AI 辅助下，这个需求实际投入的有效工作时间。算法：会话活跃工作时间 + 未覆盖工作估算。'
-export const FUSED_BASELINE_WORK_TIP =
-  '传统人力预估：如果不用 AI，这个需求大概需要投入多少人工时间。算法：代码量估算 + 相似历史任务 + 模型估算，按置信度综合。'
-export const ACTUAL_CALENDAR_TIP =
-  '实际周期：这个需求从开始开发到合并，真实经过了多久。算法：结束时间 - 开始时间。'
-export const BASELINE_CALENDAR_TIP =
-  '传统周期预估：如果不用 AI，按团队常规工作节奏估算这个需求大概会持续多久。算法：传统人力预估 ÷ 团队工作密度。'
-export const WORK_RATIO_TIP =
-  '人力提效：传统人力预估比实际人力多出的比例，表示 AI 节省了多少人工投入。算法：(传统人力预估 - 实际人力) / 实际人力。'
-export const CALENDAR_RATIO_TIP =
-  '日历提效：传统周期预估比实际周期多出的比例，表示 AI 帮需求交付缩短了多少周期。算法：(传统周期预估 - 实际周期) / 实际周期。'
-
-/** Verification duration: 0/empty => '—' (em dash U+2014, collection not covered); non-zero displayed normally */
-export function formatVerifyMin(minutes: number | null | undefined): string {
-  if (Number(minutes || 0) === 0) return '—'
-  return formatDuration(minutes)
+  const roundedMinutes = Math.round(numericMinutes)
+  if (roundedMinutes < 60) {
+    return { kind: 'minutes', minutes: roundedMinutes }
+  }
+  if (roundedMinutes <= PERSON_DAY_MINUTES) {
+    const hours = Math.floor(roundedMinutes / 60)
+    const remainingMinutes = roundedMinutes % 60
+    return remainingMinutes === 0
+      ? { kind: 'hours', hours }
+      : { kind: 'hours_minutes', hours, minutes: remainingMinutes }
+  }
+  return {
+    kind: 'person_days',
+    personDays: roundedMinutes / PERSON_DAY_MINUTES,
+  }
 }
 
 /** 1 person-day = 480 minutes (8 hours) */

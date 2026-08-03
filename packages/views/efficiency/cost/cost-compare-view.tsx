@@ -10,7 +10,6 @@ import {
   costTeamTrendOptions,
   fmtCost,
   formatNumber,
-  GRANULARITY_CN,
   type CostSubDeptItem,
   type DeptQuery,
   type Granularity,
@@ -22,6 +21,7 @@ import {
   useGranularity,
 } from "../components/granularity-toggle";
 import { DRILLDOWN_ROW_CLASS } from "../components/drilldown-styles";
+import { useEfficiencyFormatters } from "../i18n";
 import { PCT, PIE_COLORS, shortToken, SortHeader, Td, TdNum, Th, ThNum } from "../usage/shared";
 
 // Sub-department cost comparison — second tab of the Cost Kanban. Ports the
@@ -288,11 +288,18 @@ function TeamTrendBlock({
   end: string;
   extra: ReactNode;
 }) {
+  const { formatBucketLabel, granularityLabel } =
+    useEfficiencyFormatters();
   const { points, chartSeries } = useMemo(() => {
     if (!series || !series.length) return { points: [], chartSeries: [] };
     const allDates = new Set<string>();
     for (const s of series) for (const pt of s.data) allDates.add(pt.date);
-    const buckets = buildBuckets(Array.from(allDates), gran, { start, end });
+    const buckets = buildBuckets(
+      Array.from(allDates),
+      gran,
+      { start, end },
+      formatBucketLabel,
+    );
     const byTeam = new Map<string, Map<string, number>>();
     for (const s of series) {
       const m = new Map<string, number>();
@@ -318,9 +325,9 @@ function TeamTrendBlock({
       color: PIE_COLORS[i % PIE_COLORS.length]!,
     }));
     return { points: rows, chartSeries: chartSeriesOut };
-  }, [end, gran, series, start]);
+  }, [end, formatBucketLabel, gran, series, start]);
 
-  const title = `各团队费用趋势（${GRANULARITY_CN[gran]}）`;
+  const title = `各团队费用趋势（${granularityLabel(gran)}）`;
   if (loading) {
     return (
       <Card title={title} sub="折线（多团队对齐，缺数据补 0）">

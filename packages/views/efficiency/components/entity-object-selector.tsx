@@ -11,6 +11,7 @@ import {
   type DeptTreeNodeWithSummary,
   useUserNameMap,
 } from "@multica/core/efficiency";
+import { useT } from "../../i18n";
 
 export type EfficiencyEntity = "org" | "user" | "project" | "repo";
 
@@ -47,24 +48,32 @@ function Selector({
   loading: boolean;
   onChange: (value: string) => void;
 }) {
+  const { t } = useT("efficiency");
   const labels: Record<EfficiencyEntity, string> = {
-    org: "部门",
-    user: "用户",
-    project: "项目",
-    repo: "仓库",
+    org: t(($) => $.common.selector.entity.org),
+    user: t(($) => $.common.selector.entity.user),
+    project: t(($) => $.common.selector.entity.project),
+    repo: t(($) => $.common.selector.entity.repo),
   };
+  const entityLabel = labels[entity];
 
   return (
     <label className="flex min-w-0 items-center gap-2 text-sm">
-      <span className="shrink-0 text-muted-foreground">{labels[entity]}</span>
+      <span className="shrink-0 text-muted-foreground">{entityLabel}</span>
       <select
         value={value}
         disabled={loading}
         onChange={(event) => onChange(event.target.value)}
         className="h-9 min-w-0 max-w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-64"
-        aria-label={`选择${labels[entity]}`}
+        aria-label={t(($) => $.common.selector.select, {
+          entity: entityLabel,
+        })}
       >
-        <option value="">{loading ? "加载中…" : `全部${labels[entity]}`}</option>
+        <option value="">
+          {loading
+            ? t(($) => $.common.selector.loading)
+            : t(($) => $.common.selector.all, { entity: entityLabel })}
+        </option>
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}

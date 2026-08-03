@@ -3,11 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   type Granularity,
-  GRANULARITY_CN,
   availableGranularities,
   defaultGranularity,
   rangeDays,
 } from "@multica/core/efficiency";
+import { useEfficiencyFormatters } from "../i18n";
+import { useT } from "../../i18n";
 
 // Trend granularity shared control. Ports the source
 // pages/dimensions/granularity.tsx (useGranularity + GranularityToggle) onto
@@ -50,12 +51,14 @@ export function GranularityToggle({
   options: Granularity[];
   onChange: (g: Granularity) => void;
 }) {
+  const { t } = useT("efficiency");
+  const { granularityLabel } = useEfficiencyFormatters();
   if (options.length < 2) return null;
   return (
     <div
       className="inline-flex items-center rounded-lg bg-muted p-0.5"
       role="group"
-      aria-label="趋势粒度"
+      aria-label={t(($) => $.common.granularity.aria_label)}
     >
       {options.map((g) => {
         const active = g === value;
@@ -71,7 +74,7 @@ export function GranularityToggle({
                 : "rounded-md bg-transparent px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             }
           >
-            {GRANULARITY_CN[g]}
+            {granularityLabel(g)}
           </button>
         );
       })}

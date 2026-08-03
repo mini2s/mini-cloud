@@ -8,7 +8,6 @@ import { useWorkspacePaths } from "@multica/core/paths";
 import {
   commitsListOptions,
   fmtCost,
-  formatDuration,
   formatLocalTime,
   parseOrder,
   sortRows,
@@ -27,6 +26,7 @@ import {
   DRILLDOWN_ROW_CLASS,
 } from "../components/drilldown-styles";
 import { SortHeader, Td, TdNum, Th, ThNum } from "../usage/shared";
+import { useEfficiencyFormatters } from "../i18n";
 
 export interface ActivityListState {
   startDate: string;
@@ -121,6 +121,7 @@ function ActivityListPage({
   const paths = useWorkspacePaths();
   const { push } = useNavigation();
   const { resolveName } = useUserNameMap();
+  const { formatDuration } = useEfficiencyFormatters();
   const [draftUserName, setDraftUserName] = useState(state.userName);
   const parsedOrder = useMemo(() => parseOrder(state.order), [state.order]);
   const isCommit = kind === "commit";

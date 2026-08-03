@@ -12,12 +12,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@multica/ui/components/ui/dialog";
+import { useT } from "../../i18n";
 
 export function CreateProjectButton({
   onCreated,
 }: {
   onCreated: (projectId: string) => void;
 }) {
+  const { t } = useT("efficiency");
   const mutation = useCreateProject();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -34,7 +36,7 @@ export function CreateProjectButton({
 
   async function submit() {
     if (!name.trim()) {
-      setError("请输入项目名称");
+      setError(t(($) => $.common.project_create.name_required));
       return;
     }
     setError("");
@@ -44,13 +46,19 @@ export function CreateProjectButton({
         description: description.trim(),
       });
       if (!result.project_id) {
-        setError("创建项目后未返回项目 ID");
+        setError(t(($) => $.common.project_create.missing_id));
         return;
       }
       setOpen(false);
       onCreated(result.project_id);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "创建项目失败");
+      setError(
+        cause instanceof Error && cause.message
+          ? t(($) => $.common.project_create.failed_detail, {
+              detail: cause.message,
+            })
+          : t(($) => $.common.project_create.failed),
+      );
     }
   }
 
@@ -58,19 +66,21 @@ export function CreateProjectButton({
     <>
       <Button size="sm" onClick={() => setOpen(true)}>
         <Plus className="mr-1 h-4 w-4" />
-        创建项目
+        {t(($) => $.common.project_create.button)}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>创建项目</DialogTitle>
+            <DialogTitle>{t(($) => $.common.project_create.title)}</DialogTitle>
             <DialogDescription>
-              创建后将直接进入该项目的聚焦详情，可继续添加仓库来源。
+              {t(($) => $.common.project_create.description)}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <label className="block space-y-1 text-sm">
-              <span className="text-muted-foreground">项目名称</span>
+              <span className="text-muted-foreground">
+                {t(($) => $.common.project_create.name)}
+              </span>
               <input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
@@ -79,7 +89,9 @@ export function CreateProjectButton({
               />
             </label>
             <label className="block space-y-1 text-sm">
-              <span className="text-muted-foreground">描述</span>
+              <span className="text-muted-foreground">
+                {t(($) => $.common.project_create.description_label)}
+              </span>
               <textarea
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
@@ -91,10 +103,12 @@ export function CreateProjectButton({
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>
-              取消
+              {t(($) => $.common.project_create.cancel)}
             </Button>
             <Button onClick={submit} disabled={mutation.isPending}>
-              {mutation.isPending ? "创建中…" : "创建"}
+              {mutation.isPending
+                ? t(($) => $.common.project_create.submitting)
+                : t(($) => $.common.project_create.submit)}
             </Button>
           </DialogFooter>
         </DialogContent>

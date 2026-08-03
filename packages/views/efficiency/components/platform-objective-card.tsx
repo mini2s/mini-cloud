@@ -9,7 +9,6 @@ import {
   chatGlobalDailyOptions,
   formatNumber,
   globalConfigOptions,
-  GRANULARITY_CN,
   type ChatCostTrendRow,
   type ChatDailyGlobal,
 } from "@multica/core/efficiency";
@@ -21,6 +20,7 @@ import {
   type MultiTrendSeries,
 } from "../charts";
 import { chartColorFor } from "../usage/shared";
+import { useEfficiencyFormatters } from "../i18n";
 import { GranularityToggle, useGranularity } from "./granularity-toggle";
 
 interface PlatformObjectiveCardProps {
@@ -47,6 +47,8 @@ export function PlatformObjectiveCard({
   endDate,
 }: PlatformObjectiveCardProps) {
   const wsId = useWorkspaceId();
+  const { formatBucketLabel, granularityLabel } =
+    useEfficiencyFormatters();
   const start = startDate ?? "";
   const end = endDate ?? "";
   const configQ = useQuery(globalConfigOptions(wsId));
@@ -106,13 +108,20 @@ export function PlatformObjectiveCard({
 
   const trendData = useMemo<MultiTrendPoint[]>(() => {
     if (costRows.length > 0) {
-      return bucketCostRows(costRows, gran, start, end);
+      return bucketCostRows(
+        costRows,
+        gran,
+        start,
+        end,
+        formatBucketLabel,
+      );
     }
     const byDate = new Map(daily.map((row) => [row.date, row]));
     return buildBuckets(
       daily.map((row) => row.date),
       gran,
       { start, end },
+      formatBucketLabel,
     ).map((bucket) => ({
       label: bucket.label,
       requests: bucket.dates.reduce(
@@ -120,7 +129,7 @@ export function PlatformObjectiveCard({
         0,
       ),
     }));
-  }, [costRows, daily, gran, start, end]);
+  }, [costRows, daily, end, formatBucketLabel, gran, start]);
 
   const costTrend = costRows.length > 0;
   const trendSeries: MultiTrendSeries[] = [
@@ -232,7 +241,7 @@ export function PlatformObjectiveCard({
           <div>
             <h3 className="text-sm font-medium">
               {costTrend ? "AI 花费趋势" : "请求量趋势"}（
-              {GRANULARITY_CN[gran]}）
+              {granularityLabel(gran)}）
             </h3>
             <p className="text-xs text-muted-foreground">
               {costTrend ? "估算（chat-indicator-statistics）" : "含错误请求"}
@@ -271,12 +280,14 @@ function bucketCostRows(
   granularity: Parameters<typeof buildBuckets>[1],
   start: string,
   end: string,
+  formatLabel: Parameters<typeof buildBuckets>[3],
 ): MultiTrendPoint[] {
   const byDate = new Map(rows.map((row) => [row.date, row]));
   return buildBuckets(
     rows.map((row) => row.date),
     granularity,
     { start, end },
+    formatLabel,
   ).map((bucket) => ({
     label: bucket.label,
     cost: Number(

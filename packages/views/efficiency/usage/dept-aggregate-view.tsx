@@ -7,7 +7,6 @@ import {
   buildBuckets,
   deptOverviewOptions,
   formatNumber,
-  GRANULARITY_CN,
   usageDeptActiveUsersOptions,
   usageDeptModelsOptions,
   usageDeptModeUsageOptions,
@@ -27,6 +26,7 @@ import {
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { KpiCard } from "../../runtimes/components/shared";
+import { useEfficiencyFormatters } from "../i18n";
 import {
   ComboTrendChart,
   MultiTrendChart,
@@ -456,6 +456,8 @@ function TrendBlock({
   headcount: number;
   granControl: ReactNode;
 }) {
+  const { formatBucketLabel, granularityLabel } =
+    useEfficiencyFormatters();
   const points = trend ?? [];
   const aggregated = (() => {
     const byDate = new Map(points.map((point) => [point.date, point]));
@@ -463,6 +465,7 @@ function TrendBlock({
       points.map((point) => point.date),
       gran,
       { start, end },
+      formatBucketLabel,
     );
     const sum = (
       dates: string[],
@@ -486,14 +489,14 @@ function TrendBlock({
       ),
     }));
   })();
-  const granularityLabel = GRANULARITY_CN[gran];
+  const currentGranularityLabel = granularityLabel(gran);
   const dayMode = gran === "day";
   const activeLabel = dayMode ? "活跃用户" : "日均活跃用户";
   // Hover help for the title ⓘ: how each plotted value is computed. Ported
   // from the source's trendHelp (multi-line, one definition per line).
   const rateLabel = dayMode ? "使用率" : "日均使用率";
   const trendHelp = [
-    `请求量 = 该${granularityLabel}内所有成功 API 请求数之和（已排除失败请求）`,
+    `请求量 = 该${currentGranularityLabel}内所有成功 API 请求数之和（已排除失败请求）`,
     dayMode
       ? "活跃用户 = 当日至少 1 次请求的去重人数"
       : "日均活跃用户 = 桶内各日活跃人数之和 ÷ 桶内天数（去重人数不可相加，取日均）",
@@ -505,12 +508,12 @@ function TrendBlock({
   ].join("\n");
   const trendTitle = (
     <span className="inline-flex items-center gap-1.5">
-      使用趋势（{granularityLabel}）
+      使用趋势（{currentGranularityLabel}）
       <InfoTip tip={trendHelp} />
     </span>
   );
 
-  if (loading) return <SkeletonCard title={`使用趋势（${granularityLabel}）`} />;
+  if (loading) return <SkeletonCard title={`使用趋势（${currentGranularityLabel}）`} />;
   if (error) {
     return (
       <ErrorHint
@@ -569,7 +572,7 @@ function TrendBlock({
         />
       </Card>
       <Card
-        title={`Token 消耗趋势（${granularityLabel}）`}
+        title={`Token 消耗趋势（${currentGranularityLabel}）`}
         sub="输入 / 输出 Token"
       >
         <MultiTrendChart

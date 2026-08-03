@@ -13,7 +13,6 @@ import {
   buildBuckets,
   fmtCost,
   formatNumber,
-  GRANULARITY_CN,
   type CostAnomalyResp,
   type CostCompositionItem,
   type CostModelItem,
@@ -30,6 +29,7 @@ import {
   GranularityToggle,
   useGranularity,
 } from "../components/granularity-toggle";
+import { useEfficiencyFormatters } from "../i18n";
 import {
   hasNonZeroTrendValue,
   MultiTrendChart,
@@ -443,6 +443,8 @@ function DailyCostTrendBlock({
   end: string;
   extra: ReactNode;
 }) {
+  const { formatBucketLabel, granularityLabel } =
+    useEfficiencyFormatters();
   const points = useMemo<MultiTrendPoint[]>(() => {
     const dateMap = new Map<string, number>();
     for (const s of series ?? []) {
@@ -453,7 +455,7 @@ function DailyCostTrendBlock({
     const buckets = buildBuckets(Array.from(dateMap.keys()), gran, {
       start,
       end,
-    });
+    }, formatBucketLabel);
     return buckets.map((bucket) => ({
       label: bucket.label,
       cost:
@@ -464,9 +466,9 @@ function DailyCostTrendBlock({
           ) * 100,
         ) / 100,
     }));
-  }, [end, gran, series, start]);
+  }, [end, formatBucketLabel, gran, series, start]);
 
-  const title = `总费用趋势（${GRANULARITY_CN[gran]}）`;
+  const title = `总费用趋势（${granularityLabel(gran)}）`;
   if (loading) return <SkeletonCard title={title} />;
   if (error) {
     return (
@@ -652,11 +654,18 @@ function ModelTrendStackBlock({
   end: string;
   extra: ReactNode;
 }) {
+  const { formatBucketLabel, granularityLabel } =
+    useEfficiencyFormatters();
   const { points, chartSeries } = useMemo(() => {
     if (!series || !series.length) return { points: [], chartSeries: [] };
     const allDates = new Set<string>();
     for (const s of series) for (const pt of s.data) allDates.add(pt.date);
-    const buckets = buildBuckets(Array.from(allDates), gran, { start, end });
+    const buckets = buildBuckets(
+      Array.from(allDates),
+      gran,
+      { start, end },
+      formatBucketLabel,
+    );
     // Build per-model per-date cost maps.
     const byModel = new Map<string, Map<string, number>>();
     for (const s of series) {
@@ -683,9 +692,9 @@ function ModelTrendStackBlock({
       color: PIE_COLORS[i % PIE_COLORS.length]!,
     }));
     return { points: rows, chartSeries: chartSeriesOut };
-  }, [end, gran, series, start]);
+  }, [end, formatBucketLabel, gran, series, start]);
 
-  const title = `各模型费用趋势（${GRANULARITY_CN[gran]}）`;
+  const title = `各模型费用趋势（${granularityLabel(gran)}）`;
   if (loading) return <SkeletonCard title={title} />;
   if (error) {
     return (
