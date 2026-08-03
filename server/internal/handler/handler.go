@@ -24,6 +24,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/deptsync"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/middleware"
+	"github.com/multica-ai/multica/server/internal/platformadmin"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/storage"
@@ -155,6 +156,7 @@ type Handler struct {
 	CloudRuntime           cloudRuntimeProxy
 	CsUser                 csUserClient
 	DeptSync               workspaceDeptClient
+	AdminChecker           *platformadmin.Checker
 	cfg                    Config
 }
 
@@ -233,7 +235,8 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 			BaseURL: cfg.CloudRuntimeFleetURL,
 			Timeout: cfg.CloudRuntimeFleetTimeout,
 		}),
-		cfg: cfg,
+		AdminChecker: platformadmin.NewChecker(context.Background(), queries),
+		cfg:          cfg,
 	}
 	assignmentSvc.Hooks = service.IssueAssignmentHooks{
 		CanAccessPrivateAgent: func(ctx context.Context, agent db.MulticaAgent, actor service.AssignmentActor, workspaceID pgtype.UUID) bool {
@@ -429,6 +432,13 @@ func isCheckViolation(err error) bool {
 
 func requestUserID(r *http.Request) string {
 	return r.Header.Get("X-User-ID")
+}
+
+// effectiveCanManageWorkflows reports whether the user holds this deployment's
+// workflow-admin permission: the costrict platform_admin role when the shared
+// user_system_roles table exists, otherwise multica_user.can_manage_workflows.
+func (h *Handler) effectiveCanManageWorkflows(ctx context.Context, user db.MulticaUser) bool {
+	return h.AdminChecker.CanManageWorkflows(ctx, user)
 }
 
 func (h *Handler) runningSplitPhaseTask(r *http.Request) (db.MulticaAgentTaskQueue, bool) {
