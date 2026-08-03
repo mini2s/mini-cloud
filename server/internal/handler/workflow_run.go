@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/service"
+	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
@@ -1164,10 +1165,14 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 	submittedByID := parseUUID(actorID)
 
 	// Best-effort: cache the PR title at submit time so the submissions list
-	// can render it without fanning out to the code host on every read.
+	// can render it without fanning out to the code host on every read. Build
+	// the provider from the workspace's Gitea config (production has no global
+	// RepositoryProvider).
 	var prTitle string
-	if req.PullRequestURL != "" && h.WorkflowService.RepositoryProvider != nil {
-		prTitle, _ = h.WorkflowService.RepositoryProvider.FetchReviewRequestTitleByURL(r.Context(), req.PullRequestURL)
+	if req.PullRequestURL != "" {
+		if wsUUID, err := util.ParseUUID(workspaceID); err == nil {
+			prTitle, _ = h.WorkflowService.FetchPullRequestTitle(r.Context(), wsUUID, req.PullRequestURL)
+		}
 	}
 
 	submission, err := h.Queries.UpsertNodeRunDeliverableSubmission(r.Context(), db.UpsertNodeRunDeliverableSubmissionParams{
