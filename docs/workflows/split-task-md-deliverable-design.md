@@ -1,6 +1,6 @@
-# 拆分节点交付物化改造 · 设计 spec（第二稿）
+# 拆分节点交付物化改造 · 设计 spec（第三稿）
 
-> 状态：第二稿，已补齐实现阻塞项；`cs-cloud` CLI 的交付/完成契约和工作区成员的 Gitea repo 写权限均已核实，桌面端最低版本不纳入本期门禁，当前没有待确认的外部门禁。本 spec 仍以 wayfinder map `docs/wayfinder/split-deliverable-flow/map.md` 的全部已锁定决策与 research findings 为基线；本轮不改变原方案方向，只补版本归属、并发、重试、恢复和跨 runtime 契约。
+> 状态：第三稿，已补齐实现阻塞项并收敛为 `cs-cloud` 单 runtime；`cs-cloud` CLI 的交付/完成契约和工作区成员的 Gitea repo 写权限均已核实，桌面端最低版本不纳入本期门禁，当前没有待确认的外部门禁。本 spec 仍以 wayfinder map `docs/wayfinder/split-deliverable-flow/map.md` 的全部已锁定决策与 research findings 为基线；本轮不改变原方案方向，只补版本归属、并发、重试、恢复和 cs-cloud runtime 契约。
 > 决策依据：[Charting 决策记录](../wayfinder/split-deliverable-flow/tickets/00-charting-decisions.md) · [Gitea 流摸底](../wayfinder/split-deliverable-flow/assets/research-gitea-deliverable-flow.md) · [挂接点与复用清单](../wayfinder/split-deliverable-flow/assets/research-review-hooks-reuse.md) · [task.md 格式契约（定稿）](../wayfinder/split-deliverable-flow/assets/task-md-format-proposal.md)
 
 ## 0. 背景与目标
@@ -24,7 +24,7 @@
 | 部分 issue 已创建时能否启动 | **全量物化后一次性激活**：所有当前代 task 都有 `issue_id` 前，不启动任何 child workflow | 保留 DAG、barrier/pipeline 和 max_concurrency 的既有入口，避免半批运行后无法安全重生成 |
 | cancel 与行物化并发 | 取消先写 node/generation 终态作为 fence；取消与物化统一采用 node row → task advisory lock → task row 的锁序 | 防止取消返回后又出现新 child issue，也避免反向锁序死锁 |
 | approve 读取浮动分支 | 校验 PR 的 host/repo/head/base，并按 PR **head commit SHA** 读取 task.md；快照记录 commit/blob | 分支在读取、快照、merge 之间仍可变化，浮动 ref 不能作为批准证据 |
-| local daemon 与 cs-cloud prompt 分叉 | 两条 runtime 路径共用一个纯 split prompt builder；`split_generate` 在 cs-cloud 中属于 deliverable producer phase | 当前 cs-cloud 走通用 issue prompt，且不会为 split phase 注入 document deliverable 上下文 |
+| split prompt 的可测试性 | split prompt 在 cs-cloud 单路径上构建，抽成纯包；`split_generate` 在 cs-cloud 中属于 deliverable producer phase | 纯函数便于锁定 task.md、成员、generation、交付与完成契约，且不依赖 service DB 类型 |
 
 ## 1. 新流程生命周期（总览）
 
@@ -353,7 +353,7 @@ approve、reject、retry、generate 和 cancel 都保留 resolved split reviewer
 ### 7.1 代码退役（完整锚点见 research 02 §4）
 
 - CLI：`cmd_workflow_split.go` 全文件（draft add/submit/delete）
-- daemon prompt：`buildSplitChatPrompt` 整体退役；`buildSplitPrompt` 重写（§8）
+- daemon prompt：`buildSplitChatPrompt`、`buildSplitPrompt` 随 Multica local daemon 路径整体退役；split planner 仅走 cs-cloud（§8）
 - service：`workflow_split.go` 中 draft CRUD/recover/reset/chat/recovery 解析链（§4.2 清单，约 1101-1513、2792-3252 行段）——**注意**：recovery/markdown fallback 链随 draft 退役（planner 失败恢复改走 reject→重生成 与 generate 重试，不再从输出救草稿）
 - 前端：`packages/views/workflows/components/split/` 下 `split-review-panel`、`split-chat-review`、`split-draft-ledger`、`split-dependency-note`（+各自测试）退役；`split-progress-badge` 保留；`split-node-card` 改造为「deliverable 链接 + approve/reject + 物化进度」；`split-config-panel` 保留
 - packages/core：退役 9 个 draft API client 方法 + 8 个 hooks（清单 research 02 §4.5）；`approveSplitTasks` 请求体改造
@@ -384,20 +384,21 @@ approve、reject、retry、generate 和 cancel 都保留 resolved split reviewer
 - `e2e/seed-data/coding-task-splitting.ts` / `scripts/import-coding-split-seed.mjs`：模板本体保留，流程文案更新
 - server 侧 `workflow_split_test.go`（handler/service）draft 用例重写
 
-## 8. buildSplitPrompt 与跨运行时提交契约
+## 8. split prompt 构建（cs-cloud 单路径）
 
-新增纯包 `server/internal/splitprompt`，输入只包含 parent issue、workspace members、split config、generation、deliverable ID、review feedback 和运行时完成指令，不依赖 daemon/service DB 类型。local daemon 的 `BuildPrompt` 与 `TaskService.buildCSCloudPayload` 都先映射到同一个 builder；禁止各自维护第二份 task.md 格式说明。
+新增纯包 `server/internal/splitprompt`，输入只包含 parent issue title/description、workspace members、split config、generation、deliverable ID 和 review feedback，不依赖 daemon/service DB 类型。它是纯函数，唯一消费者是 `TaskService.buildCSCloudPayload` 的 split 分支，便于直接单测完整 task.md 契约。
 
-新 prompt 骨架（两条运行时路径共有）：
+新 prompt 骨架：
 
 ```
 You are running as a split-task planner for a Multica workflow.
 Split plan generation: <g>
-Parent issue: <id/title/description 经 contextExtras 注入，现状已有>
+Parent issue: <title/description 经 contextExtras 注入>
+Split configuration: mode=<barrier|pipeline>, max_concurrency=<n>, max_failures=<n>
 Workspace members（显示名 <邮箱>，注入，供 assignee 引用；超上限截断）:
 - 张三 <zhangsan@corp.com> …
 
-1. 用 cs-workflow issue get <parent-id> 了解上下文
+1. 父 issue title/description 已由 contextExtras 完整注入上方；它们是 planner 的唯一业务上下文，据此拆分，不读取评论或附件
 2. 将全部子任务写进 task.md，格式严格遵循 <格式契约要点内联>：
    - 每个子任务一个 ## task: 节；key（小写连字符、全局唯一）必填；
    - assignee 必须是上面名单里的人（显示名或邮箱）；
@@ -405,15 +406,15 @@ Workspace members（显示名 <邮箱>，注入，供 assignee 引用；超上�
 3. 提交：cs-cloud workflow deliverable submit --deliverable <id> --file task.md
    （env 与路径由平台注入，同其他节点的交付流）
 Hard rules：不创建 issue、不改 issue 状态、不发评论、不改仓库代码；
-交付物提交成功后执行 <runtime finish instruction>，平台会路由给人审核。
+交付物提交成功后执行 cs-cloud workflow task complete --summary "..." 作为最后一步，平台会路由给人审核。
 ```
 
-- local daemon 的完成指令是“提交成功后退出，由 claim/complete 流收口”；已核实的 cs-cloud 完成指令是把 `cs-cloud workflow task complete --summary "..."` 作为最后一步。该命令 POST 到设备 localserver 的 `/api/v1/workflow/tasks/{id}/complete`，由 driver 收口执行任务，不直接调用 Multica node API。deliverable submit 负责进入 review；task complete 只终结 planner task，不能二次迁移 node。
+- `cs-cloud workflow task complete --summary "..."` 必须作为最后一步。该命令 POST 到设备 localserver 的 `/api/v1/workflow/tasks/{id}/complete`，由 driver 收口执行任务，不直接调用 Multica node API。deliverable submit 负责进入 review；task complete 只终结 planner task，不能二次迁移 node。
 - `workflowPhaseFromTask` 仍返回 context 中的 `split_generate`；新增 `isDeliverableProducerPhase`，至少包含 `worker` 和 `split_generate`。cs-cloud 对 split phase 注入 delivery repo env、repos、deliverable refs，但不追加通用 worker 编码说明。
 - task context 增加 `split_plan_generation` 与 `split_deliverable_id`；submission handler 用 task ID + 这两个字段做 stale gate。当前 planner task 在提交前终态按 §2.2 失败本代，之后由 generation-aware generate 新起一代；提交后的迟到 complete/fail 不改变 `awaiting_split_review`。
 - reject 重生成：创建新 generation 后同 phase 重新派发，contextExtras 注入被拒 generation 已持久化的 `review_comment`、固定 head SHA/path 和 task.md 内容，prompt 指示“按反馈修订后重新提交”。正文受 runtime prompt budget 截断时，必须同时给出 `git show <head_sha>:<task_path>` 精确读取指令；node branch 可作为工作副本，但不能替代固定 rework 输入。
 - 成员名单注入：`GenerateSplitTasksForDispatch` 的 contextExtras 增加 `workspace_members`（仅 active human，按 member ID 去重，display_name + email，稳定排序，超 ~200 条时带明确截断提示）。
-- 单测对同一个 `SplitPromptInput` 比较 local 与 cs-cloud 的共享主体必须一致，并分别断言完成指令和 deliverable env；这项测试防止以后再次分叉。
+- 单测直接断言 cs-cloud 单路径的完整 prompt、deliverable env 和最后完成指令；不得重新引入 local daemon split builder 或参数化 runtime 完成指令。
 
 ## 9. 验收标准
 
@@ -435,7 +436,7 @@ Hard rules：不创建 issue、不改 issue 状态、不发评论、不改仓库
 - [ ] DAG 依赖生效、环依赖被拒绝（approve 时刻，口径不变）
 - [ ] 父节点取消二次确认后级联停止（**含 materializing 中途取消**）
 - [ ] 聚合徽章与父 issue 进度面板展示一致（**materializing 期间展示「物化中 n/m」**）
-- [ ] local daemon 与 cs-cloud 都收到同一 task.md 契约、成员列表、generation 和正确 deliverable 路径；cs-cloud 原样消费服务端路径、使用正确 node branch，并能通过设备 localserver 显式完成 planner task
+- [ ] cs-cloud 收到完整 task.md 契约、成员列表、generation 和正确 deliverable 路径，原样消费服务端路径、使用正确 node branch，并能通过设备 localserver 显式完成 planner task
 - [ ] Gitea 不支持 conditional merge 时批准/物化仍成功，UI 明确显示 manual_required；不会无条件 merge
 
 ### 9.1 必须具备的测试 seam
@@ -446,7 +447,7 @@ Hard rules：不创建 issue、不改 issue 状态、不发评论、不改仓库
 | handler/service 集成 | 初始激活只派 split job、stale split job、generation/submission CAS、open PR 下同 URL/同 submission 行的新 generation、无匹配 open PR 时的新 URL generation、旧 task 迟到提交、PR host/owner/repo/head/base 校验、固定 commit 快照、approve/reject 并发 |
 | materializer DB 集成 | 每行独立提交、后续行不被前行失败阻断、四次执行时间表、defer 不消耗 job attempts、阈值两侧、同代 revival、完整重生成 |
 | 并发/幂等 | 两个 worker、lease 过期、issue 创建后进程中断、人工 retry 与 running job、cancel fence；断言 origin 唯一且无 orphan issue |
-| prompt/客户端 | local/cs-cloud 共享主体、`task` 标题生成 `task.md`、普通 deliverable 路径冲突被拒、split phase 注入 repo env、`CS_CLOUD_REPO_*`/`CS_CLOUD_GITEA_*` 别名一致、服务端路径原样消费、cs-cloud 完成指令、结构化错误 malformed-response fallback、当前代进度渲染 |
+| prompt/客户端 | cs-cloud 单路径完整契约、`task` 标题生成 `task.md`、普通 deliverable 路径冲突被拒、split phase 注入 repo env、`CS_CLOUD_REPO_*`/`CS_CLOUD_GITEA_*` 别名一致、服务端路径原样消费、cs-cloud 完成指令、结构化错误 malformed-response fallback、当前代进度渲染 |
 
 ## 10. 风险与开放项
 

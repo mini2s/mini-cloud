@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -290,78 +289,6 @@ func TestBuildPromptDefaultMentionsRecent(t *testing.T) {
 	// as mandatory. Guard against it sneaking back in.
 	if strings.Contains(out, "If you need comment history") {
 		t.Errorf("default BuildPrompt still carries the legacy 'If you need' soft phrasing that conflicts with the mandatory workflow\n--- output ---\n%s", out)
-	}
-}
-
-func TestBuildPromptSplitPhaseRequiresStructuredTasksOutput(t *testing.T) {
-	out := BuildPrompt(Task{
-		IssueID:                             "issue-split-1",
-		WorkflowNodeRunID:                   "node-run-1",
-		WorkflowPhase:                       "split",
-		WorkflowSplitParentIssueID:          "parent-issue-1",
-		WorkflowSplitParentIssueTitle:       "Build a gomoku game",
-		WorkflowSplitParentIssueDescription: "Create a playable browser game.",
-		WorkflowSplitPlanGeneration:         3,
-		WorkflowSplitDeliverableID:          "deliverable-1",
-		WorkflowSplitWorkspaceMembers:       json.RawMessage(`[{"display_name":"Ada","email":"ada@example.com"}]`),
-	}, "claude")
-
-	for _, want := range []string{
-		"split-plan document producer",
-		"Workflow node run ID: node-run-1",
-		"Parent issue title: Build a gomoku game",
-		"Split plan generation: 3",
-		"## Task: <title>",
-		"key: <stable-key>",
-		"assignee: <active member email>",
-		"depends-on: <comma-separated keys>",
-		"ada@example.com",
-		"default issue workflow",
-		"cs-cloud workflow deliverable submit --deliverable deliverable-1 --file task.md",
-		"Do not use the retired split draft CLI",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("split BuildPrompt missing %q\n--- output ---\n%s", want, out)
-		}
-	}
-	for _, banned := range []string{
-		"then complete it",
-		"cs-workflow issue comment add",
-		"cs-workflow issue status",
-		"Your assigned issue ID is",
-		"use the split node's default agent",
-		"Default child assignee",
-		"--assignee",
-		"agent list",
-		"workflow split draft add",
-		"workflow split draft submit",
-	} {
-		if strings.Contains(out, banned) {
-			t.Errorf("split BuildPrompt must not contain ordinary assignment guidance %q\n--- output ---\n%s", banned, out)
-		}
-	}
-}
-
-func TestBuildPromptSplitGenerationIncludesRejectedSnapshot(t *testing.T) {
-	out := BuildPrompt(Task{
-		IssueID:                          "issue-split-1",
-		WorkflowPhase:                    "split",
-		WorkflowSplitReviewComment:       "Use fewer tasks",
-		WorkflowSplitReviewedContent:     "## Task: Old",
-		WorkflowSplitReviewHeadCommitSHA: "abc123",
-		WorkflowSplitReviewTaskPath:      "nodes/01/task.md",
-	}, "claude")
-
-	for _, want := range []string{
-		"previous generation was rejected",
-		"Use fewer tasks",
-		"Previous fixed task.md excerpt",
-		"## Task: Old",
-		"git show abc123:nodes/01/task.md",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("split repair BuildPrompt missing %q\n--- output ---\n%s", want, out)
-		}
 	}
 }
 

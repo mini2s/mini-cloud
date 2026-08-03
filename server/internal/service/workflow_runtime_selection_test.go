@@ -28,6 +28,18 @@ func TestSelectWorkflowRuntimeKeepsAgentBinding(t *testing.T) {
 	}
 }
 
+func TestRequireWorkflowRuntimeProvider(t *testing.T) {
+	if err := requireWorkflowRuntimeProvider(csCloudProvider, csCloudProvider); err != nil {
+		t.Fatalf("matching cs-cloud provider rejected: %v", err)
+	}
+	if err := requireWorkflowRuntimeProvider("claude", ""); err != nil {
+		t.Fatalf("provider requirement should be optional: %v", err)
+	}
+	if err := requireWorkflowRuntimeProvider("claude", csCloudProvider); !errors.Is(err, ErrWorkflowRuntimeUnavailable) {
+		t.Fatalf("got %v, want ErrWorkflowRuntimeUnavailable", err)
+	}
+}
+
 func runtimeTestUUID(value byte) pgtype.UUID {
 	var bytes [16]byte
 	bytes[15] = value

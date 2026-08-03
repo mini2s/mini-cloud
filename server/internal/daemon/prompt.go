@@ -1,12 +1,10 @@
 package daemon
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/multica-ai/multica/server/internal/daemon/execenv"
-	"github.com/multica-ai/multica/server/internal/splitprompt"
 )
 
 // BuildPrompt constructs the task prompt for an agent CLI.
@@ -19,9 +17,6 @@ import (
 func BuildPrompt(task Task, provider string) string {
 	if task.ChatSessionID != "" {
 		return buildChatPrompt(task)
-	}
-	if task.WorkflowPhase == "split" {
-		return buildSplitPrompt(task)
 	}
 	if task.TriggerCommentID != "" {
 		return buildCommentPrompt(task, provider)
@@ -106,31 +101,6 @@ func BuildPrompt(task Task, provider string) string {
 	fmt.Fprintf(&b, "Start by running `cs-workflow issue get %s --output json` to understand your task, then complete it.\n", task.IssueID)
 	fmt.Fprintf(&b, "For comment history, follow the rule in your runtime workflow file (assignment-triggered tasks treat the read as mandatory). `cs-workflow issue comment list %s --output json` returns all comments for the issue (server caps at 2000). On long-running issues use `--recent 20 --output json` to read the 20 most recently active threads, then page older threads via the stderr `Next thread cursor: ...` line and the matching `--before` / `--before-id` until you have enough history. `--since <RFC3339>` is still available for incremental polling and may combine with `--recent`.\n", task.IssueID)
 	return b.String()
-}
-
-func buildSplitPrompt(task Task) string {
-	var members []splitprompt.Member
-	_ = json.Unmarshal(task.WorkflowSplitWorkspaceMembers, &members)
-	path := ""
-	if task.GiteaDeliverables != nil {
-		for _, deliverable := range task.GiteaDeliverables.Deliverables {
-			if deliverable.ID == task.WorkflowSplitDeliverableID {
-				path = deliverable.Path
-				break
-			}
-		}
-	}
-	return splitprompt.Build(splitprompt.Input{
-		IssueID: task.IssueID, NodeRunID: task.WorkflowNodeRunID,
-		Generation: task.WorkflowSplitPlanGeneration, DeliverableID: task.WorkflowSplitDeliverableID,
-		DeliverablePath: path, ParentTitle: task.WorkflowSplitParentIssueTitle,
-		ParentDescription: task.WorkflowSplitParentIssueDescription, Members: members,
-		MembersTruncated: task.WorkflowSplitMembersTruncated, ReviewComment: task.WorkflowSplitReviewComment,
-		ReviewedContent:     task.WorkflowSplitReviewedContent,
-		ReviewHeadCommitSHA: task.WorkflowSplitReviewHeadCommitSHA,
-		ReviewTaskPath:      task.WorkflowSplitReviewTaskPath,
-		FinishInstruction:   "After the deliverable submit command succeeds, exit the planner process.",
-	})
 }
 
 // buildQuickCreatePrompt constructs a prompt for quick-create tasks. The

@@ -38,36 +38,13 @@ func TestTaskToResponseSessionID(t *testing.T) {
 	})
 }
 
-func TestTaskToResponseWorkflowPhaseFromContext(t *testing.T) {
+func TestTaskToResponseDoesNotExposeSplitPhaseToLocalDaemon(t *testing.T) {
 	task := db.MulticaAgentTaskQueue{
-		Context: []byte(`{"type":"workflow","phase":"split","node_run_id":"node-run-1"}`),
+		Context: []byte(`{"type":"workflow","phase":"split_generate","node_run_id":"node-run-1"}`),
 	}
 
 	resp := taskToResponse(task)
-	if resp.WorkflowPhase != "split" {
-		t.Fatalf("expected WorkflowPhase %q, got %q", "split", resp.WorkflowPhase)
-	}
-}
-
-func TestTaskToResponseSplitGenerationContext(t *testing.T) {
-	task := db.MulticaAgentTaskQueue{
-		Context: []byte(`{
-			"type": "workflow",
-			"phase": "split",
-			"node_run_id": "node-run-1",
-			"parent_issue_id": "parent-1",
-			"parent_issue_title": "Build a game",
-			"parent_issue_description": "Use web technology",
-			"split_config": {"default_issue_workflow_id":"child-wf-1"}
-		}`),
-	}
-
-	resp := taskToResponse(task)
-
-	if resp.WorkflowPhase != "split" {
-		t.Fatalf("expected WorkflowPhase %q, got %q", "split", resp.WorkflowPhase)
-	}
-	if resp.WorkflowSplitParentIssueID != "parent-1" {
-		t.Fatalf("expected parent issue ID from split context, got %q", resp.WorkflowSplitParentIssueID)
+	if resp.WorkflowPhase != "" {
+		t.Fatalf("split phase must not be exposed to the retired local daemon path, got %q", resp.WorkflowPhase)
 	}
 }

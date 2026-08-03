@@ -10,39 +10,44 @@ type Member struct {
 	Email       string `json:"email"`
 }
 
+type Config struct {
+	Mode           string `json:"mode"`
+	MaxConcurrency int32  `json:"max_concurrency"`
+	MaxFailures    int32  `json:"max_failures"`
+}
+
 type Input struct {
-	IssueID             string
 	NodeRunID           string
 	Generation          int32
 	DeliverableID       string
 	DeliverablePath     string
 	ParentTitle         string
 	ParentDescription   string
+	SplitConfig         Config
 	Members             []Member
 	MembersTruncated    bool
 	ReviewComment       string
 	ReviewedContent     string
 	ReviewHeadCommitSHA string
 	ReviewTaskPath      string
-	FinishInstruction   string
 }
 
-// Build returns the single prompt contract used by local-daemon and cs-cloud
-// split planners. The planner owns task.md only; issue creation is a server
-// materialization concern.
+// Build returns the cs-cloud split planner prompt. The planner owns task.md
+// only; issue creation is a server materialization concern.
 func Build(in Input) string {
 	var b strings.Builder
 	b.WriteString("You are the split-plan document producer for a Multica workflow.\n\n")
 	fmt.Fprintf(&b, "Split plan generation: %d\n", in.Generation)
 	fmt.Fprintf(&b, "Workflow node run ID: %s\n", in.NodeRunID)
-	if in.IssueID != "" {
-		fmt.Fprintf(&b, "Planning issue ID: %s\n", in.IssueID)
-	}
+	b.WriteString("The parent issue title and description below are the complete planning context supplied by Multica. Base the split on this context only; do not fetch issue comments or attachments.\n")
 	if in.ParentTitle != "" {
 		fmt.Fprintf(&b, "Parent issue title: %s\n", in.ParentTitle)
 	}
 	if strings.TrimSpace(in.ParentDescription) != "" {
 		fmt.Fprintf(&b, "\nParent issue description:\n%s\n", strings.TrimSpace(in.ParentDescription))
+	}
+	if in.SplitConfig.Mode != "" {
+		fmt.Fprintf(&b, "\nSplit configuration: mode=%s, max_concurrency=%d, max_failures=%d\n", in.SplitConfig.Mode, in.SplitConfig.MaxConcurrency, in.SplitConfig.MaxFailures)
 	}
 	if strings.TrimSpace(in.ReviewComment) != "" {
 		fmt.Fprintf(&b, "\nThe previous generation was rejected. Apply this review feedback:\n%s\n", strings.TrimSpace(in.ReviewComment))
@@ -77,10 +82,6 @@ func Build(in Input) string {
 	if in.DeliverablePath != "" {
 		fmt.Fprintf(&b, "- The platform-owned repository path is `%s`; the CLI resolves it from the deliverable ID.\n", in.DeliverablePath)
 	}
-	finish := strings.TrimSpace(in.FinishInstruction)
-	if finish == "" {
-		finish = "After the deliverable submit command succeeds, exit."
-	}
-	b.WriteString("- " + finish + "\n")
+	b.WriteString("- Run `cs-cloud workflow task complete --summary \"<one-line summary of the task plan>\"` as your last action, then stop.\n")
 	return b.String()
 }

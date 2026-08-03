@@ -322,10 +322,6 @@ func renderIssueContext(provider string, ctx TaskContextForEnv) string {
 	if ctx.QuickCreatePrompt != "" {
 		return renderQuickCreateContext(ctx)
 	}
-	if ctx.WorkflowPhase == "split" {
-		return renderSplitContext(ctx)
-	}
-
 	var b strings.Builder
 
 	b.WriteString("# Task Assignment\n\n")
@@ -350,28 +346,6 @@ func renderIssueContext(provider string, ctx TaskContextForEnv) string {
 		b.WriteString("\n")
 	}
 
-	return b.String()
-}
-
-func renderSplitContext(ctx TaskContextForEnv) string {
-	var b strings.Builder
-	b.WriteString("# Split Task Generation\n\n")
-	fmt.Fprintf(&b, "**Issue ID:** %s\n\n", ctx.IssueID)
-	b.WriteString("**Trigger:** Workflow split task-plan generation\n\n")
-	if ctx.WorkflowNodeRunID != "" {
-		fmt.Fprintf(&b, "**Workflow node run ID:** %s\n\n", ctx.WorkflowNodeRunID)
-	}
-	if ctx.WorkflowSplitParentIssueID != "" {
-		fmt.Fprintf(&b, "**Parent issue ID:** %s\n\n", ctx.WorkflowSplitParentIssueID)
-	}
-	if ctx.WorkflowSplitParentIssueTitle != "" {
-		fmt.Fprintf(&b, "**Parent issue title:** %s\n\n", ctx.WorkflowSplitParentIssueTitle)
-	}
-	if strings.TrimSpace(ctx.WorkflowSplitParentIssueDescription) != "" {
-		fmt.Fprintf(&b, "## Parent Issue Description\n\n%s\n\n", strings.TrimSpace(ctx.WorkflowSplitParentIssueDescription))
-	}
-	b.WriteString("## Quick Start\n\n")
-	b.WriteString("Follow the per-task prompt as the authoritative task.md format and submission contract. Use the delivery repository and deliverable submission command; do not use the retired split draft CLI or create child issues directly.\n\n")
 	return b.String()
 }
 

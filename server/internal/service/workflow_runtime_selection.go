@@ -81,6 +81,13 @@ type workflowRuntimeSelection struct {
 	ActiveTaskCount int64
 }
 
+func requireWorkflowRuntimeProvider(actual, required string) error {
+	if required == "" || actual == required {
+		return nil
+	}
+	return fmt.Errorf("%w: runtime provider %q does not satisfy required provider %q", ErrWorkflowRuntimeUnavailable, actual, required)
+}
+
 func (s *WorkflowService) selectWorkflowRuntime(
 	ctx context.Context,
 	qtx *db.Queries,
@@ -283,6 +290,15 @@ func (s *WorkflowService) dispatchAgentTask(
 			return ErrWorkflowRunNotRunning
 		}
 		linkTask := func(linkedTask db.MulticaAgentTaskQueue, reason string) error {
+			if phase == "split" {
+				runtime, runtimeErr := qtx.GetAgentRuntime(ctx, linkedTask.RuntimeID)
+				if runtimeErr != nil {
+					return fmt.Errorf("get split planner runtime: %w", runtimeErr)
+				}
+				if runtimeErr := requireWorkflowRuntimeProvider(runtime.Provider, csCloudProvider); runtimeErr != nil {
+					return runtimeErr
+				}
+			}
 			runtimeReason := pgtype.Text{String: reason, Valid: reason != ""}
 			switch phase {
 			case "worker", "split":

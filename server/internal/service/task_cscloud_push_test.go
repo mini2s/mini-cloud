@@ -1080,13 +1080,13 @@ func TestBuildCSCloudPromptSplitGenerateUsesTaskMarkdownContract(t *testing.T) {
 	task := db.MulticaAgentTaskQueue{
 		IssueID:           pgtype.UUID{Bytes: [16]byte{1}, Valid: true},
 		WorkflowNodeRunID: pgtype.UUID{Bytes: [16]byte{2}, Valid: true},
-		Context:           []byte(`{"type":"workflow","phase":"split_generate","split_plan_generation":2,"split_deliverable_id":"deliverable-1","parent_issue_title":"Parent","workspace_members":[{"display_name":"Ada","email":"ada@example.com"}]}`),
+		Context:           []byte(`{"type":"workflow","phase":"split_generate","split_plan_generation":2,"split_deliverable_id":"deliverable-1","parent_issue_title":"Parent","split_config":{"mode":"barrier","max_concurrency":5,"max_failures":1},"workspace_members":[{"display_name":"Ada","email":"ada@example.com"}]}`),
 	}
 	prompt, err := (&TaskService{}).buildCSCloudPrompt(context.Background(), task, "direct")
 	if err != nil {
 		t.Fatalf("build split prompt: %v", err)
 	}
-	for _, want := range []string{"split-plan document producer", "Split plan generation: 2", "## Task: <title>", "ada@example.com", "--deliverable deliverable-1 --file task.md"} {
+	for _, want := range []string{"split-plan document producer", "Split plan generation: 2", "mode=barrier, max_concurrency=5, max_failures=1", "## Task: <title>", "ada@example.com", "--deliverable deliverable-1 --file task.md"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("split cloud prompt missing %q:\n%s", want, prompt)
 		}

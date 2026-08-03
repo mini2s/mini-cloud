@@ -1104,7 +1104,7 @@ func computeCSCloudTaskKind(task db.MulticaAgentTaskQueue) string {
 
 func (s *TaskService) buildCSCloudPrompt(ctx context.Context, task db.MulticaAgentTaskQueue, kind string) (string, error) {
 	if workflowPhaseFromTask(task) == splitPhaseGenerate {
-		return s.buildCSCloudSplitPrompt(ctx, task)
+		return s.buildCSCloudSplitPrompt(task)
 	}
 	switch kind {
 	case "chat":
@@ -1124,12 +1124,13 @@ func (s *TaskService) buildCSCloudPrompt(ctx context.Context, task db.MulticaAge
 	}
 }
 
-func (s *TaskService) buildCSCloudSplitPrompt(ctx context.Context, task db.MulticaAgentTaskQueue) (string, error) {
+func (s *TaskService) buildCSCloudSplitPrompt(task db.MulticaAgentTaskQueue) (string, error) {
 	var payload struct {
 		Generation          int32                `json:"split_plan_generation"`
 		DeliverableID       string               `json:"split_deliverable_id"`
 		ParentTitle         string               `json:"parent_issue_title"`
 		ParentDescription   string               `json:"parent_issue_description"`
+		SplitConfig         splitprompt.Config   `json:"split_config"`
 		Members             []splitprompt.Member `json:"workspace_members"`
 		MembersTruncated    bool                 `json:"workspace_members_truncated"`
 		ReviewComment       string               `json:"review_comment"`
@@ -1140,26 +1141,14 @@ func (s *TaskService) buildCSCloudSplitPrompt(ctx context.Context, task db.Multi
 	if err := json.Unmarshal(task.Context, &payload); err != nil {
 		return "", fmt.Errorf("parse split planner context: %w", err)
 	}
-	issueID := util.UUIDToString(task.IssueID)
-	if issueID == "" && task.WorkflowNodeRunID.Valid {
-		nodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, task.WorkflowNodeRunID)
-		if err != nil {
-			return "", fmt.Errorf("get split planner node run: %w", err)
-		}
-		run, err := s.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
-		if err != nil {
-			return "", fmt.Errorf("get split planner run: %w", err)
-		}
-		issueID = util.UUIDToString(run.SourceIssueID)
-	}
 	return splitprompt.Build(splitprompt.Input{
-		IssueID: issueID, NodeRunID: util.UUIDToString(task.WorkflowNodeRunID),
+		NodeRunID:  util.UUIDToString(task.WorkflowNodeRunID),
 		Generation: payload.Generation, DeliverableID: payload.DeliverableID,
 		ParentTitle: payload.ParentTitle, ParentDescription: payload.ParentDescription,
-		Members: payload.Members, MembersTruncated: payload.MembersTruncated,
+		SplitConfig: payload.SplitConfig,
+		Members:     payload.Members, MembersTruncated: payload.MembersTruncated,
 		ReviewComment: payload.ReviewComment, ReviewedContent: payload.ReviewedContent,
 		ReviewHeadCommitSHA: payload.ReviewHeadCommitSHA, ReviewTaskPath: payload.ReviewTaskPath,
-		FinishInstruction: "Run `cs-cloud workflow task complete --summary \"<one-line summary of the task plan>\"` as your last action, then stop.",
 	}), nil
 }
 

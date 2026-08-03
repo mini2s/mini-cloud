@@ -397,44 +397,6 @@ func TestWriteContextFiles(t *testing.T) {
 	}
 }
 
-func TestRenderSplitContextUsesTaskDeliverableContract(t *testing.T) {
-	content := renderSplitContext(TaskContextForEnv{
-		IssueID:                             "issue-split-1",
-		WorkflowNodeRunID:                   "node-run-1",
-		WorkflowSplitParentIssueID:          "parent-issue-1",
-		WorkflowSplitParentIssueTitle:       "Build a game",
-		WorkflowSplitParentIssueDescription: "Use web technology.",
-	})
-	for _, want := range []string{
-		"Split Task Generation",
-		"node-run-1",
-		"parent-issue-1",
-		"Build a game",
-		"task.md",
-		"delivery repository",
-		"deliverable submission command",
-		"do not use the retired split draft CLI",
-		"create child issues directly",
-	} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("split context missing %q\n--- content ---\n%s", want, content)
-		}
-	}
-	if strings.Contains(content, "Return only the JSON task plan") {
-		t.Fatalf("split context should not require JSON-only output\n--- content ---\n%s", content)
-	}
-	for _, banned := range []string{
-		"Default child assignee",
-		"child_workflow_id",
-		"--assignee",
-		"list_available_issue_workflows",
-	} {
-		if strings.Contains(content, banned) {
-			t.Fatalf("split context should not expose %q\n--- content ---\n%s", banned, content)
-		}
-	}
-}
-
 func TestWriteContextFilesOmitsSkillsWhenEmpty(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
