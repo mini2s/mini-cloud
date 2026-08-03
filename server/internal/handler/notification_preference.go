@@ -18,8 +18,10 @@ import (
 // preferences map so a single endpoint covers all user notification
 // preferences.
 var validNotifGroups = map[string]bool{
+	"responsible_changes":  true,
 	"assignments":          true,
-	"workflow_roles":       true,
+	"workflow_executor":    true,
+	"workflow_reviewer":    true,
 	"status_changes":       true,
 	"workflow_node_status": true,
 	"comments":             true,

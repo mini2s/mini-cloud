@@ -35,6 +35,7 @@
   },
   "types": {
     "responsible_assigned": "已指定负责人",
+    "responsible_unassigned": "已移除负责人",
     "workflow_executor_assigned": "已指定工作流执行者",
     "workflow_reviewer_assigned": "已指定工作流审核者",
     "workflow_node_status_changed": "工作流节点状态已变更",

@@ -36,6 +36,7 @@
   },
   "types": {
     "responsible_assigned": "Responsible assigned",
+    "responsible_unassigned": "Responsible removed",
     "issue_assigned": "Assigned",
     "unassigned": "Unassigned",
     "assignee_changed": "Assignee changed",

@@ -77,12 +77,13 @@ var parentBubbleNotifTypes = map[string]bool{
 // notifTypeToGroup maps each InboxItemType to a user-configurable preference
 // group. Types not in this map are always delivered (not configurable).
 var notifTypeToGroup = map[string]string{
-	"responsible_assigned":         "assignments",
+	"responsible_assigned":         "responsible_changes",
+	"responsible_unassigned":       "responsible_changes",
 	"issue_assigned":               "assignments",
 	"unassigned":                   "assignments",
 	"assignee_changed":             "assignments",
-	"workflow_executor_assigned":   "workflow_roles",
-	"workflow_reviewer_assigned":   "workflow_roles",
+	"workflow_executor_assigned":   "workflow_executor",
+	"workflow_reviewer_assigned":   "workflow_reviewer",
 	"status_changed":               "status_changes",
 	"workflow_node_status_changed": "workflow_node_status",
 	"new_comment":                  "comments",
@@ -601,8 +602,10 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 		assigneeChanged, _ := payload["assignee_changed"].(bool)
 		statusChanged, _ := payload["status_changed"].(bool)
 		descriptionChanged, _ := payload["description_changed"].(bool)
+		responsibleUserChanged, _ := payload["responsible_user_changed"].(bool)
 		prevAssigneeType, _ := payload["prev_assignee_type"].(*string)
 		prevAssigneeID, _ := payload["prev_assignee_id"].(*string)
+		prevResponsibleID, _ := payload["prev_responsible_user_id"].(*string)
 		prevDescription, _ := payload["prev_description"].(*string)
 
 		if assigneeChanged {
@@ -660,6 +663,47 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 				exclude, "assignee_changed", "info",
 				issue.Title, "",
 				assigneeDetails)
+		}
+
+		// Responsible user changed: notify the new responsible user
+		// (responsible_assigned) and, if there was one, the previous
+		// responsible user (responsible_unassigned). Unlike assignee, the
+		// responsible user is always a member (user-only column), and there is
+		// no subscriber broadcast — only the two direct parties care.
+		if responsibleUserChanged {
+			responsibleDetailsMap := map[string]any{}
+			if prevResponsibleID != nil {
+				responsibleDetailsMap["prev_responsible_user_id"] = *prevResponsibleID
+			}
+			if issue.ResponsibleUserID != nil {
+				responsibleDetailsMap["new_responsible_user_id"] = *issue.ResponsibleUserID
+			}
+			responsibleDetails, _ := json.Marshal(responsibleDetailsMap)
+
+			// Direct: notify new responsible user about assignment.
+			if issue.ResponsibleUserID != nil && *issue.ResponsibleUserID != "" {
+				notifyDirect(ctx, queries, bus,
+					"member", *issue.ResponsibleUserID,
+					e.WorkspaceID, e, issue.ID, issue.Status,
+					"responsible_assigned", "action_required",
+					issue.Title,
+					"",
+					responsibleDetails,
+				)
+			}
+
+			// Direct: notify previous responsible user about removal
+			// (reassigned to someone else, or cleared to none).
+			if prevResponsibleID != nil && *prevResponsibleID != "" {
+				notifyDirect(ctx, queries, bus,
+					"member", *prevResponsibleID,
+					e.WorkspaceID, e, issue.ID, issue.Status,
+					"responsible_unassigned", "info",
+					issue.Title,
+					"",
+					responsibleDetails,
+				)
+			}
 		}
 
 		if statusChanged {

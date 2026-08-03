@@ -283,14 +283,14 @@ func TestNotification_IssueCreated_SelfResponsibleStillNotified(t *testing.T) {
 	}
 }
 
-func TestNotification_IssueCreated_AssignmentPreferencesMuteResponsibleAndAssignee(t *testing.T) {
+func TestNotification_IssueCreated_ResponsibleAndAssigneeMutedSeparately(t *testing.T) {
 	queries := db.New(testPool)
 	bus := newNotificationBus(t, queries)
 
 	responsibleEmail := "notif-muted-responsible@multica.ai"
 	responsibleID := createTestUser(t, responsibleEmail)
 	t.Cleanup(func() { cleanupTestUser(t, responsibleEmail) })
-	muteNotificationGroup(t, queries, responsibleID, "assignments")
+	muteNotificationGroup(t, queries, responsibleID, "responsible_changes")
 
 	assigneeEmail := "notif-muted-assignee@multica.ai"
 	assigneeID := createTestUser(t, assigneeEmail)
@@ -687,11 +687,11 @@ func TestSubscriberSystemCommentDoesNotSubscribe(t *testing.T) {
 }
 
 // TestNotification_AssigneeChanged verifies the full assignee change flow:
-// - New assignee gets "issue_assigned" (Direct)
-// - Old assignee gets "unassigned" (Direct)
-// - Other subscribers get "assignee_changed" (Subscriber), including the actor
-//   when they are subscribed, while old + new assignees are deduplicated
-// - Actor gets nothing
+//   - New assignee gets "issue_assigned" (Direct)
+//   - Old assignee gets "unassigned" (Direct)
+//   - Other subscribers get "assignee_changed" (Subscriber), including the actor
+//     when they are subscribed, while old + new assignees are deduplicated
+//   - Actor gets nothing
 func TestNotification_AssigneeChanged(t *testing.T) {
 	queries := db.New(testPool)
 	bus := newNotificationBus(t, queries)
@@ -914,7 +914,7 @@ func TestNotification_WorkflowNodePreferencesMuteRolesAndStatusChanges(t *testin
 	workerID := createTestUser(t, workerEmail)
 	t.Cleanup(func() { cleanupTestUser(t, workerEmail) })
 	workerMemberID := createTestMember(t, testWorkspaceID, workerID)
-	muteNotificationGroup(t, queries, workerID, "workflow_roles")
+	muteNotificationGroup(t, queries, workerID, "workflow_executor")
 
 	criticEmail := "notif-workflow-muted-critic@multica.ai"
 	criticID := createTestUser(t, criticEmail)
@@ -1731,5 +1731,402 @@ func TestNotification_StatusChange_ReopenSurfacesNewTaskFailed(t *testing.T) {
 	}
 	if archived != 1 {
 		t.Fatalf("expected 1 archived task_failed row preserved from prior cycle, got %d", archived)
+	}
+}
+
+// publishResponsibleUpdate is a small helper to publish the issue:updated
+// event shape used by the responsible-user change notification path.
+func publishResponsibleUpdate(bus *events.Bus, issueID, newResponsibleID string, prevResponsibleID *string) {
+	issue := handler.IssueResponse{
+		ID:          issueID,
+		WorkspaceID: testWorkspaceID,
+		Title:       "responsible change test",
+		Status:      "todo",
+		Priority:    "medium",
+		CreatorType: "member",
+		CreatorID:   testUserID,
+	}
+	if newResponsibleID != "" {
+		issue.ResponsibleUserID = &newResponsibleID
+	}
+	bus.Publish(events.Event{
+		Type:        protocol.EventIssueUpdated,
+		WorkspaceID: testWorkspaceID,
+		ActorType:   "member",
+		ActorID:     testUserID,
+		Payload: map[string]any{
+			"issue":                    issue,
+			"assignee_changed":         false,
+			"status_changed":           false,
+			"responsible_user_changed": true,
+			"prev_responsible_user_id": prevResponsibleID,
+		},
+	})
+}
+
+// TestNotification_IssueUpdated_ResponsibleAssigned verifies that editing an
+// issue to set a responsible user (from none) notifies that user with
+// "responsible_assigned" (action_required). Covers the UPDATE path; the CREATE
+// path is covered by TestNotification_IssueCreated_*.
+func TestNotification_IssueUpdated_ResponsibleAssigned(t *testing.T) {
+	queries := db.New(testPool)
+	bus := newNotificationBus(t, queries)
+
+	responsibleEmail := "notif-update-resp-assigned@multica.ai"
+	responsibleID := createTestUser(t, responsibleEmail)
+	t.Cleanup(func() { cleanupTestUser(t, responsibleEmail) })
+
+	issueID := createTestIssue(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() {
+		cleanupInboxForIssue(t, issueID)
+		cleanupTestIssue(t, issueID)
+	})
+
+	publishResponsibleUpdate(bus, issueID, responsibleID, nil)
+
+	items := inboxItemsForRecipient(t, queries, responsibleID)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 inbox item for responsible user, got %d", len(items))
+	}
+	if items[0].Type != "responsible_assigned" {
+		t.Fatalf("expected type 'responsible_assigned', got %q", items[0].Type)
+	}
+	if items[0].Severity != "action_required" {
+		t.Fatalf("expected severity 'action_required', got %q", items[0].Severity)
+	}
+}
+
+// TestNotification_IssueUpdated_ResponsibleUnassigned_OnReassign verifies that
+// reassigning the responsible user from A to B notifies B with
+// "responsible_assigned" and A with "responsible_unassigned" (info).
+func TestNotification_IssueUpdated_ResponsibleUnassigned_OnReassign(t *testing.T) {
+	queries := db.New(testPool)
+	bus := newNotificationBus(t, queries)
+
+	oldResponsibleEmail := "notif-update-old-resp@multica.ai"
+	oldResponsibleID := createTestUser(t, oldResponsibleEmail)
+	t.Cleanup(func() { cleanupTestUser(t, oldResponsibleEmail) })
+
+	newResponsibleEmail := "notif-update-new-resp@multica.ai"
+	newResponsibleID := createTestUser(t, newResponsibleEmail)
+	t.Cleanup(func() { cleanupTestUser(t, newResponsibleEmail) })
+
+	issueID := createTestIssue(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() {
+		cleanupInboxForIssue(t, issueID)
+		cleanupTestIssue(t, issueID)
+	})
+
+	publishResponsibleUpdate(bus, issueID, newResponsibleID, &oldResponsibleID)
+
+	newItems := inboxItemsForRecipient(t, queries, newResponsibleID)
+	if len(newItems) != 1 || newItems[0].Type != "responsible_assigned" {
+		t.Fatalf("expected 1 responsible_assigned for new responsible, got %#v", newItems)
+	}
+
+	oldItems := inboxItemsForRecipient(t, queries, oldResponsibleID)
+	if len(oldItems) != 1 {
+		t.Fatalf("expected 1 inbox item for old responsible, got %d", len(oldItems))
+	}
+	if oldItems[0].Type != "responsible_unassigned" {
+		t.Fatalf("expected type 'responsible_unassigned', got %q", oldItems[0].Type)
+	}
+	if oldItems[0].Severity != "info" {
+		t.Fatalf("expected severity 'info', got %q", oldItems[0].Severity)
+	}
+}
+
+// TestNotification_IssueUpdated_ResponsibleUnassigned_OnClear verifies that
+// clearing the responsible user (A -> none) notifies the former responsible
+// user with "responsible_unassigned".
+func TestNotification_IssueUpdated_ResponsibleUnassigned_OnClear(t *testing.T) {
+	queries := db.New(testPool)
+	bus := newNotificationBus(t, queries)
+
+	oldResponsibleEmail := "notif-update-clear-resp@multica.ai"
+	oldResponsibleID := createTestUser(t, oldResponsibleEmail)
+	t.Cleanup(func() { cleanupTestUser(t, oldResponsibleEmail) })
+
+	issueID := createTestIssue(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() {
+		cleanupInboxForIssue(t, issueID)
+		cleanupTestIssue(t, issueID)
+	})
+
+	// newResponsibleID="" -> ResponsibleUserID stays nil (cleared).
+	publishResponsibleUpdate(bus, issueID, "", &oldResponsibleID)
+
+	oldItems := inboxItemsForRecipient(t, queries, oldResponsibleID)
+	if len(oldItems) != 1 {
+		t.Fatalf("expected 1 inbox item for cleared responsible, got %d", len(oldItems))
+	}
+	if oldItems[0].Type != "responsible_unassigned" {
+		t.Fatalf("expected type 'responsible_unassigned', got %q", oldItems[0].Type)
+	}
+}
+
+// TestNotification_IssueUpdated_ResponsibleUnchanged verifies that when the
+// responsible user does NOT change, no responsible notification is sent — even
+// though other fields (status) changed.
+func TestNotification_IssueUpdated_ResponsibleUnchanged(t *testing.T) {
+	queries := db.New(testPool)
+	bus := newNotificationBus(t, queries)
+
+	responsibleEmail := "notif-update-resp-unchanged@multica.ai"
+	responsibleID := createTestUser(t, responsibleEmail)
+	t.Cleanup(func() { cleanupTestUser(t, responsibleEmail) })
+
+	issueID := createTestIssue(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() {
+		cleanupInboxForIssue(t, issueID)
+		cleanupTestIssue(t, issueID)
+	})
+
+	sameResponsible := responsibleID
+	bus.Publish(events.Event{
+		Type:        protocol.EventIssueUpdated,
+		WorkspaceID: testWorkspaceID,
+		ActorType:   "member",
+		ActorID:     testUserID,
+		Payload: map[string]any{
+			"issue": handler.IssueResponse{
+				ID:                issueID,
+				WorkspaceID:       testWorkspaceID,
+				Title:             "responsible unchanged test",
+				Status:            "in_progress",
+				Priority:          "medium",
+				CreatorType:       "member",
+				CreatorID:         testUserID,
+				ResponsibleUserID: &sameResponsible,
+			},
+			"assignee_changed":         false,
+			"status_changed":           true,
+			"prev_status":              "todo",
+			"responsible_user_changed": false,
+			"prev_responsible_user_id": &sameResponsible,
+		},
+	})
+
+	// Responsible user is not a subscriber, and responsible did not change,
+	// so they must receive nothing.
+	items := inboxItemsForRecipient(t, queries, responsibleID)
+	if len(items) != 0 {
+		t.Fatalf("expected 0 inbox items when responsible unchanged, got %#v", items)
+	}
+}
+
+// TestNotification_IssueUpdated_ResponsibleSelfStillNotified verifies that a
+// user editing an issue to make THEMSELF the responsible user still receives
+// the notification (no self-exemption), matching the CREATE-path behavior
+// guarded by TestNotification_IssueCreated_SelfResponsibleStillNotified.
+func TestNotification_IssueUpdated_ResponsibleSelfStillNotified(t *testing.T) {
+	queries := db.New(testPool)
+	bus := newNotificationBus(t, queries)
+
+	issueID := createTestIssue(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() {
+		cleanupInboxForIssue(t, issueID)
+		cleanupTestIssue(t, issueID)
+	})
+
+	// Actor (testUserID) sets themself as responsible.
+	publishResponsibleUpdate(bus, issueID, testUserID, nil)
+
+	items := inboxItemsForRecipient(t, queries, testUserID)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 inbox item for self responsible assignment, got %d", len(items))
+	}
+	if items[0].Type != "responsible_assigned" {
+		t.Fatalf("expected type 'responsible_assigned', got %q", items[0].Type)
+	}
+}
+
+// TestNotification_IssueUpdated_ResponsibleMutedByResponsibleChanges verifies
+// that muting the "responsible_changes" preference group suppresses both the
+// assign and unassign responsible notifications on the UPDATE path.
+func TestNotification_IssueUpdated_ResponsibleMutedByResponsibleChanges(t *testing.T) {
+	queries := db.New(testPool)
+	bus := newNotificationBus(t, queries)
+
+	oldResponsibleEmail := "notif-update-muted-old-resp@multica.ai"
+	oldResponsibleID := createTestUser(t, oldResponsibleEmail)
+	t.Cleanup(func() { cleanupTestUser(t, oldResponsibleEmail) })
+	muteNotificationGroup(t, queries, oldResponsibleID, "responsible_changes")
+
+	newResponsibleEmail := "notif-update-muted-new-resp@multica.ai"
+	newResponsibleID := createTestUser(t, newResponsibleEmail)
+	t.Cleanup(func() { cleanupTestUser(t, newResponsibleEmail) })
+	muteNotificationGroup(t, queries, newResponsibleID, "responsible_changes")
+
+	issueID := createTestIssue(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() {
+		cleanupInboxForIssue(t, issueID)
+		cleanupTestIssue(t, issueID)
+	})
+
+	publishResponsibleUpdate(bus, issueID, newResponsibleID, &oldResponsibleID)
+
+	if items := inboxItemsForRecipient(t, queries, newResponsibleID); len(items) != 0 {
+		t.Fatalf("expected responsible_assigned muted for new responsible, got %#v", items)
+	}
+	if items := inboxItemsForRecipient(t, queries, oldResponsibleID); len(items) != 0 {
+		t.Fatalf("expected responsible_unassigned muted for old responsible, got %#v", items)
+	}
+}
+
+// TestNotification_IssueUpdated_AssigneeClearedNotifiesOldMember verifies that
+// clearing an issue's assignee (member A -> none) notifies the former assignee
+// with "unassigned". This is the "removed as handler" half of the assignments
+// notification pair; TestNotification_AssigneeChanged covers the reassign case.
+func TestNotification_IssueUpdated_AssigneeClearedNotifiesOldMember(t *testing.T) {
+	queries := db.New(testPool)
+	bus := newNotificationBus(t, queries)
+
+	oldAssigneeEmail := "notif-clear-assignee@multica.ai"
+	oldAssigneeID := createTestUser(t, oldAssigneeEmail)
+	t.Cleanup(func() { cleanupTestUser(t, oldAssigneeEmail) })
+
+	issueID := createTestIssue(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() {
+		cleanupInboxForIssue(t, issueID)
+		cleanupTestIssue(t, issueID)
+	})
+
+	// Assignee cleared: new issue has no AssigneeType/AssigneeID.
+	oldAssigneeType := "member"
+	bus.Publish(events.Event{
+		Type:        protocol.EventIssueUpdated,
+		WorkspaceID: testWorkspaceID,
+		ActorType:   "member",
+		ActorID:     testUserID,
+		Payload: map[string]any{
+			"issue": handler.IssueResponse{
+				ID:          issueID,
+				WorkspaceID: testWorkspaceID,
+				Title:       "cleared assignee issue",
+				Status:      "todo",
+				Priority:    "medium",
+				CreatorType: "member",
+				CreatorID:   testUserID,
+			},
+			"assignee_changed":   true,
+			"status_changed":     false,
+			"prev_assignee_type": &oldAssigneeType,
+			"prev_assignee_id":   &oldAssigneeID,
+		},
+	})
+
+	oldItems := inboxItemsForRecipient(t, queries, oldAssigneeID)
+	if len(oldItems) != 1 {
+		t.Fatalf("expected 1 inbox item for cleared assignee, got %d", len(oldItems))
+	}
+	if oldItems[0].Type != "unassigned" {
+		t.Fatalf("expected type 'unassigned', got %q", oldItems[0].Type)
+	}
+	if oldItems[0].Severity != "info" {
+		t.Fatalf("expected severity 'info', got %q", oldItems[0].Severity)
+	}
+}
+
+// TestNotification_WorkflowNodeExecutorAndReviewerMutedSeparately guards the
+// workflow_roles split: muting the "workflow_executor" group must suppress
+// workflow_executor_assigned but leave workflow_reviewer_assigned alone (and
+// vice versa). Before the split both types shared the workflow_roles group, so
+// a single mute toggled both.
+func TestNotification_WorkflowNodeExecutorAndReviewerMutedSeparately(t *testing.T) {
+	queries := db.New(testPool)
+	bus := newNotificationBus(t, queries)
+
+	// A mutes only the executor group — reviewer notifications must still arrive.
+	aEmail := "notif-wf-split@multica.ai"
+	aID := createTestUser(t, aEmail)
+	t.Cleanup(func() { cleanupTestUser(t, aEmail) })
+	aMemberID := createTestMember(t, testWorkspaceID, aID)
+	muteNotificationGroup(t, queries, aID, "workflow_executor")
+
+	// B mutes only the reviewer group — executor notifications must still arrive.
+	bEmail := "notif-wf-split-b@multica.ai"
+	bID := createTestUser(t, bEmail)
+	t.Cleanup(func() { cleanupTestUser(t, bEmail) })
+	bMemberID := createTestMember(t, testWorkspaceID, bID)
+	muteNotificationGroup(t, queries, bID, "workflow_reviewer")
+
+	issueID := createTestIssue(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() {
+		cleanupInboxForIssue(t, issueID)
+		cleanupTestIssue(t, issueID)
+	})
+
+	nodeRunID := "00000000-0000-0000-0000-00000000ad01"
+	runID := "00000000-0000-0000-0000-00000000ad02"
+	humanType := "human"
+
+	// A assigned as executor -> suppressed by workflow_executor mute.
+	bus.Publish(events.Event{
+		Type:        protocol.EventWorkflowNodeRunStarted,
+		WorkspaceID: testWorkspaceID,
+		ActorType:   "system",
+		ActorID:     "",
+		Payload: map[string]any{
+			"node_run": handler.WorkflowNodeRunResponse{
+				ID:            nodeRunID,
+				WorkflowRunID: runID,
+				NodeTitle:     "split executor muted",
+				Status:        "worker_assigned",
+				WorkerType:    humanType,
+				WorkerID:      &aMemberID,
+			},
+			"run_id":   runID,
+			"issue_id": issueID,
+		},
+	})
+	if hasInboxType(inboxItemsForRecipient(t, queries, aID), "workflow_executor_assigned") {
+		t.Fatalf("expected executor assignment muted for A (workflow_executor muted)")
+	}
+
+	// A assigned as reviewer -> must still arrive (only executor group muted).
+	bus.Publish(events.Event{
+		Type:        protocol.EventWorkflowNodeRunReviewed,
+		WorkspaceID: testWorkspaceID,
+		ActorType:   "member",
+		ActorID:     testUserID,
+		Payload: map[string]any{
+			"node_run": handler.WorkflowNodeRunResponse{
+				ID:            nodeRunID,
+				WorkflowRunID: runID,
+				NodeTitle:     "split reviewer reaches A",
+				Status:        "critic_reviewing",
+				CriticType:    humanType,
+				CriticID:      &aMemberID,
+			},
+			"run_id":   runID,
+			"issue_id": issueID,
+		},
+	})
+	if !hasInboxType(inboxItemsForRecipient(t, queries, aID), "workflow_reviewer_assigned") {
+		t.Fatalf("expected reviewer assignment to still reach A (only executor group muted)")
+	}
+
+	// B assigned as executor -> must still arrive (only reviewer group muted).
+	bus.Publish(events.Event{
+		Type:        protocol.EventWorkflowNodeRunStarted,
+		WorkspaceID: testWorkspaceID,
+		ActorType:   "system",
+		ActorID:     "",
+		Payload: map[string]any{
+			"node_run": handler.WorkflowNodeRunResponse{
+				ID:            nodeRunID,
+				WorkflowRunID: runID,
+				NodeTitle:     "split executor reaches B",
+				Status:        "worker_assigned",
+				WorkerType:    humanType,
+				WorkerID:      &bMemberID,
+			},
+			"run_id":   runID,
+			"issue_id": issueID,
+		},
+	})
+	if !hasInboxType(inboxItemsForRecipient(t, queries, bID), "workflow_executor_assigned") {
+		t.Fatalf("expected executor assignment to still reach B (only reviewer group muted)")
 	}
 }

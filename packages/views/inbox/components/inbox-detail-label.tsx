@@ -14,6 +14,7 @@ export function useTypeLabels(): Record<InboxItemType, string> {
   const { t } = useT("inbox");
   return {
     responsible_assigned: t(($) => $.types.responsible_assigned),
+    responsible_unassigned: t(($) => $.types.responsible_unassigned),
     issue_assigned: t(($) => $.types.issue_assigned),
     unassigned: t(($) => $.types.unassigned),
     assignee_changed: t(($) => $.types.assignee_changed),
@@ -89,6 +90,8 @@ export function InboxDetailLabel({ item }: { item: InboxItem }) {
       return <span>{typeLabels[item.type]}</span>;
     }
     case "responsible_assigned":
+      return <span>{typeLabels[item.type]}</span>;
+    case "responsible_unassigned":
       return <span>{typeLabels[item.type]}</span>;
     case "workflow_executor_assigned":
       return <span>{typeLabels[item.type]}</span>;

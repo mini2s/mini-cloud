@@ -2464,6 +2464,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	slog.Info("issue updated", append(logger.RequestAttrs(r), "issue_id", id, "workspace_id", workspaceID)...)
 
 	assigneeChanged := prevIssue.AssigneeType.String != issue.AssigneeType.String || uuidToString(prevIssue.AssigneeID) != uuidToString(issue.AssigneeID)
+	responsibleUserChanged := uuidToString(prevIssue.ResponsibleUserID) != uuidToString(issue.ResponsibleUserID)
 	statusChanged := prevIssue.Status != issue.Status
 	priorityChanged := req.Priority != nil && prevIssue.Priority != issue.Priority
 	descriptionChanged := req.Description != nil && textToPtr(prevIssue.Description) != resp.Description
@@ -2479,24 +2480,26 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
 
 	h.publish(protocol.EventIssueUpdated, workspaceID, actorType, actorID, map[string]any{
-		"issue":               resp,
-		"assignee_changed":    assigneeChanged,
-		"status_changed":      statusChanged,
-		"priority_changed":    priorityChanged,
-		"start_date_changed":  startDateChanged,
-		"due_date_changed":    dueDateChanged,
-		"description_changed": descriptionChanged,
-		"title_changed":       titleChanged,
-		"prev_title":          prevIssue.Title,
-		"prev_assignee_type":  textToPtr(prevIssue.AssigneeType),
-		"prev_assignee_id":    uuidToPtr(prevIssue.AssigneeID),
-		"prev_status":         prevIssue.Status,
-		"prev_priority":       prevIssue.Priority,
-		"prev_start_date":     prevStartDate,
-		"prev_due_date":       prevDueDate,
-		"prev_description":    textToPtr(prevIssue.Description),
-		"creator_type":        prevIssue.CreatorType,
-		"creator_id":          uuidToString(prevIssue.CreatorID),
+		"issue":                    resp,
+		"assignee_changed":         assigneeChanged,
+		"status_changed":           statusChanged,
+		"priority_changed":         priorityChanged,
+		"start_date_changed":       startDateChanged,
+		"due_date_changed":         dueDateChanged,
+		"description_changed":      descriptionChanged,
+		"title_changed":            titleChanged,
+		"prev_title":               prevIssue.Title,
+		"prev_assignee_type":       textToPtr(prevIssue.AssigneeType),
+		"prev_assignee_id":         uuidToPtr(prevIssue.AssigneeID),
+		"responsible_user_changed": responsibleUserChanged,
+		"prev_responsible_user_id": uuidToPtr(prevIssue.ResponsibleUserID),
+		"prev_status":              prevIssue.Status,
+		"prev_priority":            prevIssue.Priority,
+		"prev_start_date":          prevStartDate,
+		"prev_due_date":            prevDueDate,
+		"prev_description":         textToPtr(prevIssue.Description),
+		"creator_type":             prevIssue.CreatorType,
+		"creator_id":               uuidToString(prevIssue.CreatorID),
 	})
 
 	// Reconcile execution side effects when assignee changes or a member starts

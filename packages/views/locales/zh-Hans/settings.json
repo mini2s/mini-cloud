@@ -57,13 +57,21 @@
     "description": "控制哪些事件会产生收件箱通知。被静默的事件类型仍然存在——可以直接到任务页面查看。",
     "toast_failed": "更新通知设置失败",
     "groups": {
-      "assignments": {
-        "label": "分配",
-        "description": "你被分配或取消分配某个任务时"
+      "responsible_changes": {
+        "label": "负责人",
+        "description": "被指定或移除某个任务的负责人时"
       },
-      "workflow_roles": {
-        "label": "工作流角色",
-        "description": "你被指定为工作流节点执行者或审核者时"
+      "assignments": {
+        "label": "处理人",
+        "description": "被指定或移除某个任务的处理人时"
+      },
+      "workflow_executor": {
+        "label": "执行者",
+        "description": "被指定或移除工作流节点的执行者时"
+      },
+      "workflow_reviewer": {
+        "label": "审核者",
+        "description": "被指定或移除工作流节点的审核者时"
       },
       "status_changes": {
         "label": "状态变更",
