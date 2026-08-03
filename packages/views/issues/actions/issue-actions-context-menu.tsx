@@ -2,6 +2,7 @@
 
 import { useRef, useState, type ReactElement } from "react";
 import type { Issue } from "@multica/core/types";
+import { useWorkspaceId } from "@multica/core/hooks";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -13,6 +14,9 @@ import {
   contextPrimitives,
 } from "./issue-actions-menu-items";
 import { AssigneePicker } from "../components/pickers";
+import { useIssueStatusChange } from "../hooks/use-issue-status-change";
+import type { BoardMoveUpdates } from "../hooks/use-board-move-issue";
+import { useT } from "../../i18n";
 
 interface IssueActionsContextMenuProps {
   issue: Issue;
@@ -25,6 +29,14 @@ export function IssueActionsContextMenu({
   children,
 }: IssueActionsContextMenuProps) {
   const actions = useIssueActions(issue);
+  const { t } = useT("issues");
+  const wsId = useWorkspaceId();
+  const { requestChange: requestStatusChange, runtimeDialogs: statusRuntimeDialogs } = useIssueStatusChange({
+    wsId,
+    issue,
+    commit: (updates) => actions.updateField(updates),
+    assignFirstMessage: t(($) => $.page.assign_first),
+  });
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const [assigneeMounted, setAssigneeMounted] = useState(false);
   // Right-click coordinates captured during contextmenu so the AssigneePicker
@@ -53,6 +65,7 @@ export function IssueActionsContextMenu({
               setAssigneeMounted(true);
               setAssigneeOpen(true);
             }}
+            onStatusChange={(s) => requestStatusChange({ status: s } as BoardMoveUpdates)}
           />
         </ContextMenuContent>
       </ContextMenu>
@@ -60,6 +73,7 @@ export function IssueActionsContextMenu({
           RuntimeSelectDialog survives the context-menu popover closing when
           the user clicks a runtime option. Untouched rows still pay no query
           subscription cost. */}
+      {statusRuntimeDialogs}
       {assigneeMounted && (
         <AssigneePicker
           assigneeType={issue.assignee_type}

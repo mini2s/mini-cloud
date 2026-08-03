@@ -39,6 +39,7 @@
     "sort_manual": "手动"
   },
   "errors": {
-    "move_failed": "移动任务失败"
+    "move_failed": "移动任务失败",
+    "assign_first": "请先分配任务"
   }
 }

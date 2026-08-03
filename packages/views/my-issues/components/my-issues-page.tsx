@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo } from "react";
 import { useStore } from "zustand";
 import { toast } from "sonner";
 import { ChevronRight, ListTodo } from "lucide-react";
-import type { UpdateIssueRequest } from "@multica/core/types";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { useAuthStore } from "@multica/core/auth";
 import { useCurrentWorkspace } from "@multica/core/paths";
@@ -15,6 +14,7 @@ import { BOARD_STATUSES } from "@multica/core/issues/config";
 import { ViewStoreProvider } from "@multica/core/issues/stores/view-store-context";
 import { useIssueSelectionStore } from "@multica/core/issues/stores/selection-store";
 import { BoardView } from "../../issues/components/board-view";
+import { useBoardMoveIssue, type BoardMoveUpdates, type RuntimeExtras } from "../../issues/hooks/use-board-move-issue";
 import { ListView } from "../../issues/components/list-view";
 import { BatchActionToolbar } from "../../issues/components/batch-action-toolbar";
 import { useClearFiltersOnWorkspaceChange } from "@multica/core/issues/stores/view-store";
@@ -150,8 +150,8 @@ export function MyIssuesPage() {
   }, [visibleStatuses]);
 
   const updateIssueMutation = useUpdateIssue();
-  const handleMoveIssue = useCallback(
-    (issueId: string, updates: Pick<UpdateIssueRequest, "status" | "assignee_type" | "assignee_id" | "position">) => {
+  const commitMove = useCallback(
+    (issueId: string, updates: BoardMoveUpdates & Partial<RuntimeExtras>) => {
       updateIssueMutation.mutate(
         { id: issueId, ...updates },
         {
@@ -166,6 +166,16 @@ export function MyIssuesPage() {
     },
     [updateIssueMutation, t],
   );
+  const findIssueForMove = useCallback(
+    (id: string) => myIssues.find((item) => item.id === id),
+    [myIssues],
+  );
+  const { handleMoveIssue, runtimeDialogs } = useBoardMoveIssue({
+    wsId,
+    findIssue: findIssueForMove,
+    commitMove,
+    assignFirstMessage: t(($) => $.errors.assign_first),
+  });
 
   if (loading) {
     return (
@@ -209,6 +219,7 @@ export function MyIssuesPage() {
 
   return (
     <div className="flex flex-1 min-h-0 flex-col">
+      {runtimeDialogs}
       {/* Header 1: Workspace breadcrumb */}
       <PageHeader className="gap-1.5">
         <WorkspaceAvatar name={workspace?.name ?? "W"} size="sm" />
