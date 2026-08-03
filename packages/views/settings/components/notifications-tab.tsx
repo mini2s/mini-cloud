@@ -14,7 +14,9 @@ import { useT } from "../../i18n";
 // is a sibling preference key but lives in its own section below.
 const INBOX_GROUP_KEYS = [
   "assignments",
+  "workflow_roles",
   "status_changes",
+  "workflow_node_status",
   "comments",
   "updates",
   "agent_activity",

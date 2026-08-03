@@ -102,13 +102,13 @@ func TestSubscriberIssueCreated_AssigneeSubscribed(t *testing.T) {
 		ActorID:     testUserID,
 		Payload: map[string]any{
 			"issue": handler.IssueResponse{
-				ID:          issueID,
-				WorkspaceID: testWorkspaceID,
-				Title:       "test issue",
-				Status:      "todo",
-				Priority:    "medium",
-				CreatorType: "member",
-				CreatorID:   testUserID,
+				ID:           issueID,
+				WorkspaceID:  testWorkspaceID,
+				Title:        "test issue",
+				Status:       "todo",
+				Priority:     "medium",
+				CreatorType:  "member",
+				CreatorID:    testUserID,
 				AssigneeType: &assigneeType,
 				AssigneeID:   &assigneeID,
 			},
@@ -167,6 +167,42 @@ func TestSubscriberIssueCreated_DoesNotSubscribeCreatorSeparately(t *testing.T) 
 	}
 	if count := subscriberCount(t, queries, issueID); count != 1 {
 		t.Fatalf("expected 1 subscriber, got %d", count)
+	}
+}
+
+func TestSubscriberIssueCreated_ResponsibleSubscribed(t *testing.T) {
+	queries := db.New(testPool)
+	bus := events.New()
+	registerSubscriberListeners(bus, queries)
+
+	responsibleEmail := "subscriber-created-responsible-test@multica.ai"
+	responsibleID := createTestUser(t, responsibleEmail)
+	t.Cleanup(func() { cleanupTestUser(t, responsibleEmail) })
+
+	issueID := createTestIssue(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() { cleanupTestIssue(t, issueID) })
+
+	bus.Publish(events.Event{
+		Type:        protocol.EventIssueCreated,
+		WorkspaceID: testWorkspaceID,
+		ActorType:   "member",
+		ActorID:     testUserID,
+		Payload: map[string]any{
+			"issue": handler.IssueResponse{
+				ID:                issueID,
+				WorkspaceID:       testWorkspaceID,
+				Title:             "test issue",
+				Status:            "todo",
+				Priority:          "medium",
+				CreatorType:       "member",
+				CreatorID:         testUserID,
+				ResponsibleUserID: &responsibleID,
+			},
+		},
+	})
+
+	if !isSubscribed(t, queries, issueID, "member", responsibleID) {
+		t.Fatal("expected responsible user to be subscribed after issue:created")
 	}
 }
 
@@ -344,13 +380,13 @@ func TestSubscriberAddedEventPublished(t *testing.T) {
 		ActorID:     testUserID,
 		Payload: map[string]any{
 			"issue": handler.IssueResponse{
-				ID:          issueID,
-				WorkspaceID: testWorkspaceID,
-				Title:       "test issue",
-				Status:      "todo",
-				Priority:    "medium",
-				CreatorType: "member",
-				CreatorID:   testUserID,
+				ID:           issueID,
+				WorkspaceID:  testWorkspaceID,
+				Title:        "test issue",
+				Status:       "todo",
+				Priority:     "medium",
+				CreatorType:  "member",
+				CreatorID:    testUserID,
 				AssigneeType: &assigneeType,
 				AssigneeID:   &assigneeID,
 			},
@@ -395,13 +431,13 @@ func TestSubscriberIssueCreated_AutopilotMapPayload(t *testing.T) {
 		ActorID:     testUserID,
 		Payload: map[string]any{
 			"issue": map[string]any{
-				"id":           issueID,
-				"workspace_id": testWorkspaceID,
-				"title":        "autopilot test issue",
-				"status":       "todo",
-				"priority":     "medium",
-				"creator_type": "member",
-				"creator_id":   testUserID,
+				"id":            issueID,
+				"workspace_id":  testWorkspaceID,
+				"title":         "autopilot test issue",
+				"status":        "todo",
+				"priority":      "medium",
+				"creator_type":  "member",
+				"creator_id":    testUserID,
 				"assignee_type": &assigneeType,
 				"assignee_id":   &assigneeID,
 			},

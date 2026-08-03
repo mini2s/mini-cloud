@@ -1831,7 +1831,11 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		}
 		assigneeID = id
 	}
-	status := issueCreateStatusForAssignee(assigneeType, assigneeID)
+	status, err := resolveCreateStatus(req.Status, assigneeType, assigneeID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if req.ResponsibleUserID == nil || *req.ResponsibleUserID == "" {
 		writeError(w, http.StatusBadRequest, "responsible_user_id is required")
 		return
@@ -2533,6 +2537,20 @@ func issueCreateStatusForAssignee(assigneeType pgtype.Text, assigneeID pgtype.UU
 		return "todo"
 	}
 	return "backlog"
+}
+
+// resolveCreateStatus keeps the assignee-derived default for normal creates and
+// additionally honors an explicit in_progress ("run now") when an assignee is
+// present. Any other requested status falls back to the assignee-derived
+// default so normal create behavior is unchanged.
+func resolveCreateStatus(reqStatus string, assigneeType pgtype.Text, assigneeID pgtype.UUID) (string, error) {
+	if reqStatus == "in_progress" {
+		if !issueHasAssignee(assigneeType, assigneeID) {
+			return "", fmt.Errorf("cannot start an issue without an assignee")
+		}
+		return "in_progress", nil
+	}
+	return issueCreateStatusForAssignee(assigneeType, assigneeID), nil
 }
 
 func issueHasAssignee(assigneeType pgtype.Text, assigneeID pgtype.UUID) bool {

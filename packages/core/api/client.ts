@@ -205,6 +205,8 @@ import {
   WebhookDeliveryResponseSchema,
   ListWorkflowsResponseSchema,
   EMPTY_LIST_WORKFLOWS_RESPONSE,
+  DefaultWorkflowResponseSchema,
+  EMPTY_DEFAULT_WORKFLOW_RESPONSE,
   WorkflowDetailResponseSchema,
   EMPTY_WORKFLOW_DETAIL_RESPONSE,
   WorkflowNodesResponseSchema,
@@ -2261,6 +2263,14 @@ export class ApiClient {
     return parseWithFallback(raw, ListWorkflowsResponseSchema, EMPTY_LIST_WORKFLOWS_RESPONSE, {
       endpoint: "GET /api/workflows",
     });
+  }
+
+  async getDefaultWorkflow(wsId: string): Promise<Workflow | null> {
+    const raw = await this.fetch<unknown>(`/api/workflows/default?workspace_id=${wsId}`);
+    const parsed = parseWithFallback(raw, DefaultWorkflowResponseSchema, EMPTY_DEFAULT_WORKFLOW_RESPONSE, {
+      endpoint: "GET /api/workflows/default",
+    });
+    return parsed.workflow;
   }
 
   async getWorkflow(id: string): Promise<Workflow> {

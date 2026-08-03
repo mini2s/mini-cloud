@@ -8,6 +8,8 @@ import {
   type WorkflowNodeRun,
   type WorkflowNodeRuntimeSummary,
   type WorkflowDeliverableSubmissionStatus,
+  type IssueAssigneeType,
+  type UpdateIssueRequest,
 } from "@multica/core/types";
 import { useSessionPermission } from "@multica/core/workflows/queries";
 import { isEmbeddedInCostrict } from "@multica/core/platform";
@@ -34,6 +36,7 @@ import {
   resolveRuntimeDurationSeconds,
 } from "./runtime-node-duration";
 import { resolveEnterSessionId } from "./runtime-session";
+import { AssigneePicker } from "../pickers/assignee-picker";
 
 export const RUNTIME_NODE_HEIGHT = 176;
 export const RUNTIME_SPLIT_NODE_HEIGHT = 192;
@@ -85,6 +88,11 @@ export interface RuntimeNodeCardProps {
   onOpenSession?: (nodeId: string) => Promise<boolean>;
   deliverables?: RuntimeNodeDeliverableSummary[];
   childIssueSummary?: RuntimeChildIssueSummary;
+  pendingWorkerAssigneeType?: IssueAssigneeType | null;
+  pendingWorkerAssigneeId?: string | null;
+  pendingCriticUserId?: string | null;
+  onPendingWorkerUpdate?: (updates: Partial<UpdateIssueRequest>) => void;
+  onPendingCriticUpdate?: (updates: { responsible_user_id: string | null }) => void;
 }
 
 function gatewayLabel(t: IssueTranslator, kind: "fork" | "join" | null): string {
@@ -460,6 +468,11 @@ export function RuntimeNodeCard({
   onOpenSession,
   deliverables = [],
   childIssueSummary,
+  pendingWorkerAssigneeType,
+  pendingWorkerAssigneeId,
+  pendingCriticUserId,
+  onPendingWorkerUpdate,
+  onPendingCriticUpdate,
 }: RuntimeNodeCardProps) {
   const { t } = useT("issues");
   const [openSessionState, setOpenSessionState] = useState<OpenSessionState>("idle");
@@ -508,7 +521,14 @@ export function RuntimeNodeCard({
     canEnterSession;
   const primaryDeliverable = !isGateway && !isSplit ? deliverables[0] : undefined;
   const remainingDeliverableCount = Math.max(0, deliverables.length - 1);
-  const hasInlineAction = canToggleSplitChildren || canOpenSession || !!primaryDeliverable?.pullRequestUrl;
+  const canEditPendingWorker = !nodeRun && !!onPendingWorkerUpdate;
+  const canEditPendingCritic = !nodeRun && !!onPendingCriticUpdate;
+  const hasInlineAction =
+    canToggleSplitChildren ||
+    canOpenSession ||
+    !!primaryDeliverable?.pullRequestUrl ||
+    canEditPendingWorker ||
+    canEditPendingCritic;
   const splitChildLabel = splitChildCountLabel(t, splitChildCount || (splitProgress?.total ?? 0));
   const splitChildSummaryParts = splitProgress ? splitProgressSummaryParts(t, splitProgress) : [];
   const splitChildSummaryLabel = splitChildSummaryParts.length > 0
@@ -554,6 +574,74 @@ export function RuntimeNodeCard({
       labelFailed={t(($) => $.execution.card.session_open_failed)}
     />
   ) : null;
+
+  const renderActorSlot = (
+    slot: "worker" | "critic",
+    label: string,
+    identity: WorkflowActorIdentity | null | undefined,
+    name: string | null,
+    configured: boolean,
+    optional = false,
+  ) => {
+    const actorSlot = (
+      <WorkflowActorSlot
+        slot={slot}
+        label={label}
+        identity={identity}
+        fallback="--"
+        state={actorState(name, configured, optional)}
+      />
+    );
+
+    if (slot === "worker" && canEditPendingWorker) {
+      return (
+        <span className="contents" onClick={(event) => event.stopPropagation()}>
+          <AssigneePicker
+            assigneeType={pendingWorkerAssigneeType ?? null}
+            assigneeId={pendingWorkerAssigneeId ?? null}
+            onUpdate={(updates) => onPendingWorkerUpdate?.(updates)}
+            trigger={actorSlot}
+            triggerRender={
+              <button
+                type="button"
+                className="grid row-span-2 min-w-0 cursor-pointer rounded-md border-0 bg-transparent px-1 -mx-1 text-left text-inherit transition-colors hover:bg-accent/35"
+              />
+            }
+            includeWorkflows={false}
+            skipRuntimeSelection
+            allowUnassigned={false}
+            ariaLabel="Change worker"
+          />
+        </span>
+      );
+    }
+
+    if (slot === "critic" && canEditPendingCritic) {
+      return (
+        <span className="contents" onClick={(event) => event.stopPropagation()}>
+          <AssigneePicker
+            assigneeType={pendingCriticUserId ? "member" : null}
+            assigneeId={pendingCriticUserId ?? null}
+            onUpdate={(updates) =>
+              onPendingCriticUpdate?.({ responsible_user_id: updates.assignee_id ?? null })
+            }
+            trigger={actorSlot}
+            triggerRender={
+              <button
+                type="button"
+                className="grid row-span-2 min-w-0 cursor-pointer rounded-md border-0 bg-transparent px-1 -mx-1 text-left text-inherit transition-colors hover:bg-accent/35"
+              />
+            }
+            allowedTypes={["member"]}
+            allowUnassigned={false}
+            ariaLabel="Change critic"
+          />
+        </span>
+      );
+    }
+
+    return actorSlot;
+  };
 
   const actionButtons: ActionButtonDef[] = nodeRun
     ? isGateway || isSplit
@@ -698,21 +786,22 @@ export function RuntimeNodeCard({
                 node.critic_type || node.critic_id ? "grid-cols-2" : "grid-cols-1",
               )}
             >
-              <WorkflowActorSlot
-                slot="worker"
-                label={t(($) => $.execution.card.worker_label)}
-                identity={workerIdentity}
-                fallback="--"
-                state={actorState(workerName, workerConfigured)}
-              />
+              {renderActorSlot(
+                "worker",
+                t(($) => $.execution.card.worker_label),
+                workerIdentity,
+                workerName,
+                workerConfigured,
+              )}
               {node.critic_type || node.critic_id ? (
-                <WorkflowActorSlot
-                  slot="critic"
-                  label={t(($) => $.execution.card.critic_label)}
-                  identity={criticIdentity}
-                  fallback="--"
-                  state={actorState(criticName, criticConfigured, true)}
-                />
+                renderActorSlot(
+                  "critic",
+                  t(($) => $.execution.card.critic_label),
+                  criticIdentity,
+                  criticName,
+                  criticConfigured,
+                  true,
+                )
               ) : null}
             </div>
           )}
@@ -799,21 +888,22 @@ export function RuntimeNodeCard({
             hasCritic ? "grid-cols-2" : "grid-cols-1",
           )}
         >
-          <WorkflowActorSlot
-            slot="worker"
-            label={t(($) => $.execution.card.worker_label)}
-            identity={workerIdentity}
-            fallback="--"
-            state={actorState(workerName, workerConfigured)}
-          />
+          {renderActorSlot(
+            "worker",
+            t(($) => $.execution.card.worker_label),
+            workerIdentity,
+            workerName,
+            workerConfigured,
+          )}
           {hasCritic ? (
-            <WorkflowActorSlot
-              slot="critic"
-              label={t(($) => $.execution.card.critic_label)}
-              identity={criticIdentity}
-              fallback="--"
-              state={actorState(criticName, criticConfigured, true)}
-            />
+            renderActorSlot(
+              "critic",
+              t(($) => $.execution.card.critic_label),
+              criticIdentity,
+              criticName,
+              criticConfigured,
+              true,
+            )
           ) : null}
         </div>
       )}

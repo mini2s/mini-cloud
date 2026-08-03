@@ -43,7 +43,6 @@ vi.mock("./notifications-tab", () => ({ NotificationsTab: () => <div>Notificatio
 // Hidden: API tokens tab removed.
 // vi.mock("./tokens-tab", () => ({ TokensTab: () => <div>Tokens content</div> }));
 vi.mock("./workspace-tab", () => ({ WorkspaceTab: () => <div>Workspace content</div> }));
-vi.mock("./repositories-tab", () => ({ RepositoriesTab: () => <div>Repositories content</div> }));
 vi.mock("./github-tab", () => ({ GitHubTab: () => <div>GitHub content</div> }));
 vi.mock("./gitlab-tab", () => ({ GitlabTab: () => <div>GitLab content</div> }));
 vi.mock("./workflow-roles-tab", () => ({ WorkflowRolesTab: () => <div>Roles content</div> }));
@@ -90,12 +89,36 @@ describe("SettingsPage workspace integration tabs", () => {
     };
   });
 
-  it("keeps the GitHub tab available for workspaces using GitHub PRs", () => {
+  it("shows both GitHub and GitLab tabs for every workspace (no code_platform hiding), no repositories tab", () => {
+    workspaceRef.current = {
+      id: "workspace-1",
+      name: "Test Workspace",
+      slug: "test-workspace",
+      repos: [],
+      settings: { code_platform: "github" },
+    };
     render(<SettingsPage />, { wrapper: TestWrapper });
-
     const tabList = screen.getByRole("tablist");
     expect(within(tabList).getByRole("tab", { name: "GitHub" })).toBeTruthy();
-    expect(within(tabList).queryByRole("tab", { name: "GitLab" })).toBeNull();
+    expect(within(tabList).getByRole("tab", { name: "GitLab" })).toBeTruthy();
+    expect(within(tabList).queryByRole("tab", { name: "Repositories" })).toBeNull();
+  });
+
+  it("?tab=repositories falls back to the default tab (no such route)", () => {
+    const navigation: NavigationAdapter = {
+      pathname: "/test-workspace/settings",
+      searchParams: new URLSearchParams("tab=repositories"),
+      push: vi.fn(),
+      replace: vi.fn(),
+      back: vi.fn(),
+      getShareableUrl: (path) => `https://example.test${path}`,
+    };
+    render(
+      <I18nProvider locale="en" resources={TEST_RESOURCES}>
+        <NavigationProvider value={navigation}><SettingsPage /></NavigationProvider>
+      </I18nProvider>,
+    );
+    expect(screen.getByText("Profile content")).toBeTruthy();
   });
 });
 

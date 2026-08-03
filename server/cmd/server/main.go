@@ -46,6 +46,30 @@ const (
 	workflowDispatchLeaseDuration     = 30 * time.Second
 )
 
+func publishWorkflowNodeRunUpdated(ctx context.Context, bus *events.Bus, queries *db.Queries, nodeRun db.MulticaWorkflowNodeRun) {
+	run, err := queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
+	if err != nil {
+		slog.Warn("publish workflow node run update: failed to load run", "node_run_id", util.UUIDToString(nodeRun.ID), "error", err)
+		return
+	}
+	wf, err := queries.GetWorkflow(ctx, run.WorkflowID)
+	if err != nil {
+		slog.Warn("publish workflow node run update: failed to load workflow", "run_id", util.UUIDToString(run.ID), "error", err)
+		return
+	}
+	bus.Publish(events.Event{
+		Type:        "workflow:node_run_updated",
+		WorkspaceID: util.UUIDToString(wf.WorkspaceID),
+		ActorType:   "system",
+		ActorID:     util.UUIDToString(wf.ID),
+		Payload: map[string]any{
+			"node_run_id": util.UUIDToString(nodeRun.ID),
+			"run_id":      util.UUIDToString(run.ID),
+			"status":      nodeRun.Status,
+		},
+	})
+}
+
 func newNamedRedisClient(base *redis.Options, suffix string) *redis.Client {
 	opts := *base
 	opts.ClientName = redisClientName(opts.ClientName, suffix)
@@ -453,6 +477,9 @@ func main() {
 	})
 	roleWorkflowSvc := service.NewWorkflowService(queries, pool, bus, taskSvc)
 	roleWorkflowSvc.TeamNamespace = teamNamespaceClient
+	roleWorkflowSvc.OnNodeStatusChanged = func(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) {
+		publishWorkflowNodeRunUpdated(ctx, bus, queries, nodeRun)
+	}
 	assignmentSvc := &service.IssueAssignmentService{Queries: queries, Tasks: taskSvc, Workflows: roleWorkflowSvc}
 	splitDispatchSvc := service.NewSplitOrchestrator(queries, pool, roleWorkflowSvc, assignmentSvc, bus)
 	hostname, _ := os.Hostname()

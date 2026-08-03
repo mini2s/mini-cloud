@@ -192,7 +192,6 @@ vi.mock("../editor", () => {
 
 vi.mock("../issues/components", () => ({
   StatusIcon: ({ status }: { status: string }) => <span data-testid="status-icon">{status}</span>,
-  StatusPicker: () => <div data-testid="status-picker" />,
   PriorityPicker: () => <div data-testid="priority-picker" />,
   AssigneePicker: ({
     onUpdate,
@@ -222,8 +221,6 @@ vi.mock("../issues/components", () => ({
             : {
                 assignee_type: "workflow",
                 assignee_id: "workflow-1",
-                runtime_selection_policy: "specified_runtime_first",
-                runtime_id: "runtime-1",
               },
         )
       }
@@ -249,6 +246,21 @@ vi.mock("@multica/ui/components/ui/dialog", () => ({
   ),
   DialogTitle: ({ children, className }: { children: React.ReactNode; className?: string }) => (
     <div className={className}>{children}</div>
+  ),
+}));
+
+// The run-now path opens WorkflowRuntimeStrategyDialog (mounted via
+// useRuntimeStartDialogs' `dialogs` slot). Stub it so the test can drive a
+// confirm with a chosen runtime strategy without wiring the runtime/agent/
+// workflow useQuery mocks the real dialog relies on.
+vi.mock("../workflows/components/workflow-runtime-strategy-dialog", () => ({
+  WorkflowRuntimeStrategyDialog: ({ onConfirm }: { onConfirm: (value: { policy: string; runtimeId: string | null }) => void }) => (
+    <button
+      type="button"
+      onClick={() => onConfirm({ policy: "specified_runtime_first", runtimeId: "runtime-1" })}
+    >
+      Confirm runtime
+    </button>
   ),
 }));
 
@@ -495,7 +507,7 @@ describe("CreateIssueModal", () => {
     });
   });
 
-  it("forwards the selected workflow runtime strategy when creating an issue", async () => {
+  it("forwards the selected runtime strategy when creating an issue via Run now", async () => {
     const user = userEvent.setup();
     // A project is required to create an issue (see require-project-on-issue-create).
     renderModal(<CreateIssueModal onClose={vi.fn()} data={{ project_id: "proj-test" }} />);
@@ -503,11 +515,18 @@ describe("CreateIssueModal", () => {
     await user.type(screen.getByPlaceholderText("Issue title"), "Run release workflow");
     await user.click(screen.getByRole("button", { name: "Select responsible member" }));
     await user.click(screen.getByRole("button", { name: "Select workflow assignee" }));
-    await user.click(screen.getByRole("button", { name: "Create Issue" }));
+    // Run now (not Create Issue) is the path that forwards runtime strategy:
+    // clicking it opens WorkflowRuntimeStrategyDialog via useRuntimeStartDialogs,
+    // and the dialog's confirm merges runtime_id + runtime_selection_policy into
+    // the create payload (status in_progress). The normal Create Issue path
+    // intentionally defers runtime selection (skipRuntimeSelection on the
+    // AssigneePicker), so it does NOT carry runtime fields.
+    await user.click(screen.getByRole("button", { name: "Run now" }));
+    await user.click(screen.getByRole("button", { name: "Confirm runtime" }));
 
     await waitFor(() => {
       expect(mockCreateIssue).toHaveBeenCalledWith(expect.objectContaining({
-        status: "todo",
+        status: "in_progress",
         responsible_user_id: "member-2",
         assignee_type: "workflow",
         assignee_id: "workflow-1",

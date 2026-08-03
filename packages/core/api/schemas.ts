@@ -783,6 +783,12 @@ export const ListWorkflowsResponseSchema = z.object({
 
 export const EMPTY_LIST_WORKFLOWS_RESPONSE = { workflows: [], total: 0 };
 
+export const DefaultWorkflowResponseSchema = z.object({
+  workflow: WorkflowSchema.nullable().default(null),
+}).loose();
+
+export const EMPTY_DEFAULT_WORKFLOW_RESPONSE = { workflow: null };
+
 export const SplitIssueWorkflowOptionsSchema = z.array(WorkflowSchema).default([]);
 export const EMPTY_SPLIT_ISSUE_WORKFLOW_OPTIONS: Workflow[] = [];
 

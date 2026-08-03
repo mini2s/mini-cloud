@@ -53,6 +53,8 @@ import type {
   WorkflowRuntimeDisplayStatus,
   WorkerType,
   CriticType,
+  IssueAssigneeType,
+  UpdateIssueRequest,
 } from "@multica/core/types";
 import { useT } from "../../../i18n";
 import { parseNodeFormat } from "@multica/core/types";
@@ -106,6 +108,11 @@ export interface ExecutionPanoramaPageProps {
   issueId?: string;
   issueCreatorType?: string | null;
   issueCreatorId?: string | null;
+  issueAssigneeType?: string | null;
+  issueAssigneeId?: string | null;
+  issueResponsibleUserId?: string | null;
+  onPendingWorkerUpdate?: (updates: Partial<UpdateIssueRequest>) => void;
+  onPendingCriticUpdate?: (updates: { responsible_user_id: string | null }) => void;
   fillAvailableHeight?: boolean;
   showRoleAssignmentEntry?: boolean;
 }
@@ -653,6 +660,11 @@ export function ExecutionPanoramaPage({
   issueId,
   issueCreatorType,
   issueCreatorId,
+  issueAssigneeType,
+  issueAssigneeId,
+  issueResponsibleUserId,
+  onPendingWorkerUpdate,
+  onPendingCriticUpdate,
   fillAvailableHeight = false,
   showRoleAssignmentEntry = true,
 }: ExecutionPanoramaPageProps) {
@@ -1003,6 +1015,20 @@ export function ExecutionPanoramaPage({
     return identity;
   }, [actorAvailabilityLabels, actorTypeLabels, agentLookup, getActorName, memberLookup, presenceByAgent, squadLookup]);
 
+  const pendingWorkerAssigneeType: IssueAssigneeType | null =
+    issueAssigneeType === "member" ||
+    issueAssigneeType === "agent" ||
+    issueAssigneeType === "squad"
+      ? issueAssigneeType
+      : null;
+  const pendingDefaultWorkerType = pendingWorkerAssigneeType === "member"
+    ? "human"
+    : pendingWorkerAssigneeType === "agent" || pendingWorkerAssigneeType === "squad"
+      ? pendingWorkerAssigneeType
+      : null;
+  const pendingDefaultWorkerId = issueAssigneeId?.trim() || null;
+  const pendingDefaultCriticId = issueResponsibleUserId?.trim() || null;
+
   // Built-in role names are seeded in English (developer/qa/tech_lead); render
   // localized labels so the canvas matches the rest of the UI. Custom roles
   // fall through to their raw name.
@@ -1037,16 +1063,28 @@ export function ExecutionPanoramaPage({
     const sourceRoleName = resolvedRole
       ? renderRoleName(undefined, resolvedRole.roleName) ?? resolvedRole.roleName
       : undefined;
-    const runType = slot === "worker" ? nodeRun?.worker_type : nodeRun?.critic_type;
-    const runId = slot === "worker" ? nodeRun?.worker_id : nodeRun?.critic_id;
+    const runActorType = slot === "worker" ? nodeRun?.worker_type : nodeRun?.critic_type;
+    const runActorId = slot === "worker" ? nodeRun?.worker_id : nodeRun?.critic_id;
     const actorNameSnapshot = slot === "worker"
       ? nodeRun?.worker_name_snapshot
       : nodeRun?.critic_name_snapshot;
-    const runtimeIdentity = buildConcreteActorIdentity(runType, runId, actorNameSnapshot);
+    const runtimeIdentity = buildConcreteActorIdentity(runActorType, runActorId, actorNameSnapshot);
     if (runtimeIdentity) {
       return resolvedRole && runtimeIdentity.type === "member" && runtimeIdentity.id === resolvedRole.userId
         ? { ...runtimeIdentity, sourceRoleName }
         : runtimeIdentity;
+    }
+
+    if (!runId && !nodeRun) {
+      const kind = parseNodeFormat(node.format_schema).kind;
+      if (kind !== "gateway" && kind !== "split" && slot === "worker" && pendingDefaultWorkerType && pendingDefaultWorkerId) {
+        const pendingIdentity = buildConcreteActorIdentity(pendingDefaultWorkerType, pendingDefaultWorkerId);
+        if (pendingIdentity) return pendingIdentity;
+      }
+      if (kind !== "gateway" && kind !== "split" && slot === "critic" && pendingDefaultCriticId) {
+        const pendingIdentity = buildConcreteActorIdentity("human", pendingDefaultCriticId);
+        if (pendingIdentity) return pendingIdentity;
+      }
     }
 
     const nodeType = slot === "worker" ? node.worker_type : node.critic_type;
@@ -1076,7 +1114,18 @@ export function ExecutionPanoramaPage({
       return { type: "api", id: null, name: "API review", typeLabel: actorTypeLabels.api };
     }
     return null;
-  }, [actorTypeLabels, buildConcreteActorIdentity, nodeRunMap, renderRoleName, resolvedRoleByNodeRunSlot, roleById]);
+  }, [
+    actorTypeLabels,
+    buildConcreteActorIdentity,
+    nodeRunMap,
+    pendingDefaultCriticId,
+    pendingDefaultWorkerId,
+    pendingDefaultWorkerType,
+    renderRoleName,
+    resolvedRoleByNodeRunSlot,
+    roleById,
+    runId,
+  ]);
 
   const resolveWorkerName = useCallback(
     (node: WorkflowNode): string | null => resolveRuntimeActorIdentity("worker", node)?.name ?? null,
@@ -1157,6 +1206,11 @@ export function ExecutionPanoramaPage({
         isSplitExpanded: expandedSplitNodeIds.has(node.id),
         splitChildCount: (splitTasksByNodeId.get(node.id) ?? []).filter((task) => task.issue_id).length,
         onSplitNodeToggle: handleToggleSplitNode,
+        pendingWorkerAssigneeType,
+        pendingWorkerAssigneeId: pendingDefaultWorkerId,
+        pendingCriticUserId: pendingDefaultCriticId,
+        onPendingWorkerUpdate: !runId ? onPendingWorkerUpdate : undefined,
+        onPendingCriticUpdate: !runId ? onPendingCriticUpdate : undefined,
       };
     },
     makeCriticName: (node) => resolveCriticName(node) ?? undefined,

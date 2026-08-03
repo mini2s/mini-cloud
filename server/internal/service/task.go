@@ -719,7 +719,7 @@ func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.MulticaIssu
 // Unlike EnqueueTaskForIssue, this takes an explicit agent ID rather than
 // deriving it from the issue assignee.
 func (s *TaskService) EnqueueTaskForMention(ctx context.Context, issue db.MulticaIssue, agentID pgtype.UUID, triggerCommentID pgtype.UUID) (db.MulticaAgentTaskQueue, error) {
-	return s.enqueueMentionTask(ctx, issue, agentID, triggerCommentID, false, false, pgtype.UUID{}, nil)
+	return s.enqueueMentionTask(ctx, issue, agentID, triggerCommentID, false, false, pgtype.UUID{}, nil, pgtype.UUID{})
 }
 
 // EnqueueTaskForSquadLeader is the leader-role variant of EnqueueTaskForMention.
@@ -728,11 +728,20 @@ func (s *TaskService) EnqueueTaskForMention(ctx context.Context, issue db.Multic
 // acting as the squad's leader (skip) from one posted while it was acting
 // as a worker (do not skip). This matters for agents that are simultaneously
 // the leader and a worker of the same squad — see migration 090.
-func (s *TaskService) EnqueueTaskForSquadLeader(ctx context.Context, issue db.MulticaIssue, leaderID pgtype.UUID, triggerCommentID pgtype.UUID) (db.MulticaAgentTaskQueue, error) {
-	return s.enqueueMentionTask(ctx, issue, leaderID, triggerCommentID, true, false, pgtype.UUID{}, nil)
+//
+// The trailing variadic override lets the squad dispatch path (run-now) pass a
+// policy-resolved runtime, mirroring EnqueueTaskForIssue. Existing callers
+// (autopilot, squad mention, comment trigger) pass only the 4 fixed args and
+// keep the default empty (auto-resolve) behavior.
+func (s *TaskService) EnqueueTaskForSquadLeader(ctx context.Context, issue db.MulticaIssue, leaderID pgtype.UUID, triggerCommentID pgtype.UUID, overrideRuntimeID ...pgtype.UUID) (db.MulticaAgentTaskQueue, error) {
+	var override pgtype.UUID
+	if len(overrideRuntimeID) > 0 {
+		override = overrideRuntimeID[0]
+	}
+	return s.enqueueMentionTask(ctx, issue, leaderID, triggerCommentID, true, false, pgtype.UUID{}, nil, override)
 }
 
-func (s *TaskService) enqueueMentionTask(ctx context.Context, issue db.MulticaIssue, agentID pgtype.UUID, triggerCommentID pgtype.UUID, isLeader bool, forceFreshSession bool, workflowNodeRunID pgtype.UUID, contextJSON []byte) (db.MulticaAgentTaskQueue, error) {
+func (s *TaskService) enqueueMentionTask(ctx context.Context, issue db.MulticaIssue, agentID pgtype.UUID, triggerCommentID pgtype.UUID, isLeader bool, forceFreshSession bool, workflowNodeRunID pgtype.UUID, contextJSON []byte, overrideRuntimeID pgtype.UUID) (db.MulticaAgentTaskQueue, error) {
 	agent, err := s.Queries.GetAgent(ctx, agentID)
 	if err != nil {
 		slog.Error("mention task enqueue failed: agent not found", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID), "error", err)
@@ -744,8 +753,17 @@ func (s *TaskService) enqueueMentionTask(ctx context.Context, issue db.MulticaIs
 	}
 	runtimeID, err := s.resolveRuntimeForAgent(ctx, agent, issue.WorkspaceID)
 	if err != nil {
-		slog.Error("mention task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID), "error", err)
-		return db.MulticaAgentTaskQueue{}, fmt.Errorf("resolve runtime: %w", err)
+		// If caller provided an override runtime, use it as fallback.
+		if overrideRuntimeID.Valid {
+			runtimeID = overrideRuntimeID
+		} else {
+			slog.Error("mention task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID), "error", err)
+			return db.MulticaAgentTaskQueue{}, fmt.Errorf("resolve runtime: %w", err)
+		}
+	}
+	// Caller-provided runtime takes priority over auto-resolution.
+	if overrideRuntimeID.Valid {
+		runtimeID = overrideRuntimeID
 	}
 
 	task, err := s.Queries.CreateAgentTask(ctx, db.CreateAgentTaskParams{
@@ -1914,7 +1932,7 @@ func (s *TaskService) enqueueRerunTask(ctx context.Context, issue db.MulticaIssu
 		util.UUIDToString(issue.AssigneeID) == util.UUIDToString(agentID) {
 		return s.enqueueIssueTask(ctx, issue, triggerCommentID, true, overrideRuntimeID, workflowNodeRunID, contextJSON)
 	}
-	return s.enqueueMentionTask(ctx, issue, agentID, triggerCommentID, isLeader, true, workflowNodeRunID, contextJSON)
+	return s.enqueueMentionTask(ctx, issue, agentID, triggerCommentID, isLeader, true, workflowNodeRunID, contextJSON, overrideRuntimeID)
 }
 
 func (s *TaskService) enqueueWorkflowRerunTask(
@@ -2495,24 +2513,25 @@ func (s *TaskService) AutoUnresolveThreadOnReply(ctx context.Context, parent *db
 
 func issueToMap(issue db.MulticaIssue, issuePrefix string) map[string]any {
 	return map[string]any{
-		"id":              util.UUIDToString(issue.ID),
-		"workspace_id":    util.UUIDToString(issue.WorkspaceID),
-		"number":          issue.Number,
-		"identifier":      issuePrefix + "-" + strconv.Itoa(int(issue.Number)),
-		"title":           issue.Title,
-		"description":     util.TextToPtr(issue.Description),
-		"status":          issue.Status,
-		"priority":        issue.Priority,
-		"assignee_type":   util.TextToPtr(issue.AssigneeType),
-		"assignee_id":     util.UUIDToPtr(issue.AssigneeID),
-		"creator_type":    issue.CreatorType,
-		"creator_id":      util.UUIDToString(issue.CreatorID),
-		"parent_issue_id": util.UUIDToPtr(issue.ParentIssueID),
-		"position":        issue.Position,
-		"start_date":      util.TimestampToPtr(issue.StartDate),
-		"due_date":        util.TimestampToPtr(issue.DueDate),
-		"created_at":      util.TimestampToString(issue.CreatedAt),
-		"updated_at":      util.TimestampToString(issue.UpdatedAt),
+		"id":                  util.UUIDToString(issue.ID),
+		"workspace_id":        util.UUIDToString(issue.WorkspaceID),
+		"number":              issue.Number,
+		"identifier":          issuePrefix + "-" + strconv.Itoa(int(issue.Number)),
+		"title":               issue.Title,
+		"description":         util.TextToPtr(issue.Description),
+		"status":              issue.Status,
+		"priority":            issue.Priority,
+		"assignee_type":       util.TextToPtr(issue.AssigneeType),
+		"assignee_id":         util.UUIDToPtr(issue.AssigneeID),
+		"responsible_user_id": util.UUIDToPtr(issue.ResponsibleUserID),
+		"creator_type":        issue.CreatorType,
+		"creator_id":          util.UUIDToString(issue.CreatorID),
+		"parent_issue_id":     util.UUIDToPtr(issue.ParentIssueID),
+		"position":            issue.Position,
+		"start_date":          util.TimestampToPtr(issue.StartDate),
+		"due_date":            util.TimestampToPtr(issue.DueDate),
+		"created_at":          util.TimestampToString(issue.CreatedAt),
+		"updated_at":          util.TimestampToString(issue.UpdatedAt),
 	}
 }
 

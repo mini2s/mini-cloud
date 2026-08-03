@@ -421,6 +421,19 @@ func (h *Handler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"workflows": resp})
 }
 
+func (h *Handler) GetDefaultWorkflow(w http.ResponseWriter, r *http.Request) {
+	workspaceID := h.resolveWorkspaceID(r)
+	wsUUID := parseUUID(workspaceID)
+
+	wf, err := h.WorkflowService.EnsureDefaultWorkflow(r.Context(), wsUUID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get default workflow")
+		return
+	}
+	count, _ := h.Queries.CountWorkflowNodes(r.Context(), wf.ID)
+	writeJSON(w, http.StatusOK, map[string]any{"workflow": workflowToResponse(wf, count)})
+}
+
 func (h *Handler) CreateWorkflow(w http.ResponseWriter, r *http.Request) {
 	var req CreateWorkflowRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

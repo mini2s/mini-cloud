@@ -969,6 +969,63 @@ describe("ExecutionPanoramaPage", () => {
     expect(screen.queryByTestId("stage-lane-stage-1")).not.toBeInTheDocument();
   });
 
+  it("previews default workflow node actors from the pending issue assignment before a run starts", () => {
+    mocks.isLoading = false;
+    mocks.workflowData = { id: "wf-1", title: "Default workflow" };
+    mocks.stagesData = [STAGE];
+    mocks.nodesData = [{
+      ...NODE,
+      worker_type: "agent",
+      worker_id: null,
+      critic_type: "human",
+      critic_id: null,
+    }];
+    mocks.membersData = [
+      { user_id: "user-1", name: "Alice Worker", role: "admin", status: "active" },
+      { user_id: "user-2", name: "Bob Reviewer", role: "member", status: "active" },
+    ];
+    const onPendingWorkerUpdate = vi.fn();
+    const onPendingCriticUpdate = vi.fn();
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage
+          workflowId="wf-1"
+          runId={null}
+          wsId="ws-1"
+          issueCreatorType="member"
+          issueCreatorId="user-1"
+          issueAssigneeType="member"
+          issueAssigneeId="user-1"
+          issueResponsibleUserId="user-2"
+          onPendingWorkerUpdate={onPendingWorkerUpdate}
+          onPendingCriticUpdate={onPendingCriticUpdate}
+        />
+      </Wrapper>,
+    );
+
+    const runtimeNode = mocks.reactFlowProps?.nodes.find((node) => node.id === "n1");
+    expect(runtimeNode?.data).toMatchObject({
+      workerName: "Alice Worker",
+      criticName: "Bob Reviewer",
+      pendingWorkerAssigneeType: "member",
+      pendingWorkerAssigneeId: "user-1",
+      pendingCriticUserId: "user-2",
+      onPendingWorkerUpdate,
+      onPendingCriticUpdate,
+    });
+    expect(runtimeNode?.data?.workerIdentity).toMatchObject({
+      type: "member",
+      id: "user-1",
+      name: "Alice Worker",
+    });
+    expect(runtimeNode?.data?.criticIdentity).toMatchObject({
+      type: "member",
+      id: "user-2",
+      name: "Bob Reviewer",
+    });
+  });
+
   it("builds runtime worker nodes through the shared canvas model while preserving runtime data", async () => {
     mocks.isLoading = false;
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };

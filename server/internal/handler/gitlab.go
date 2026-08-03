@@ -301,26 +301,32 @@ func parseGitLabTimeRequired(s string) pgtype.Timestamptz {
 	return t
 }
 
-// workspaceGitlabAutoLinkEnabled reports whether the workspace allows the
-// GitLab webhook to create issue-MR link rows. The hidden auto-link sub-feature
-// defaults to off unless it is explicitly enabled. The master gitlab_enabled
-// switch can still gate it off.
-func (h *Handler) workspaceGitlabAutoLinkEnabled(ctx context.Context, workspaceID pgtype.UUID) bool {
-	ws, err := h.Queries.GetWorkspace(ctx, workspaceID)
-	if err != nil || len(ws.Settings) == 0 {
+// gitlabAutoLinkFromSettings reports whether the workspace allows GitLab
+// webhook auto-linking, based purely on the settings JSONB. The historical
+// master `gitlab_enabled` switch is intentionally NOT consulted — the feature
+// is always on; only the opt-in auto-link sub-flag gates this side-effect.
+func gitlabAutoLinkFromSettings(raw []byte) bool {
+	if len(raw) == 0 {
 		return false
 	}
 	var s struct {
-		GitlabEnabled          *bool `json:"gitlab_enabled"`
-		GitlabAutoLinkEnabled  *bool `json:"gitlab_auto_link_enabled"`
+		GitlabAutoLinkEnabled *bool `json:"gitlab_auto_link_enabled"`
 	}
-	if err := json.Unmarshal(ws.Settings, &s); err != nil {
-		return false
-	}
-	if s.GitlabEnabled != nil && !*s.GitlabEnabled {
+	if err := json.Unmarshal(raw, &s); err != nil {
 		return false
 	}
 	return s.GitlabAutoLinkEnabled != nil && *s.GitlabAutoLinkEnabled
+}
+
+// workspaceGitlabAutoLinkEnabled reports whether the workspace allows the
+// GitLab webhook to create issue-MR link rows. Auto-link defaults to off
+// unless the sub-flag is explicitly enabled.
+func (h *Handler) workspaceGitlabAutoLinkEnabled(ctx context.Context, workspaceID pgtype.UUID) bool {
+	ws, err := h.Queries.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return false
+	}
+	return gitlabAutoLinkFromSettings(ws.Settings)
 }
 
 // ── List merge requests for an issue ────────────────────────────────────────

@@ -1,6 +1,8 @@
 export type NotificationGroupKey =
   | "assignments"
+  | "workflow_roles"
   | "status_changes"
+  | "workflow_node_status"
   | "comments"
   | "updates"
   | "agent_activity"

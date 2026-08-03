@@ -77,19 +77,23 @@ var parentBubbleNotifTypes = map[string]bool{
 // notifTypeToGroup maps each InboxItemType to a user-configurable preference
 // group. Types not in this map are always delivered (not configurable).
 var notifTypeToGroup = map[string]string{
-	"issue_assigned":     "assignments",
-	"unassigned":         "assignments",
-	"assignee_changed":   "assignments",
-	"status_changed":     "status_changes",
-	"new_comment":        "comments",
-	"mentioned":          "comments",
-	"priority_changed":   "updates",
-	"start_date_changed": "updates",
-	"due_date_changed":   "updates",
-	"task_completed":     "agent_activity",
-	"task_failed":        "agent_activity",
-	"agent_blocked":      "agent_activity",
-	"agent_completed":    "agent_activity",
+	"responsible_assigned":         "assignments",
+	"issue_assigned":               "assignments",
+	"unassigned":                   "assignments",
+	"assignee_changed":             "assignments",
+	"workflow_executor_assigned":   "workflow_roles",
+	"workflow_reviewer_assigned":   "workflow_roles",
+	"status_changed":               "status_changes",
+	"workflow_node_status_changed": "workflow_node_status",
+	"new_comment":                  "comments",
+	"mentioned":                    "comments",
+	"priority_changed":             "updates",
+	"start_date_changed":           "updates",
+	"due_date_changed":             "updates",
+	"task_completed":               "agent_activity",
+	"task_failed":                  "agent_activity",
+	"agent_blocked":                "agent_activity",
+	"agent_completed":              "agent_activity",
 }
 
 // isNotifMuted returns true if the given notification type is muted for a user
@@ -313,11 +317,6 @@ func notifyIssueSubscribers(
 
 		subID := util.UUIDToString(sub.UserID)
 
-		// Skip the actor
-		if subID == e.ActorID {
-			continue
-		}
-
 		// Skip any extra excluded IDs
 		if exclude[subID] {
 			continue
@@ -362,8 +361,8 @@ func notifyIssueSubscribers(
 	return notified
 }
 
-// notifyDirect creates an inbox item for a specific recipient. Skips if the
-// recipient is the actor. Publishes an inbox:new event on success.
+// notifyDirect creates an inbox item for a specific recipient. Publishes an
+// inbox:new event on success.
 func notifyDirect(
 	ctx context.Context,
 	queries *db.Queries,
@@ -380,11 +379,6 @@ func notifyDirect(
 	body string,
 	details []byte,
 ) {
-	// Skip if recipient is the actor
-	if recipientID == e.ActorID {
-		return
-	}
-
 	// workflow and other non-person types cannot receive notifications
 	if recipientType != "member" && recipientType != "agent" {
 		return
@@ -404,7 +398,7 @@ func notifyDirect(
 		RecipientID:   parseUUID(recipientID),
 		Type:          notifType,
 		Severity:      severity,
-		IssueID:       parseUUID(issueID),
+		IssueID:       optionalUUID(issueID),
 		Title:         title,
 		Body:          util.StrToText(body),
 		ActorType:     util.StrToText(e.ActorType),
@@ -496,14 +490,14 @@ func notifyMentionedMembers(
 	// Batch-load notification preferences for all mention recipients.
 	var mentionUserIDs []string
 	for id := range recipientIDs {
-		if id != e.ActorID && !skip[id] {
+		if !skip[id] {
 			mentionUserIDs = append(mentionUserIDs, id)
 		}
 	}
 	mentionPrefs := loadUserPrefs(context.Background(), queries, e.WorkspaceID, mentionUserIDs)
 
 	for id := range recipientIDs {
-		if id == e.ActorID || skip[id] {
+		if skip[id] {
 			continue
 		}
 		// Skip if mentions/comments are muted by this user
@@ -554,18 +548,30 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 		if !ok {
 			return
 		}
-		issue, ok := payload["issue"].(handler.IssueResponse)
+		issue, ok := extractIssueFields(payload["issue"])
 		if !ok {
 			return
 		}
 
 		// Track who already got notified to avoid duplicates
-		skip := map[string]bool{e.ActorID: true}
+		skip := map[string]bool{}
 
 		if issue.ResponsibleUserID != nil && *issue.ResponsibleUserID != "" {
 			skip[*issue.ResponsibleUserID] = true
 			notifyDirect(ctx, queries, bus,
 				"member", *issue.ResponsibleUserID,
+				issue.WorkspaceID, e, issue.ID, issue.Status,
+				"responsible_assigned", "action_required",
+				issue.Title,
+				"",
+				emptyDetails,
+			)
+		}
+
+		if issue.AssigneeType != nil && issue.AssigneeID != nil && *issue.AssigneeID != "" {
+			skip[*issue.AssigneeID] = true
+			notifyDirect(ctx, queries, bus,
+				*issue.AssigneeType, *issue.AssigneeID,
 				issue.WorkspaceID, e, issue.ID, issue.Status,
 				"issue_assigned", "action_required",
 				issue.Title,
@@ -641,7 +647,8 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 			}
 
 			// Subscriber: notify remaining subscribers about assignee change,
-			// excluding actor, old assignee, and new assignee
+			// excluding old and new assignees that already received direct
+			// assignment notifications.
 			exclude := map[string]bool{}
 			if prevAssigneeID != nil {
 				exclude[*prevAssigneeID] = true
@@ -741,7 +748,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 						added = append(added, m)
 					}
 				}
-				skip := map[string]bool{e.ActorID: true}
+				skip := map[string]bool{}
 				notifyMentionedMembers(bus, queries, e, added, issue.ID, issue.Title, issue.Status,
 					issue.Title, skip, emptyDetails)
 			}
@@ -804,7 +811,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 		// Notify @mentions in comment content.
 		mentions := parseMentions(commentContent)
 		if len(mentions) > 0 {
-			skip := map[string]bool{e.ActorID: true}
+			skip := map[string]bool{}
 			notifyMentionedMembers(bus, queries, e, mentions, issueID, issueTitle, issueStatus,
 				issueTitle, skip, commentDetails)
 		}
@@ -920,6 +927,8 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 			issue.Title, "",
 			emptyDetails)
 	})
+
+	registerWorkflowNodeNotificationListeners(bus, queries)
 }
 
 // inboxItemToResponse converts a db.MulticaInboxItem into a map suitable for

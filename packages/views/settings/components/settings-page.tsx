@@ -7,7 +7,6 @@ import {
   // Hidden: API tokens tab no longer needed.
   // Key,
   Settings,
-  FolderGit2,
   // Hidden per 2026-06-16 product decision.
   // FlaskConical,
   Bell,
@@ -25,7 +24,6 @@ import { PreferencesTab } from "./preferences-tab";
 // Hidden: API tokens tab no longer needed.
 // import { TokensTab } from "./tokens-tab";
 import { WorkspaceTab } from "./workspace-tab";
-import { RepositoriesTab } from "./repositories-tab";
 import { GitHubTab } from "./github-tab";
 import { GitlabTab } from "./gitlab-tab";
 // Hidden per 2026-06-16 product decision.
@@ -55,7 +53,6 @@ const ACCOUNT_TAB_ICONS = {
 
 const WORKSPACE_TAB_KEYS = [
   "general",
-  "repositories",
   "github",
   "gitlab",
   // Hidden per 2026-06-16 product decision.
@@ -64,7 +61,6 @@ const WORKSPACE_TAB_KEYS = [
 ] as const;
 const WORKSPACE_TAB_VALUES = {
   general: "workspace",
-  repositories: "repositories",
   github: "github",
   gitlab: "gitlab",
   // Hidden per 2026-06-16 product decision.
@@ -73,7 +69,6 @@ const WORKSPACE_TAB_VALUES = {
 } as const;
 const WORKSPACE_TAB_ICONS = {
   general: Settings,
-  repositories: FolderGit2,
   github: GitHubMark,
   gitlab: GitBranch,
   // Hidden per 2026-06-16 product decision.
@@ -108,18 +103,7 @@ export function SettingsPage({ extraAccountTabs }: SettingsPageProps = {}) {
   const isWorkflowAdmin =
     user?.can_manage_workflows === true && user?.workflow_admin_source === "local";
 
-  // Keep existing GitHub PR integrations reachable for workspaces that already
-  // use GitHub, while the Repositories tab no longer exposes platform switching.
-  const codePlatform =
-    (workspace?.settings as Record<string, unknown> | undefined)?.code_platform === "github"
-      ? "github"
-      : "gitlab";
-
-  const visibleWorkspaceTabs = WORKSPACE_TAB_KEYS.filter((key) => {
-    if (key === "github") return codePlatform === "github";
-    if (key === "gitlab") return codePlatform === "gitlab";
-    return true;
-  });
+  const visibleWorkspaceTabs = WORKSPACE_TAB_KEYS;
 
   // Whitelist of valid tab values; unknown ?tab=… values silently fall back to
   // the default. Whitelisting also blocks junk like ?tab=<script> from
@@ -203,7 +187,6 @@ export function SettingsPage({ extraAccountTabs }: SettingsPageProps = {}) {
           {/* <TabsContent value="tokens"><TokensTab /></TabsContent> */}
           {isWorkflowAdmin && <TabsContent value="workflow-admins"><WorkflowAdminsTab /></TabsContent>}
           <TabsContent value="workspace"><WorkspaceTab /></TabsContent>
-          <TabsContent value="repositories"><RepositoriesTab /></TabsContent>
           <TabsContent value="github"><GitHubTab /></TabsContent>
           <TabsContent value="gitlab"><GitlabTab /></TabsContent>
           {/* Hidden per 2026-06-16 product decision. */}

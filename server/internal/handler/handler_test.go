@@ -3690,3 +3690,39 @@ func TestAgentExplicitMentionStillTriggers(t *testing.T) {
 		t.Fatalf("expected 0 tasks for Agent A (no self-trigger on own mention), got %d", got)
 	}
 }
+
+func TestCreateIssueInProgressHonoredWithAssignee(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":         "Run now",
+		"status":        "in_progress",
+		"assignee_type": "member",
+		"assignee_id":   testUserID,
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var created IssueResponse
+	if err := json.NewDecoder(w.Body).Decode(&created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if created.Status != "in_progress" {
+		t.Fatalf("expected status in_progress, got %s", created.Status)
+	}
+	cleanupReq := newRequest("DELETE", "/api/issues/"+created.ID, nil)
+	cleanupReq = withURLParam(cleanupReq, "id", created.ID)
+	testHandler.DeleteIssue(httptest.NewRecorder(), cleanupReq)
+}
+
+func TestCreateIssueInProgressWithoutAssigneeRejected(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":  "No assignee",
+		"status": "in_progress",
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}

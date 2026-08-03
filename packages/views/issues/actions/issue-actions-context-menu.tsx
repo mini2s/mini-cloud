@@ -81,6 +81,7 @@ export function IssueActionsContextMenu({
           }
           trigger={<span />}
           align="start"
+          skipRuntimeSelection
         />
       )}
     </>
