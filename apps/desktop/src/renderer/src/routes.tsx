@@ -31,6 +31,7 @@ import { WorkflowsPage } from "@multica/views/workflows/components";
 import { WorkflowDetailPage } from "./pages/workflow-detail-page";
 import { WorkflowRunsPage } from "./pages/workflow-runs-page";
 import { WorkflowRunPage } from "./pages/workflow-run-page";
+import { WorkflowRunDiagnostics } from "./pages/workflow-run-diagnostics-page";
 import { useT } from "@multica/views/i18n";
 import { ErrorBoundary } from "@multica/ui/components/common/error-boundary";
 import { Download, Server } from "lucide-react";
@@ -243,6 +244,11 @@ export const appRoutes: RouteObject[] = [
             path: "workflows/:id/runs/:runId",
             element: <WorkflowRunPage />,
             handle: { title: "Workflow Run" },
+          },
+          {
+            path: "workflows/:id/runs/:runId/diagnostics",
+            element: <WorkflowRunDiagnostics />,
+            handle: { title: "Workflow Run Diagnostics" },
           },
         ],
       },
