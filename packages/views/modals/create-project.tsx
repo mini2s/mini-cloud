@@ -445,7 +445,7 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
 
         {/* Footer: properties (left, wrap) + Create button (right). Single row
             so the modal stays compact — Linear-style. Code repository lives in
-            the form body above (required), not here. */}
+            the optional form body above, not here. */}
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-t shrink-0">
           <div className="flex items-center gap-1.5 flex-wrap min-w-0">
           <DropdownMenu>
