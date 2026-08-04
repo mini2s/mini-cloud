@@ -239,15 +239,17 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 		if reviewerID, err := resolveSplitReviewerWithQueries(ctx, qtx, lockedNode); err != nil || reviewerID != actorUserID {
 			return NewSplitAPIError(SplitErrorForbidden, "split_reviewer_required", errors.New("only the split reviewer may approve the task plan"))
 		}
+		assigneeUserIDs := make(map[string]pgtype.UUID, len(resolvedTasks))
 		for _, task := range resolvedTasks {
 			memberID, parseErr := util.ParseUUID(task.AssigneeID)
 			if parseErr != nil {
 				return parseErr
 			}
 			member, memberErr := qtx.GetMember(ctx, memberID)
-			if memberErr != nil || member.WorkspaceID != lockedRun.WorkspaceID || member.Status != "active" {
+			if memberErr != nil || member.WorkspaceID != lockedRun.WorkspaceID || member.Status != "active" || !member.UserID.Valid {
 				return NewSplitValidationAPIError("invalid_task_md", errors.New("an assignee is no longer active"), []SplitValidationDetail{{Line: task.AssigneeLine, Field: "assignee", Message: "assignee is no longer an active workspace member"}})
 			}
+			assigneeUserIDs[task.AssigneeID] = member.UserID
 		}
 		if _, err := qtx.CreateWorkflowSplitSnapshot(ctx, db.CreateWorkflowSplitSnapshotParams{
 			NodeRunID: lockedNode.ID, Generation: lockedGeneration.Generation,
@@ -258,7 +260,7 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 		}
 		rowsByKey := make(map[string]db.MulticaWorkflowSplitTask, len(resolvedTasks))
 		for index, task := range resolvedTasks {
-			assigneeID, _ := util.ParseUUID(task.AssigneeID)
+			assigneeID := assigneeUserIDs[task.AssigneeID]
 			row, err := qtx.CreateMaterializationSplitTask(ctx, db.CreateMaterializationSplitTaskParams{
 				NodeRunID: lockedNode.ID, WorkspaceID: lockedRun.WorkspaceID,
 				SplitPlanGeneration: pgtype.Int4{Int32: lockedGeneration.Generation, Valid: true},

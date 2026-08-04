@@ -62,11 +62,16 @@ func TestSplitNodeRunTransitions(t *testing.T) {
 		{NodeRunStatusAwaitingSplitReview, NodeRunStatusMaterializing},
 		{NodeRunStatusAwaitingSplitReview, NodeRunStatusCancelled},
 		{NodeRunStatusMaterializing, NodeRunStatusSplitActive},
+		{NodeRunStatusMaterializing, NodeRunStatusBlocked},
 		{NodeRunStatusMaterializing, NodeRunStatusFailed},
 		{NodeRunStatusMaterializing, NodeRunStatusCancelled},
+		{NodeRunStatusSplitActive, NodeRunStatusBlocked},
 		{NodeRunStatusSplitActive, NodeRunStatusCompleted},
 		{NodeRunStatusSplitActive, NodeRunStatusFailed},
 		{NodeRunStatusSplitActive, NodeRunStatusCancelled},
+		{NodeRunStatusBlocked, NodeRunStatusSplitting},
+		{NodeRunStatusBlocked, NodeRunStatusMaterializing},
+		{NodeRunStatusBlocked, NodeRunStatusSplitActive},
 	}
 	for _, tc := range allowed {
 		if !isValidTransition(tc.from, tc.to) {

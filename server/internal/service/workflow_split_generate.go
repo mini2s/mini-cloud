@@ -60,7 +60,7 @@ func (s *SplitOrchestrator) GenerateSplitPlan(ctx context.Context, nodeRunID pgt
 		if generation.Status == SplitGenerationSuperseded {
 			return nil
 		}
-		if nodeRun.Status != NodeRunStatusAwaitingSplitReview && nodeRun.Status != NodeRunStatusFailed && nodeRun.Status != NodeRunStatusMaterializing {
+		if nodeRun.Status != NodeRunStatusAwaitingSplitReview && nodeRun.Status != NodeRunStatusFailed && nodeRun.Status != NodeRunStatusMaterializing && nodeRun.Status != NodeRunStatusBlocked {
 			return NewSplitAPIError(SplitErrorConflict, "split_generation_not_allowed", errors.New("split plan cannot be regenerated from the current state"))
 		}
 		tasks, err := qtx.ListSplitTasksByGeneration(ctx, db.ListSplitTasksByGenerationParams{

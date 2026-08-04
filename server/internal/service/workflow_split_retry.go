@@ -55,7 +55,7 @@ func (s *SplitOrchestrator) RetrySplitMaterializationTask(
 		if nodeRun.SplitPlanGeneration != expectedGeneration {
 			return staleSplitGenerationError(nodeRun, generation)
 		}
-		if nodeRun.Status != NodeRunStatusMaterializing && nodeRun.Status != NodeRunStatusFailed {
+		if nodeRun.Status != NodeRunStatusMaterializing && nodeRun.Status != NodeRunStatusBlocked && nodeRun.Status != NodeRunStatusFailed {
 			return NewSplitAPIError(SplitErrorConflict, "split_task_not_retryable", errors.New("split task is not awaiting materialization retry"))
 		}
 		if err := qtx.LockIssueDuplicateKey(ctx, splitTaskDispatchLockKey(taskID)); err != nil {
@@ -110,6 +110,11 @@ func (s *SplitOrchestrator) RetrySplitMaterializationTask(
 			}); err != nil {
 				return err
 			}
+			updatedNode, err = qtx.ReactivateWorkflowNodeRunStatus(ctx, db.ReactivateWorkflowNodeRunStatusParams{ID: nodeRun.ID, Status: NodeRunStatusMaterializing})
+			if err != nil {
+				return err
+			}
+		} else if nodeRun.Status == NodeRunStatusBlocked {
 			updatedNode, err = qtx.ReactivateWorkflowNodeRunStatus(ctx, db.ReactivateWorkflowNodeRunStatusParams{ID: nodeRun.ID, Status: NodeRunStatusMaterializing})
 			if err != nil {
 				return err

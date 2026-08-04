@@ -121,17 +121,11 @@ func (s *SplitOrchestrator) MaterializeSplitGeneration(
 		}
 		return false, nil
 	}
-	_, splitConfig, err := splitRunNodeConfig(ctx, s.Queries, nodeRun)
-	if err != nil {
-		return false, err
-	}
-	if exhausted > int(splitConfig.MaxFailures) {
-		if _, err := s.Queries.UpdateWorkflowSplitGenerationStatus(ctx, db.UpdateWorkflowSplitGenerationStatusParams{
-			NodeRunID: nodeRun.ID, Generation: generation.Generation, Status: "failed",
-		}); err != nil {
-			return false, err
-		}
-		if err := s.WfService.failWorkflowFromNode(ctx, nodeRun, NodeRunStatusFailed, "materialize_failure_threshold"); err != nil {
+	if exhausted > 0 {
+		// Materialization failures mean a child issue could not be created.
+		// Keep the generation recoverable and block the node instead of counting
+		// infrastructure/configuration errors against child execution failures.
+		if _, err := s.WfService.TransitionNodeRun(ctx, nodeRun, NodeRunStatusBlocked); err != nil {
 			return false, err
 		}
 		return false, nil
@@ -181,8 +175,10 @@ func (s *SplitOrchestrator) materializeSplitTask(
 		if !lockedTask.AssigneeID.Valid || lockedTask.AssigneeType.String != "member" {
 			return &splitMaterializationRowError{Code: "split_assignee_invalidated", Message: "split assignee is missing", Retryable: false}
 		}
-		member, err := qtx.GetMember(ctx, lockedTask.AssigneeID)
-		if err != nil || member.Status != "active" || member.WorkspaceID != lockedTask.WorkspaceID {
+		member, err := qtx.GetMemberByUserAndWorkspace(ctx, db.GetMemberByUserAndWorkspaceParams{
+			UserID: lockedTask.AssigneeID, WorkspaceID: lockedTask.WorkspaceID,
+		})
+		if err != nil || member.Status != "active" {
 			return &splitMaterializationRowError{Code: "split_assignee_invalidated", Message: "split assignee is no longer active", Retryable: false}
 		}
 		issue, err = qtx.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{

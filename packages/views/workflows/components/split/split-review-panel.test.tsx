@@ -270,7 +270,7 @@ describe("SplitReviewPanel", () => {
     expect(screen.queryByRole("button", { name: "More operations" })).not.toBeInTheDocument();
   });
 
-  it("shows an exhausted row after node failure and retries only that row", () => {
+  it.each(["materializing", "blocked"] as const)("retries an exhausted materialization row while %s", (status) => {
     mocks.data = response({
       tasks: [{
         id: "task-1", node_run_id: "run-node-1", title: "Build API", description: "",
@@ -284,7 +284,7 @@ describe("SplitReviewPanel", () => {
         cancelled: 0, skipped: 0, materialized: 0, retry_waiting: 0, exhausted: 1,
       },
     });
-    render(<SplitReviewPanel node={node} nodeRun={{ ...baseRun, status: "materializing" }} wsId="ws-1" onClose={vi.fn()} />);
+    render(<SplitReviewPanel node={node} nodeRun={{ ...baseRun, status }} wsId="ws-1" onClose={vi.fn()} />);
 
     const footer = screen.getByTestId("node-detail-panel-footer");
     expect(footer).not.toHaveTextContent("In progress");

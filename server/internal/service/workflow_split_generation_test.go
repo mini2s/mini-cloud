@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -35,5 +36,58 @@ func TestPipelineSplitDoesNotCompleteWithOpenTasks(t *testing.T) {
 		if got := resolveSplitStatus(SplitModePipeline, 0, []splitTaskPlan{{ID: "task", Status: status}}); got != NodeRunStatusSplitActive {
 			t.Fatalf("pipeline status with %s task = %s, want %s", status, got, NodeRunStatusSplitActive)
 		}
+	}
+}
+
+func TestOperationalSplitFailureBlocksWithoutSkippingDependents(t *testing.T) {
+	tasks, status := resolveSettledSplitStatus(SplitModeBarrier, 0, []splitTaskPlan{
+		{ID: "root", Status: SplitTaskStatusFailed, OperationalFailure: true},
+		{ID: "dependent", DependsOn: []string{"root"}, Status: SplitTaskStatusCreated},
+	})
+	if status != NodeRunStatusBlocked {
+		t.Fatalf("split status = %s, want %s", status, NodeRunStatusBlocked)
+	}
+	if tasks[1].Status != SplitTaskStatusCreated {
+		t.Fatalf("dependent status = %s, want %s", tasks[1].Status, SplitTaskStatusCreated)
+	}
+}
+
+func TestExecutionSplitFailureStillHonorsFailureThreshold(t *testing.T) {
+	tasks, status := resolveSettledSplitStatus(SplitModeBarrier, 0, []splitTaskPlan{
+		{ID: "root", Status: SplitTaskStatusFailed},
+		{ID: "dependent", DependsOn: []string{"root"}, Status: SplitTaskStatusCreated},
+	})
+	if status != NodeRunStatusFailed {
+		t.Fatalf("split status = %s, want %s", status, NodeRunStatusFailed)
+	}
+	if tasks[1].Status != SplitTaskStatusSkipped {
+		t.Fatalf("dependent status = %s, want %s", tasks[1].Status, SplitTaskStatusSkipped)
+	}
+}
+
+func TestSplitOperationalFailureClassification(t *testing.T) {
+	materializationFailure := db.MulticaWorkflowSplitTask{Status: SplitTaskStatusFailed}
+	if !isSplitOperationalFailure(materializationFailure) {
+		t.Fatal("unmaterialized failed task must be operational")
+	}
+
+	for _, code := range []string{"split_assignee_invalidated", "split_child_dispatch_failed"} {
+		task := db.MulticaWorkflowSplitTask{
+			Status:    SplitTaskStatusFailed,
+			IssueID:   pgtype.UUID{Valid: true},
+			LastError: []byte(`{"code":"` + code + `"}`),
+		}
+		if !isSplitOperationalFailure(task) {
+			t.Fatalf("failure code %q must be operational", code)
+		}
+	}
+
+	executionFailure := db.MulticaWorkflowSplitTask{
+		Status:    SplitTaskStatusFailed,
+		IssueID:   pgtype.UUID{Valid: true},
+		LastError: []byte(`{"code":"split_child_execution_failed"}`),
+	}
+	if isSplitOperationalFailure(executionFailure) {
+		t.Fatal("child execution failure must continue to use max_failures")
 	}
 }

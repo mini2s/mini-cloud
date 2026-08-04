@@ -119,13 +119,12 @@ var validTransitions = map[string][]string{
 	NodeRunStatusFailed:              {},
 	NodeRunStatusSplitting:           {NodeRunStatusAwaitingSplitReview, NodeRunStatusFailed, NodeRunStatusCancelled},
 	NodeRunStatusAwaitingSplitReview: {NodeRunStatusSplitting, NodeRunStatusMaterializing, NodeRunStatusCancelled},
-	NodeRunStatusMaterializing:       {NodeRunStatusSplitActive, NodeRunStatusFailed, NodeRunStatusCancelled},
-	NodeRunStatusSplitActive:         {NodeRunStatusCompleted, NodeRunStatusFailed, NodeRunStatusCancelled},
-	// blocked is reached two ways: rework-exhausted ("stuck", completed_at set)
-	// and human takeover ("paused", completed_at NULL). Both reuse the status;
-	// the extra outgoing edges below serve the takeover lifecycle —
-	// working (handback), completed/failed (finalize while held), cancelled.
-	NodeRunStatusBlocked:   {NodeRunStatusFormatOk, NodeRunStatusSkipped, NodeRunStatusWorking, NodeRunStatusCompleted, NodeRunStatusFailed, NodeRunStatusCancelled},
+	NodeRunStatusMaterializing:       {NodeRunStatusSplitActive, NodeRunStatusBlocked, NodeRunStatusFailed, NodeRunStatusCancelled},
+	NodeRunStatusSplitActive:         {NodeRunStatusCompleted, NodeRunStatusBlocked, NodeRunStatusFailed, NodeRunStatusCancelled},
+	// blocked is also used for recoverable split operational failures in
+	// addition to rework-exhausted and human takeover. Split recovery may
+	// restart planning/materialization or resume an active generation.
+	NodeRunStatusBlocked:   {NodeRunStatusFormatOk, NodeRunStatusSkipped, NodeRunStatusWorking, NodeRunStatusSplitting, NodeRunStatusMaterializing, NodeRunStatusSplitActive, NodeRunStatusCompleted, NodeRunStatusFailed, NodeRunStatusCancelled},
 	NodeRunStatusSkipped:   {},
 	NodeRunStatusCancelled: {},
 }
