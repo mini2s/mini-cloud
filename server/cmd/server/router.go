@@ -702,6 +702,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Patch("/api/node-runs/{nodeRunId}/split/config", h.PatchSplitConfig)
 			// Deliverable submissions (document deliverable → Gitea PR flow).
 			r.Get("/api/node-runs/{nodeRunId}/deliverables", h.ListNodeRunDeliverableSubmissions)
+			r.Post("/api/node-runs/{nodeRunId}/deliverables", h.CreateAgentDefinedDeliverable)
 			r.Post("/api/node-runs/{nodeRunId}/deliverables/{deliverableId}/submit", h.SubmitNodeRunDeliverable)
 			r.Post("/api/node-runs/{nodeRunId}/deliverables/{submissionId}/review", h.ReviewNodeRunDeliverable)
 			r.Post("/api/node-runs/{nodeRunId}/split/approve", h.ApproveSplitTasks)

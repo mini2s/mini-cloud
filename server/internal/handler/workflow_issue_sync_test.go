@@ -605,3 +605,44 @@ func TestSyncDirectIssueCancelledDoesNotOverride(t *testing.T) {
 		t.Fatalf("expected no issue:updated event, got %d", len(matches))
 	}
 }
+
+// TestCreateAgentDefinedDeliverable: when the workflow node has no
+// pre-registered deliverables, an agent can define one itself. POSTing a title
+// creates a run-scoped deliverable (required=false) and returns its id, which
+// the cs-cloud CLI then submits against.
+func TestCreateAgentDefinedDeliverable(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	fx := newWorkflowSyncFixture(t, "todo", false)
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/node-runs/"+uuidToString(fx.nodeRun.ID)+"/deliverables",
+		map[string]any{"title": "军棋游戏-方案设计"})
+	req = withURLParam(req, "nodeRunId", uuidToString(fx.nodeRun.ID))
+	testHandler.CreateAgentDefinedDeliverable(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateAgentDefinedDeliverable: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp AgentDefinedDeliverableResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.ID == "" || resp.Title != "军棋游戏-方案设计" {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+	if resp.Required {
+		t.Fatalf("agent-defined deliverable must be required=false, got true")
+	}
+
+	var count int
+	if err := testPool.QueryRow(context.Background(),
+		`SELECT count(*) FROM multica_workflow_node_run_deliverable WHERE workflow_node_run_id = $1 AND title = '军棋游戏-方案设计' AND required = false`,
+		fx.nodeRun.ID).Scan(&count); err != nil {
+		t.Fatalf("count run deliverables: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 agent-defined run-deliverable, got %d", count)
+	}
+}

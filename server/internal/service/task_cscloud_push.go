@@ -794,7 +794,7 @@ func appendWorkerTaskPrompt(prompt string) string {
 	b.WriteString("Do NOT perform critic review. Do NOT approve or reject the work. If the issue text mentions a critic/reviewer, treat that as context for the later review phase, not your current task.\n")
 	b.WriteString("Repository instructions are in `.cs-cloud.repos`. Task context and credentials are in `.cs-cloud.env`; commands read them automatically. Do not copy tokens into replies, documents, commits, or prompts.\n")
 	b.WriteString("\n### Finishing\n\n")
-	b.WriteString("When your work is complete, you MUST signal it explicitly by running `cs-cloud workflow task complete --summary \"<one-line summary of what you delivered>\"` as your LAST action. The task does NOT complete when you stop working — until you call this command, the task stays open, idle is treated as incomplete, and it will eventually time out and fail.\n")
+	b.WriteString("Submit every deliverable you produced BEFORE finishing — `cs-cloud workflow task complete` must come AFTER your deliverable submissions, as your final action. Then run `cs-cloud workflow task complete --summary \"<one-line summary of what you delivered>\"` to signal completion. The task does NOT complete when you stop working — until you call this command, the task stays open, idle is treated as incomplete, and it will eventually time out and fail.\n")
 	b.WriteString("\n---\n\n")
 	return b.String()
 }

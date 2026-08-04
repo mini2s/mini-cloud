@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/service"
@@ -1041,6 +1044,22 @@ type SubmitDeliverableRequest struct {
 	PullRequestURL string  `json:"pull_request_url"`
 }
 
+// CreateAgentDefinedDeliverableRequest creates a run-scoped deliverable the
+// agent defined itself (no pre-registered node deliverable). The returned id is
+// then used with the standard submit endpoint — the cs-cloud CLI chains the two
+// behind one command, so the agent still perceives a single step.
+type CreateAgentDefinedDeliverableRequest struct {
+	Title string `json:"title"`
+}
+
+// AgentDefinedDeliverableResponse is the create result: the id the agent submits
+// against next.
+type AgentDefinedDeliverableResponse struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Required bool   `json:"required"`
+}
+
 type ReviewDeliverableRequest struct {
 	Status  string `json:"status"` // "approved" | "rejected"
 	Comment string `json:"review_comment"`
@@ -1128,6 +1147,60 @@ func (h *Handler) ListNodeRunDeliverableSubmissions(w http.ResponseWriter, r *ht
 	}
 
 	writeJSON(w, http.StatusOK, out)
+}
+
+// CreateAgentDefinedDeliverable creates a run-scoped deliverable that the
+// agent defined itself, when the workflow node has no pre-registered
+// deliverable. Returns the new deliverable's id so the cs-cloud CLI can submit
+// against it via the standard submit endpoint right after. The CLI chains
+// create→submit behind one command, so the agent perceives a single step.
+// POST /api/node-runs/{nodeRunId}/deliverables  {title}
+func (h *Handler) CreateAgentDefinedDeliverable(w http.ResponseWriter, r *http.Request) {
+	nodeRunID := chi.URLParam(r, "nodeRunId")
+	nrUUID, ok := parseUUIDOrBadRequest(w, nodeRunID, "nodeRunId")
+	if !ok {
+		return
+	}
+
+	var req CreateAgentDefinedDeliverableRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		writeError(w, http.StatusBadRequest, "title is required")
+		return
+	}
+
+	// source_deliverable_id is a fresh synthetic UUID (there is no definition
+	// source); required=false so an agent-defined deliverable never blocks
+	// completion on its own.
+	sourceID, err := uuid.NewV7()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to generate id")
+		return
+	}
+	requirement, err := h.Queries.CreateNodeRunDeliverableRequirement(r.Context(), db.CreateNodeRunDeliverableRequirementParams{
+		WorkflowNodeRunID:   nrUUID,
+		SourceDeliverableID: pgtype.UUID{Bytes: sourceID, Valid: true},
+		Title:               title,
+		Description:         "",
+		Required:            false,
+		SortOrder:           10000,
+		Purpose:             pgtype.Text{String: "general", Valid: true},
+	})
+	if err != nil {
+		slog.Warn("failed to create agent-defined deliverable", "node_run_id", uuidToString(nrUUID), "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to create deliverable")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, AgentDefinedDeliverableResponse{
+		ID:       uuidToString(requirement.ID),
+		Title:    requirement.Title,
+		Required: requirement.Required,
+	})
 }
 
 // SubmitNodeRunDeliverable POST /api/node-runs/{nodeRunId}/deliverables/{deliverableId}/submit
