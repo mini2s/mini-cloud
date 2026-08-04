@@ -389,6 +389,66 @@ describe("ApiClient schema fallback", () => {
       expect(summary.node_runs).toEqual([]);
       expect(summary.node_runtime_summaries).toEqual([]);
     });
+
+    it("parses diagnostics when present", async () => {
+      stubFetchJson({
+        run: { id: "run-1", workflow_id: "wf-1", workspace_id: "ws-1" },
+        node_runs: [],
+        node_runtime_summaries: [
+          {
+            workflow_node_id: "node-1",
+            node_run_id: "nr-1",
+            diagnostics: {
+              lifecycle_stage: "terminal",
+              hint: "hint.failure.timeout",
+              current_task: {
+                task_id: "task-1",
+                status: "failed",
+                phase: "worker",
+                attempt: 2,
+                max_attempts: 3,
+                failure_reason: "timeout",
+                error: "timed out",
+              },
+            },
+          },
+        ],
+      });
+      const client = new ApiClient("https://api.example.test");
+      const summary = await client.getWorkflowRunCanvasSummary("wf-1", "run-1");
+
+      const diag = summary.node_runtime_summaries[0]?.diagnostics;
+      expect(diag?.lifecycle_stage).toBe("terminal");
+      expect(diag?.hint).toBe("hint.failure.timeout");
+      expect(diag?.current_task?.task_id).toBe("task-1");
+      expect(diag?.current_task?.attempt).toBe(2);
+    });
+
+    it("defaults diagnostics to null when the field is missing (older server)", async () => {
+      stubFetchJson({
+        run: { id: "run-1", workflow_id: "wf-1", workspace_id: "ws-1" },
+        node_runs: [],
+        node_runtime_summaries: [{ workflow_node_id: "node-1", node_run_id: "nr-1" }],
+      });
+      const client = new ApiClient("https://api.example.test");
+      const summary = await client.getWorkflowRunCanvasSummary("wf-1", "run-1");
+
+      expect(summary.node_runtime_summaries[0]?.diagnostics).toBeNull();
+    });
+
+    it("falls back when diagnostics has the wrong shape", async () => {
+      stubFetchJson({
+        run: { id: "run-1", workflow_id: "wf-1", workspace_id: "ws-1" },
+        node_runs: [],
+        node_runtime_summaries: [
+          { workflow_node_id: "node-1", node_run_id: "nr-1", diagnostics: "broken" },
+        ],
+      });
+      const client = new ApiClient("https://api.example.test");
+      const summary = await client.getWorkflowRunCanvasSummary("wf-1", "run-1");
+
+      expect(summary.node_runtime_summaries).toEqual([]);
+    });
   });
 
   describe("getWorkflowRun", () => {
