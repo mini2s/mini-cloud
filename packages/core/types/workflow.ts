@@ -763,6 +763,7 @@ export interface WorkflowNodeDeliverableSubmission {
   content: string;
   attachment_id: string | null;
   pull_request_url: string;
+  pull_request_title?: string;
   review_comment: string;
   submitted_at: string;
   reviewed_at: string | null;

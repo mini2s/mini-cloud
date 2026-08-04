@@ -2,7 +2,12 @@
 
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { WorkflowNode, WorkflowNodeRun } from "@multica/core/types";
+import type {
+  WorkflowNode,
+  WorkflowNodeDeliverable,
+  WorkflowNodeDeliverableSubmission,
+  WorkflowNodeRun,
+} from "@multica/core/types";
 import { formatPullRequestLabel } from "../../../common/node-deliverable-drawer-ui";
 import { TaskNodeDetailPanel } from "./task-node-detail-panel";
 
@@ -19,13 +24,16 @@ const mocks = vi.hoisted(() => ({
   embedded: false,
 }));
 
-const makeCurrentData = () => ({
+const makeCurrentData = (): {
+  deliverables: WorkflowNodeDeliverable[];
+  submissions: WorkflowNodeDeliverableSubmission[];
+} => ({
   deliverables: [
     { id: "d1", workflow_node_id: "node-1", title: "api.md", description: "Design document · deliverable", required: true, sort_order: 0, created_at: "", updated_at: "" },
     { id: "d2", workflow_node_id: "node-1", title: "test-plan.md", description: "Test plan · deliverable", required: true, sort_order: 1, created_at: "", updated_at: "" },
   ],
   submissions: [
-    { id: "s1", workflow_node_run_id: "run-1", deliverable_id: "d1", submitted_by_type: "agent", submitted_by_id: "agent-1", status: "submitted", content: "", attachment_id: "file-1", pull_request_url: null, review_comment: "", submitted_at: "2026-08-03T10:00:00Z", reviewed_at: null, created_at: "", updated_at: "" },
+    { id: "s1", workflow_node_run_id: "run-1", deliverable_id: "d1", submitted_by_type: "agent", submitted_by_id: "agent-1", status: "submitted", content: "", attachment_id: "file-1", pull_request_url: "", review_comment: "", submitted_at: "2026-08-03T10:00:00Z", reviewed_at: null, created_at: "", updated_at: "" },
   ],
 });
 
@@ -257,6 +265,30 @@ describe("TaskNodeDetailPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "More operations" }));
 
     expect(screen.queryByRole("button", { name: "Cancel execution" })).not.toBeInTheDocument();
+  });
+
+  it("shows the submission title instead of the deliverable definition title", () => {
+    currentData = {
+      deliverables: [{
+        id: "d1",
+        workflow_node_id: "node-1",
+        title: "generic-deliverable.md",
+        description: "",
+        required: true,
+        sort_order: 0,
+        created_at: "",
+        updated_at: "",
+      }],
+      submissions: [{
+        ...makeCurrentData().submissions[0]!,
+        pull_request_title: "Implement notification endpoint",
+      }],
+    };
+
+    render(<TaskNodeDetailPanel node={node} nodeRun={run} workerName="worker" criticName="critic" onClose={vi.fn()} wsId="ws-1" />);
+
+    expect(screen.getByText("Implement notification endpoint")).toBeInTheDocument();
+    expect(screen.queryByText("generic-deliverable.md")).not.toBeInTheDocument();
   });
 
   it.each([

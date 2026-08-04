@@ -1491,6 +1491,7 @@ const WorkflowNodeDeliverableSubmissionSchema = z.object({
   content: z.string().default(""),
   attachment_id: z.string().nullable().default(null),
   pull_request_url: z.string().default(""),
+  pull_request_title: z.string().default(""),
   review_comment: z.string().default(""),
   submitted_at: z.string().default(""),
   reviewed_at: z.string().nullable().default(null),

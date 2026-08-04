@@ -26,6 +26,8 @@ import {
   WorkflowRoleResolutionsResponseSchema,
   WorkflowRolesResponseSchema,
   WorkflowSchema,
+  WorkflowNodeDeliverableSubmissionsResponseSchema,
+  EMPTY_WORKFLOW_NODE_DELIVERABLE_SUBMISSIONS_RESPONSE,
   WorkflowRunSchema,
   WorkflowRunCanvasSummaryResponseSchema,
   WorkflowNodeRunSchema,
@@ -57,6 +59,45 @@ const baseIssue = {
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };
+
+describe("WorkflowNodeDeliverableSubmissionsResponseSchema", () => {
+  const submission = {
+    id: "submission-1",
+    workflow_node_run_id: "node-run-1",
+    deliverable_id: "deliverable-1",
+    pull_request_title: "Implement submission titles",
+  };
+
+  it("preserves the submitted pull request title", () => {
+    const parsed = WorkflowNodeDeliverableSubmissionsResponseSchema.parse({
+      submissions: [submission],
+      deliverables: [],
+    });
+
+    expect(parsed.submissions[0]?.pull_request_title).toBe("Implement submission titles");
+  });
+
+  it("defaults a missing title for older backends", () => {
+    const { pull_request_title: _omitted, ...submissionWithoutTitle } = submission;
+    const parsed = WorkflowNodeDeliverableSubmissionsResponseSchema.parse({
+      submissions: [submissionWithoutTitle],
+      deliverables: [],
+    });
+
+    expect(parsed.submissions[0]?.pull_request_title).toBe("");
+  });
+
+  it("falls back when the submissions array is malformed", () => {
+    const parsed = parseWithFallback(
+      { submissions: null, deliverables: [] },
+      WorkflowNodeDeliverableSubmissionsResponseSchema,
+      EMPTY_WORKFLOW_NODE_DELIVERABLE_SUBMISSIONS_RESPONSE,
+      { endpoint: "GET /api/node-runs/:nodeRunId/deliverables" },
+    );
+
+    expect(parsed).toEqual(EMPTY_WORKFLOW_NODE_DELIVERABLE_SUBMISSIONS_RESPONSE);
+  });
+});
 
 describe("IssueSchema (via ListIssuesResponseSchema)", () => {
   it("accepts a primitive metadata KV map", () => {

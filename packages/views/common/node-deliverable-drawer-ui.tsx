@@ -100,6 +100,13 @@ export interface DeliverableDrawerItem {
   submission: WorkflowNodeDeliverableSubmission | null;
 }
 
+export function submissionDisplayTitle(
+  submission: WorkflowNodeDeliverableSubmission | null | undefined,
+  fallback: string,
+): string {
+  return submission?.pull_request_title?.trim() || fallback;
+}
+
 function openPullRequest(url: string) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
@@ -168,7 +175,7 @@ export function PreviousDeliverableCard({
       <div className="flex min-w-0 items-center gap-2">
         <span className="truncate text-[12.5px] font-semibold leading-5">{nodeTitle || "—"}</span>
         <span className="inline-flex rounded-[5px] bg-muted px-1.5 py-[3px] font-mono text-[10.5px] leading-none text-muted-foreground">
-          {item.deliverable.title}
+          {submissionDisplayTitle(submission, item.deliverable.title)}
         </span>
         <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
           {formatDeliverableTime(submission?.submitted_at)}
@@ -296,7 +303,7 @@ export function CurrentDeliverablesCard({
         return (
           <div key={item.deliverable.id} className={cn(index > 0 && "mt-3 border-t pt-3")}>
             <DeliverableFileHeader
-              title={item.deliverable.title}
+              title={submissionDisplayTitle(submission, item.deliverable.title)}
               meta={item.deliverable.description || generatedMeta || ""}
               state={state}
               pendingLabel={pendingLabel}

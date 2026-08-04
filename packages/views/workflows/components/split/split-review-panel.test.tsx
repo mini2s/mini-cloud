@@ -180,6 +180,7 @@ describe("SplitReviewPanel", () => {
         content: "",
         attachment_id: null,
         pull_request_url: "https://gitea.test/team/repo/pulls/42",
+        pull_request_title: "Break work into implementation tasks",
         review_comment: "",
         submitted_at: "2026-08-03T10:00:00Z",
         reviewed_at: null,
@@ -191,6 +192,8 @@ describe("SplitReviewPanel", () => {
     render(<SplitReviewPanel node={node} nodeRun={baseRun} issueDescription="Break the parent task into implementation units." wsId="ws-1" onClose={vi.fn()} />);
 
     expect(screen.getByRole("button", { name: "PR#42" })).toBeInTheDocument();
+    expect(screen.getByText("Break work into implementation tasks")).toBeInTheDocument();
+    expect(screen.queryByText("task.md")).not.toBeInTheDocument();
     expect(screen.getByText("Break the parent task into implementation units.")).toBeInTheDocument();
   });
 

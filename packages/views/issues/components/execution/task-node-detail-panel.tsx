@@ -48,6 +48,7 @@ import {
   drawerSmallButtonClass,
   formatPullRequestLabel,
   formatDeliverableTime,
+  submissionDisplayTitle,
   type DeliverableDrawerItem,
 } from "../../../common/node-deliverable-drawer-ui";
 import { formatRuntimeDuration } from "./runtime-node-duration";
@@ -483,7 +484,10 @@ export function TaskNodeDetailPanel({
         return {
           submission,
           kind,
-          name: deliverable?.title || (kind === "pr" ? submission.pull_request_url : t(($) => $.execution.detail_panel.task_drawer_document)),
+          name: submissionDisplayTitle(
+            submission,
+            deliverable?.title || (kind === "pr" ? submission.pull_request_url : t(($) => $.execution.detail_panel.task_drawer_document)),
+          ),
         };
       });
   }, [currentData, t]);
