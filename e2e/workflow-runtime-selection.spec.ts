@@ -153,6 +153,27 @@ test("UI-02/UI-03/UI-06/UI-07/UI-08: two devices are visible, offline is hidden,
   expect(rows[0]?.manual_runtime_id).toBe(runtime2.id);
 });
 
+test("UI-11: workflow start runtime picker shows owner names for multiple runtimes", async ({
+  page,
+}) => {
+  const ownerId = api.getUserId();
+  const runtime1 = await fixture.seedRuntime({ name: "E2E Owner Visible One", ownerId, provider: "csc" });
+  const runtime2 = await fixture.seedRuntime({ name: "E2E Owner Visible Two", ownerId, provider: "csc" });
+  const workflow = await createHumanWorkflow();
+  await authenticateAndOpen(page, workflow);
+
+  const dialog = await openRuntimeDialog(page);
+  await dialog.getByText("Specified runtime first", { exact: true }).click();
+  await dialog.getByRole("combobox").click();
+  await expect(page.getByRole("option", { name: /E2E Owner Visible One.*E2E User/ })).toBeVisible();
+  await expect(page.getByRole("option", { name: /E2E Owner Visible Two.*E2E User/ })).toBeVisible();
+
+  await page.screenshot({
+    path: `${ARTIFACT_DIR}/ui/ui-runtime-owner-visible.png`,
+    fullPage: true,
+  });
+});
+
 test("API-01: malformed runtime_id returns 400 and creates no run", async () => {
   const workflow = await createHumanWorkflow();
   const response = await api.requestStartWorkflowRun(workflow.id, "not-a-uuid");
