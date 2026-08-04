@@ -13,14 +13,12 @@ import { useAuthStore } from "@multica/core/auth";
 import {
   nodeRunDeliverableSubmissionsOptions,
   splitTasksOptions,
-  useSessionPermission,
   useApproveSplitTasks,
   useCancelSplitNode,
   useGenerateSplitTasks,
   useRejectSplitTasks,
   useRetrySplitTask,
 } from "@multica/core/workflows/queries";
-import { isEmbeddedInCostrict, postCostrictNavigateToSession } from "@multica/core/platform";
 import {
   AlignLeft,
   AlertTriangle,
@@ -52,7 +50,7 @@ import {
   runtimeDisplayStatusText,
   runtimeDisplayStatusTone,
 } from "../../../issues/components/execution/runtime-display-status";
-import { resolveEnterSessionId } from "../../../issues/components/execution/runtime-session";
+import { useEnterSession } from "../../../issues/components/execution/runtime-session";
 
 interface SplitReviewPanelProps {
   node: WorkflowNode;
@@ -127,15 +125,7 @@ export function SplitReviewPanel({
   const materializing = status === "materializing";
   const blocked = status === "blocked";
   const active = status === "split_active";
-  const sessionId = resolveEnterSessionId(nodeRun, runtimeSummary);
-  const { data: sessionPermission } = useSessionPermission(sessionId);
-  const canOpenSession = !!sessionId
-    && sessionPermission?.can_observe === true
-    && isEmbeddedInCostrict();
-  const openSession = () => {
-    if (!sessionId || !canOpenSession) return;
-    postCostrictNavigateToSession({ sessionId, newTab: true });
-  };
+  const { showOpenSession, openSession } = useEnterSession(nodeRun, runtimeSummary);
 
   // Status can arrive through node-run polling even if the corresponding
   // lifecycle WebSocket event was missed. Refetch on the review transition so
@@ -262,7 +252,7 @@ export function SplitReviewPanel({
   ) : null;
   const canRetryFailed = isReviewer && (materializing || blocked) && (progress?.exhausted ?? 0) > 0;
   const canManagePlan = isReviewer && !!nodeRunId && generation > 0;
-  const hasFooterActions = canOpenSession || canRetryFailed || canManagePlan || (active && !!onViewChildren);
+  const hasFooterActions = showOpenSession || canRetryFailed || canManagePlan || (active && !!onViewChildren);
   const footer = reviewFooter || hasFooterActions ? (
     <div className="space-y-3">
       {reviewFooter}
@@ -271,8 +261,8 @@ export function SplitReviewPanel({
           data-testid="split-node-action-toolbar"
           className={`flex flex-nowrap items-center justify-end gap-2 overflow-x-auto ${reviewFooter ? "border-t border-border/60 pt-3" : ""}`}
         >
-          {canOpenSession ? (
-            <button type="button" className={`${drawerSmallButtonClass} shrink-0 border-border bg-background hover:bg-muted`} onClick={openSession}>
+          {showOpenSession ? (
+            <button type="button" className={`${drawerSmallButtonClass} shrink-0 border-border bg-background hover:bg-muted`} onClick={() => openSession()}>
               {ti(($) => $.execution.detail_panel.open_session)}
             </button>
           ) : null}

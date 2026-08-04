@@ -21,7 +21,6 @@ import {
   X,
 } from "lucide-react";
 import { api } from "@multica/core/api";
-import { isEmbeddedInCostrict, postCostrictNavigateToSession } from "@multica/core/platform";
 import type {
   WorkflowNode,
   WorkflowNodeDeliverable,
@@ -32,7 +31,6 @@ import type {
 import { toWorkflowRuntimeDisplayStatus } from "@multica/core/types";
 import {
   nodeRunDeliverableSubmissionsOptions,
-  useSessionPermission,
   workflowKeys,
 } from "@multica/core/workflows/queries";
 import { useT } from "@multica/views/i18n";
@@ -52,7 +50,7 @@ import {
   type DeliverableDrawerItem,
 } from "../../../common/node-deliverable-drawer-ui";
 import { formatRuntimeDuration } from "./runtime-node-duration";
-import { resolveEnterSessionId } from "./runtime-session";
+import { useEnterSession } from "./runtime-session";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
 import {
   runtimeDisplayStatusText,
@@ -590,15 +588,7 @@ export function TaskNodeDetailPanel({
   const duration = nodeRun?.started_at
     ? Math.max(0, Math.round(((nodeRun.completed_at ? Date.parse(nodeRun.completed_at) : Date.now()) - Date.parse(nodeRun.started_at)) / 1000))
     : null;
-  const sessionId = resolveEnterSessionId(nodeRun, runtimeSummary);
-  const { data: sessionPermission } = useSessionPermission(sessionId);
-  const canOpenSession = !!sessionId
-    && sessionPermission?.can_observe === true
-    && isEmbeddedInCostrict();
-  const openSession = () => {
-    if (!sessionId || !canOpenSession) return;
-    postCostrictNavigateToSession({ sessionId, newTab: true });
-  };
+  const { showOpenSession, openSession } = useEnterSession(nodeRun, runtimeSummary);
   const actionAccess = baseAccess
     ? {
         ...baseAccess,
@@ -608,8 +598,8 @@ export function TaskNodeDetailPanel({
     : null;
   const footerKeyActions = (
     <>
-      {canOpenSession ? (
-        <button type="button" className={`${drawerSmallButtonClass} shrink-0 border-border bg-background hover:bg-muted`} onClick={openSession}>
+      {showOpenSession ? (
+        <button type="button" className={`${drawerSmallButtonClass} shrink-0 border-border bg-background hover:bg-muted`} onClick={() => openSession()}>
           {t(($) => $.execution.detail_panel.open_session)}
         </button>
       ) : null}
@@ -627,7 +617,7 @@ export function TaskNodeDetailPanel({
       ) : null}
     </>
   );
-  const hasFooterKeyActions = canOpenSession || !!onOpenIssue || !!onRetry;
+  const hasFooterKeyActions = showOpenSession || !!onOpenIssue || !!onRetry;
   const hasRuntimeControls = nodeRun?.runtime_id != null && (
     nodeRun.status === "working" ||
     (nodeRun.status === "blocked" && nodeRun.completed_at == null)

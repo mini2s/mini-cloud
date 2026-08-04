@@ -21,10 +21,6 @@ import {
 } from "lucide-react";
 import { api } from "@multica/core/api";
 import {
-  isEmbeddedInCostrict,
-  postCostrictNavigateToSession,
-} from "@multica/core/platform";
-import {
   parseNodeFormat,
   toWorkflowRuntimeDisplayStatus,
   type WorkflowNode,
@@ -33,7 +29,6 @@ import {
 } from "@multica/core/types";
 import {
   nodeRunDeliverableSubmissionsOptions,
-  useSessionPermission,
   workflowKeys,
 } from "@multica/core/workflows/queries";
 import { Button } from "@multica/ui/components/ui/button";
@@ -45,7 +40,7 @@ import {
 } from "../../../common/workflow-node-detail-panel-shell";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
 import { formatRuntimeDuration } from "./runtime-node-duration";
-import { resolveEnterSessionId } from "./runtime-session";
+import { useEnterSession } from "./runtime-session";
 import { NodeRunDeliverables } from "../../../workflows/components/node-run-deliverables";
 import {
   getHumanNodeRunActionAccess,
@@ -205,10 +200,8 @@ export function ExecutionDetailPanel({
     return null;
   }, [nodeRun, runtimeSummary?.error_message, status]);
 
-  const sessionId = resolveEnterSessionId(nodeRun, runtimeSummary);
-  const { data: sessionPerm } = useSessionPermission(sessionId);
-  const canEnterSession = !!sessionId && sessionPerm?.can_observe === true;
-  const canOpenSession = isEmbeddedInCostrict() && !isGateway && canEnterSession;
+  const { showOpenSession, openSession } = useEnterSession(nodeRun, runtimeSummary);
+  const canOpenSession = !isGateway && showOpenSession;
   const canUnblock = !isGateway && status === "blocked" && !!onUnblock;
   const canRetry = !isGateway && isRetryableNodeRunStatus(status) && !!onRetry;
   const baseActionAccess = nodeRun
@@ -306,8 +299,7 @@ export function ExecutionDetailPanel({
   });
 
   const handleOpenSession = () => {
-    if (!sessionId || !isEmbeddedInCostrict()) return;
-    postCostrictNavigateToSession({ sessionId, newTab: true });
+    openSession();
   };
 
   const runtimeActions = canOpenSession || onOpenIssue || canUnblock || canRetry ? (
