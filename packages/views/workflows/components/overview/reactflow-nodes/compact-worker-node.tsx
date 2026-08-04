@@ -12,6 +12,8 @@ import { WorkflowCanvasNodeShell } from "../../canvas/workflow-canvas-node-shell
 import { WORKER_WIDTH, WORKER_HEIGHT, STAGE_LINE_COLORS } from "../constants";
 import { useT } from "../../../../i18n";
 
+const SPLIT_WORKER_HEIGHT = 196;
+
 export interface CompactWorkerNodeData extends Record<string, unknown> {
   node: WorkflowNode;
   stage_id: string | null;
@@ -94,6 +96,7 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
         concurrency: splitConcurrency,
         maxFailures: splitMaxFailures,
       });
+  const nodeHeight = isSplit ? SPLIT_WORKER_HEIGHT : WORKER_HEIGHT;
   const openNode = () => nodeData.onOpen?.(nodeData.node.id);
   const addConnectedNode = () => nodeData.onAddConnectedNode?.(nodeData.node.id);
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -108,17 +111,17 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
       nodeShape={nodeShape}
       selected={selected}
       width={WORKER_WIDTH}
-      height={WORKER_HEIGHT}
+      height={nodeHeight}
       tabIndex={0}
       ariaLabel={`${displayName}. ${ariaSubtitle}`}
       title={description ? `${displayName}\n${description}` : displayName}
       onDoubleClick={openNode}
       onKeyDown={handleKeyDown}
-      className="h-[152px] w-[296px]"
+      className={cn(isSplit ? "h-[196px]" : "h-[152px]", "w-[296px]")}
       contentClassName={cn("h-full justify-between gap-2", workflowNodeInfoAreaClassName(nodeShape))}
       handleColorClassName={handleColorClass}
       handles={["left-target", "right-source", "bottom-source"]}
-      lateralHandleTop={WORKER_HEIGHT / 2}
+      lateralHandleTop={nodeHeight / 2}
       addConnectedNodeLabel={nodeData.addConnectedNodeLabel}
       onAddConnectedNode={nodeData.onAddConnectedNode ? addConnectedNode : undefined}
     >
@@ -146,43 +149,48 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
         {isSplit ? (
           <div
             data-testid={`compact-worker-node-meta-${id}`}
-            className="grid grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)_minmax(0,1fr)] grid-rows-[12px_42px] gap-x-2 gap-y-1 border-t border-border/45 pt-2"
+            className="flex min-w-0 flex-col gap-2 border-t border-border/45 pt-2"
           >
-            <div className="grid row-span-2 min-w-0 grid-rows-subgrid gap-1">
-              <span className="block text-[9px] font-bold uppercase leading-3 text-muted-foreground">
-                {t(($) => $.panorama.card.split_policy_label)}
-              </span>
-              <span className="flex min-w-0 items-start gap-1.5 text-[11px] leading-4">
-                <span
-                  aria-hidden="true"
-                  className="mt-[5px] size-1.5 shrink-0 rounded-full bg-blue-500 shadow-[0_0_0_3px_rgba(59,130,246,0.12)]"
-                />
-                <span className="min-w-0">
-                  <span className="block truncate font-semibold leading-4 text-foreground/85" title={splitMode}>
-                    {splitMode}
-                  </span>
-                  <span className="block text-[10px] leading-3 text-muted-foreground line-clamp-2" title={splitPolicySummary}>
-                    {splitPolicySummary}
-                  </span>
+            <div className="grid min-w-0 grid-cols-2 grid-rows-[12px_42px] gap-x-2 gap-y-1">
+              <WorkflowActorSlot
+                testId={`compact-worker-node-worker-role-${id}`}
+                slot="worker"
+                label={t(($) => $.panorama.card.worker_label)}
+                identity={nodeData.workerIdentity}
+                fallback={t(($) => $.panorama.card.actor_not_configured)}
+                state={workerConfigured ? "configured" : "missing"}
+              />
+              <WorkflowActorSlot
+                testId={`compact-worker-node-critic-role-${id}`}
+                slot="critic"
+                label={t(($) => $.panorama.card.critic_label)}
+                identity={nodeData.criticIdentity}
+                fallback={t(($) => $.panorama.card.actor_optional)}
+                state={nodeData.criticConfigured === true ? "configured" : "optional"}
+              />
+            </div>
+            <div
+              data-testid={`compact-worker-node-split-policy-${id}`}
+              className="flex min-w-0 items-start gap-2 rounded-md bg-muted/30 px-2 py-1.5"
+            >
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="block text-[9px] font-bold uppercase leading-3 text-muted-foreground">
+                  {t(($) => $.panorama.card.split_policy_label)}
+                </span>
+                <span className="block min-w-0 truncate text-[11px] font-semibold leading-4 text-foreground/85" title={splitMode}>
+                  {splitMode}
+                </span>
+                <span className="block min-w-0 truncate text-[10px] leading-3 text-muted-foreground" title={splitPolicySummary}>
+                  {splitPolicySummary}
                 </span>
               </span>
+              <span className="flex shrink-0 items-center gap-1.5 pt-3">
+                <span
+                  aria-hidden="true"
+                  className="size-1.5 shrink-0 rounded-full bg-blue-500 shadow-[0_0_0_3px_rgba(59,130,246,0.12)]"
+                />
+              </span>
             </div>
-            <WorkflowActorSlot
-              testId={`compact-worker-node-worker-role-${id}`}
-              slot="worker"
-              label={t(($) => $.panorama.card.worker_label)}
-              identity={nodeData.workerIdentity}
-              fallback={t(($) => $.panorama.card.actor_not_configured)}
-              state={workerConfigured ? "configured" : "missing"}
-            />
-            <WorkflowActorSlot
-              testId={`compact-worker-node-critic-role-${id}`}
-              slot="critic"
-              label={t(($) => $.panorama.card.critic_label)}
-              identity={nodeData.criticIdentity}
-              fallback={t(($) => $.panorama.card.actor_optional)}
-              state={nodeData.criticConfigured === true ? "configured" : "optional"}
-            />
           </div>
         ) : isAnnotation || isGateway ? (
           <div

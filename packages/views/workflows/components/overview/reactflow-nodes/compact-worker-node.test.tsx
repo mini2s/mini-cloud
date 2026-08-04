@@ -460,9 +460,15 @@ describe("CompactWorkerNode", () => {
 
     const meta = screen.getByTestId("compact-worker-node-meta-split-1");
     expect(meta).toHaveClass("border-t");
-    expect(meta.className).toContain("grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)_minmax(0,1fr)]");
+    expect(meta.className).toContain("flex");
+    expect(meta.className).not.toContain("grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)_minmax(0,1fr)]");
+    const workerSlot = screen.getByTestId("compact-worker-node-worker-role-split-1");
+    const policySlot = screen.getByTestId("compact-worker-node-split-policy-split-1");
+    expect(policySlot).toHaveTextContent("Execution policy");
+    expect(workerSlot.compareDocumentPosition(policySlot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     const node = screen.getByTestId("compact-worker-split-1");
+    expect(node).toHaveClass("h-[196px]", "w-[296px]");
     const surface = node.querySelector('[data-node-shape-surface="true"]');
     expect(surface?.className).toContain("bg-gradient-to-br");
     expect(surface?.className).toContain("border-white/80");
