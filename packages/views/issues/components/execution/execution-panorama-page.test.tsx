@@ -3103,7 +3103,13 @@ describe("ExecutionPanoramaPage", () => {
       </Wrapper>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Diagnostics" }));
+    // The button must live inside the canvas shell, not the panorama root —
+    // at the root it overlapped the role-assignment banner and the
+    // notification bar's right rail, blocking their clicks.
+    const button = screen.getByRole("button", { name: "Diagnostics" });
+    expect(screen.getByTestId("execution-canvas-shell")).toContainElement(button);
+
+    fireEvent.click(button);
     expect(mocks.navigationPush).toHaveBeenCalledWith(
       "/demo111/workflows/wf-1/runs/run-1/diagnostics",
     );

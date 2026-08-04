@@ -451,6 +451,8 @@ interface ExecutionPanoramaCanvasProps {
   onSplitClusterFocused?: () => void;
   restoreViewportRequest?: SplitViewportRestoreRequest | null;
   fillAvailableHeight?: boolean;
+  /** Floating entry rendered above the canvas top-right corner. */
+  diagnosticsEntry?: { label: string; onClick: () => void } | null;
 }
 
 function ExecutionPanoramaCanvas({
@@ -469,6 +471,7 @@ function ExecutionPanoramaCanvas({
   onSplitClusterFocused,
   restoreViewportRequest,
   fillAvailableHeight = false,
+  diagnosticsEntry = null,
 }: ExecutionPanoramaCanvasProps) {
   const { fitView, getViewport, setCenter, setViewport: setReactFlowViewport, viewportInitialized } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
@@ -630,6 +633,17 @@ function ExecutionPanoramaCanvas({
         )}
         data-testid="execution-canvas-shell"
       >
+        {diagnosticsEntry ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="absolute right-3 top-3 z-10 bg-background/90"
+            onClick={diagnosticsEntry.onClick}
+          >
+            {diagnosticsEntry.label}
+          </Button>
+        ) : null}
         <WorkflowCanvasCore
           nodes={rfNodes}
           edges={rfEdges}
@@ -1573,17 +1587,6 @@ export function ExecutionPanoramaPage({
       )}
       data-testid="execution-panorama"
     >
-      {showDiagnosticsEntry && runId ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="absolute right-3 top-3 z-10 bg-background/90"
-          onClick={() => navigation.push(paths.workflowRunDiagnostics(workflowId, runId))}
-        >
-          {tWf(($) => $.run.diagnostics.entry)}
-        </Button>
-      ) : null}
       {showRoleAssignmentEntry && requiresManualRoleAssignment ? (
         <div
           className="flex shrink-0 items-center gap-3 border-b border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100"
@@ -1630,6 +1633,14 @@ export function ExecutionPanoramaPage({
           onSplitClusterFocused={handleSplitClusterFocused}
           restoreViewportRequest={restoreViewportRequest}
           fillAvailableHeight={fillAvailableHeight}
+          diagnosticsEntry={
+            showDiagnosticsEntry && runId
+              ? {
+                  label: tWf(($) => $.run.diagnostics.entry),
+                  onClick: () => navigation.push(paths.workflowRunDiagnostics(workflowId, runId)),
+                }
+              : null
+          }
         />
       </ReactFlowProvider>
 
