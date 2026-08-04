@@ -185,16 +185,6 @@ func (s *SplitOrchestrator) materializeSplitTask(
 		if err != nil || member.Status != "active" || member.WorkspaceID != lockedTask.WorkspaceID {
 			return &splitMaterializationRowError{Code: "split_assignee_invalidated", Message: "split assignee is no longer active", Retryable: false}
 		}
-		if !lockedTask.WorkflowID.Valid {
-			return &splitMaterializationRowError{Code: "split_workflow_invalidated", Message: "split workflow is missing", Retryable: false}
-		}
-		run, err := qtx.GetWorkflowRun(ctx, lockedNode.WorkflowRunID)
-		if err != nil {
-			return err
-		}
-		if err := s.validateIssueWorkflow(ctx, qtx, util.UUIDToString(lockedTask.WorkflowID), run.WorkflowID, run.WorkspaceID); err != nil {
-			return &splitMaterializationRowError{Code: "split_workflow_invalidated", Message: "split workflow is no longer available", Retryable: false}
-		}
 		issue, err = qtx.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
 			WorkspaceID: lockedTask.WorkspaceID,
 			OriginType:  pgtype.Text{String: "workflow_split", Valid: true}, OriginID: lockedTask.ID,

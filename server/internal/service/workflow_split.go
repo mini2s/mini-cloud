@@ -94,10 +94,9 @@ const (
 )
 
 type SplitConfig struct {
-	Mode                   string `json:"mode"`
-	MaxConcurrency         int32  `json:"max_concurrency"`
-	MaxFailures            int32  `json:"max_failures"`
-	DefaultIssueWorkflowID string `json:"default_issue_workflow_id"`
+	Mode           string `json:"mode"`
+	MaxConcurrency int32  `json:"max_concurrency"`
+	MaxFailures    int32  `json:"max_failures"`
 }
 
 type SplitApproveRequest struct {
@@ -1148,29 +1147,6 @@ func splitAssigneeInvalidatedError(task db.MulticaWorkflowSplitTask, err error) 
 	return payload
 }
 
-func splitTaskStartError(nodeRun db.MulticaWorkflowNodeRun, task db.MulticaWorkflowSplitTask, err error) []byte {
-	payload := map[string]any{
-		"code":          "split_child_run_start_failed",
-		"message":       err.Error(),
-		"node_run_id":   util.UUIDToString(nodeRun.ID),
-		"split_task_id": util.UUIDToString(task.ID),
-	}
-	if nodeRun.WorkflowRunID.Valid {
-		payload["workflow_run_id"] = util.UUIDToString(nodeRun.WorkflowRunID)
-	}
-	if task.WorkflowID.Valid {
-		payload["workflow_id"] = util.UUIDToString(task.WorkflowID)
-	}
-	if task.IssueID.Valid {
-		payload["issue_id"] = util.UUIDToString(task.IssueID)
-	}
-	raw, marshalErr := json.Marshal(payload)
-	if marshalErr != nil {
-		return []byte(`{"code":"split_child_run_start_failed","message":"failed to encode split task start error"}`)
-	}
-	return raw
-}
-
 func (s *SplitOrchestrator) splitTaskGenerationIsActive(ctx context.Context, task db.MulticaWorkflowSplitTask) (bool, error) {
 	nodeRun, err := s.Queries.GetWorkflowNodeRun(ctx, task.NodeRunID)
 	if err != nil {
@@ -1513,37 +1489,4 @@ func SplitExecutionProgressSummary(tasks []db.MulticaWorkflowSplitTask) SplitPro
 		summary.AddStatus(t.Status)
 	}
 	return summary
-}
-
-func (s *SplitOrchestrator) validateIssueWorkflow(ctx context.Context, q *db.Queries, workflowIDValue string, parentWorkflowID, workspaceID pgtype.UUID) error {
-	workflowID, err := util.ParseUUID(workflowIDValue)
-	if err != nil {
-		return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_task_workflow", fmt.Errorf("invalid split default_issue_workflow_id: %w", err))
-	}
-	if workflowID == parentWorkflowID {
-		return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_task_workflow", errors.New("split issue workflow cannot be the parent workflow"))
-	}
-	workflow, err := q.GetWorkflow(ctx, workflowID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_task_workflow", errors.New("split issue workflow not found"))
-		}
-		return fmt.Errorf("get split issue workflow: %w", err)
-	}
-	if workflow.WorkspaceID != workspaceID {
-		return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_task_workflow", errors.New("split issue workflow belongs to another workspace"))
-	}
-	if workflow.Status != "active" {
-		return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_task_workflow", errors.New("split issue workflow is not active"))
-	}
-	nodes, err := q.ListWorkflowNodes(ctx, workflowID)
-	if err != nil {
-		return fmt.Errorf("list split issue workflow nodes: %w", err)
-	}
-	for _, node := range nodes {
-		if workflowNodeType(node.FormatSchema) == "split" {
-			return NewSplitAPIError(SplitErrorUnprocessable, "invalid_split_task_workflow", errors.New("split issue workflow cannot contain nested split nodes"))
-		}
-	}
-	return nil
 }

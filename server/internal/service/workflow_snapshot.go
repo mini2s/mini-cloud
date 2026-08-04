@@ -65,10 +65,9 @@ type WorkflowSnapshotNode struct {
 }
 
 type WorkflowSnapshotSplitConfig struct {
-	DefaultIssueWorkflowID string `json:"default_issue_workflow_id"`
-	Mode                   string `json:"mode"`
-	MaxConcurrency         int32  `json:"max_concurrency"`
-	MaxFailures            int32  `json:"max_failures"`
+	Mode           string `json:"mode"`
+	MaxConcurrency int32  `json:"max_concurrency"`
+	MaxFailures    int32  `json:"max_failures"`
 }
 
 type WorkflowSnapshotEdge struct {

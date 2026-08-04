@@ -901,7 +901,6 @@ export const WorkflowEdgesResponseSchema = z.object({
 export const EMPTY_WORKFLOW_EDGES_RESPONSE = { edges: EMPTY_WORKFLOW_EDGE_LIST };
 
 const WorkflowSnapshotSplitConfigSchema = z.object({
-  default_issue_workflow_id: z.string(),
   mode: z.string(),
   max_concurrency: z.number().int(),
   max_failures: z.number().int(),

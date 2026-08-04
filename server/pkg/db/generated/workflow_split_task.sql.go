@@ -34,12 +34,12 @@ func (q *Queries) CancelOpenSplitTask(ctx context.Context, id pgtype.UUID) (int6
 const createMaterializationSplitTask = `-- name: CreateMaterializationSplitTask :one
 INSERT INTO multica_workflow_split_task (
     node_run_id, workspace_id, split_plan_generation, draft_key, title,
-    description, depends_on, sort_order, status, workflow_id,
+    description, depends_on, sort_order, status,
     assignee_type, assignee_id
 ) VALUES (
     $1, $2, $3, $4, $5,
-    $6, '[]'::jsonb, $7, 'created', $8,
-    'member', $9
+    $6, '[]'::jsonb, $7, 'created',
+    'member', $8
 )
 RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id, split_plan_generation, materialize_retry_count, materialize_next_attempt_at
 `
@@ -52,7 +52,6 @@ type CreateMaterializationSplitTaskParams struct {
 	Title               string      `json:"title"`
 	Description         string      `json:"description"`
 	SortOrder           int32       `json:"sort_order"`
-	WorkflowID          pgtype.UUID `json:"workflow_id"`
 	AssigneeID          pgtype.UUID `json:"assignee_id"`
 }
 
@@ -65,7 +64,6 @@ func (q *Queries) CreateMaterializationSplitTask(ctx context.Context, arg Create
 		arg.Title,
 		arg.Description,
 		arg.SortOrder,
-		arg.WorkflowID,
 		arg.AssigneeID,
 	)
 	var i MulticaWorkflowSplitTask

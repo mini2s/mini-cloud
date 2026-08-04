@@ -1,12 +1,12 @@
 -- name: CreateMaterializationSplitTask :one
 INSERT INTO multica_workflow_split_task (
     node_run_id, workspace_id, split_plan_generation, draft_key, title,
-    description, depends_on, sort_order, status, workflow_id,
+    description, depends_on, sort_order, status,
     assignee_type, assignee_id
 ) VALUES (
     $1, $2, $3, $4, $5,
-    $6, '[]'::jsonb, $7, 'created', $8,
-    'member', $9
+    $6, '[]'::jsonb, $7, 'created',
+    'member', $8
 )
 RETURNING *;
 

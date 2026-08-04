@@ -464,7 +464,6 @@ graph TB
 |------------|---------|---------|
 | `409` | `draft_task_conflict` | 版本冲突（`expected_version` 不匹配） |
 | `409` | `split_config_conflict` | Config 版本冲突（`expected_config_version` 不匹配） |
-| `422` | `invalid_split_task_workflow` | Workflow 校验失败（不存在、非 active、含 split 节点、指向自身） |
 | `422` | `invalid_split_task_dependency` | 依赖 DAG 校验失败（引用 discarded task、无无依赖 ready task） |
 | `422` | `split_task_limit_exceeded` | 单次 approve 超过 50 条上限 |
 | `404` | （文档未提供具体标识） | workspace 或父 issue 不可用 |

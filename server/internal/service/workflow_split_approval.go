@@ -208,18 +208,6 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 	if len(assigneeDetails) > 0 {
 		return NewSplitValidationAPIError("invalid_task_md", fmt.Errorf("task.md validation failed (%d issues)", len(assigneeDetails)), assigneeDetails)
 	}
-	_, splitConfig, err := splitRunNodeConfig(ctx, s.Queries, currentNode)
-	if err != nil {
-		return err
-	}
-	if splitConfig.DefaultIssueWorkflowID == "" {
-		return NewSplitValidationAPIError("invalid_split_task_workflow", errors.New("split node has no default issue workflow"), []SplitValidationDetail{{Line: 0, Field: "workflow", Message: "split node default issue workflow is required"}})
-	}
-	workflowID, err := util.ParseUUID(splitConfig.DefaultIssueWorkflowID)
-	if err != nil {
-		return NewSplitValidationAPIError("invalid_split_task_workflow", errors.New("split node default issue workflow is invalid"), nil)
-	}
-
 	var committedNode db.MulticaWorkflowNodeRun
 	err = s.runInTx(ctx, func(qtx *db.Queries) error {
 		lockedNode, err := qtx.GetWorkflowNodeRunForUpdate(ctx, currentNode.ID)
@@ -251,9 +239,6 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 		if reviewerID, err := resolveSplitReviewerWithQueries(ctx, qtx, lockedNode); err != nil || reviewerID != actorUserID {
 			return NewSplitAPIError(SplitErrorForbidden, "split_reviewer_required", errors.New("only the split reviewer may approve the task plan"))
 		}
-		if err := s.validateIssueWorkflow(ctx, qtx, splitConfig.DefaultIssueWorkflowID, lockedRun.WorkflowID, lockedRun.WorkspaceID); err != nil {
-			return err
-		}
 		for _, task := range resolvedTasks {
 			memberID, parseErr := util.ParseUUID(task.AssigneeID)
 			if parseErr != nil {
@@ -278,7 +263,7 @@ func (s *SplitOrchestrator) ApproveSplit(ctx context.Context, nodeRun db.Multica
 				NodeRunID: lockedNode.ID, WorkspaceID: lockedRun.WorkspaceID,
 				SplitPlanGeneration: pgtype.Int4{Int32: lockedGeneration.Generation, Valid: true},
 				DraftKey:            pgtype.Text{String: task.Key, Valid: true}, Title: task.Title,
-				Description: task.Description, SortOrder: int32(index), WorkflowID: workflowID, AssigneeID: assigneeID,
+				Description: task.Description, SortOrder: int32(index), AssigneeID: assigneeID,
 			})
 			if err != nil {
 				return fmt.Errorf("create split materialization task: %w", err)

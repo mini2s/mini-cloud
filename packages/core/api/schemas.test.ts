@@ -408,6 +408,49 @@ describe("workflow runtime isolation schemas", () => {
     expect(parsed.definition_snapshot?.nodes[0]?.title).toBe("Snapshot node");
   });
 
+  it("parses a split snapshot without the legacy default workflow", () => {
+    const parsed = WorkflowRunSchema.parse({
+      ...oldWorkflowRun,
+      definition_schema_version: 1,
+      definition_snapshot: {
+        schema_version: 1,
+        snapshot_origin: "native",
+        workflow: {
+          id: "workflow-1",
+          workspace_id: "workspace-1",
+          title: "Snapshot workflow",
+          description: "",
+          is_default: false,
+          max_retries: 3,
+          runtime_selection_policy: "idle_first",
+          config_revision: 4,
+        },
+        nodes: [{
+          id: "split-1",
+          title: "Split node",
+          description: "",
+          position_x: 0,
+          position_y: 0,
+          sort_order: 0,
+          kind: "split",
+          split_config: { mode: "barrier", max_concurrency: 5, max_failures: 0 },
+          worker_type: "agent",
+          critic_type: "human",
+        }],
+        edges: [],
+        stages: [],
+        roles: [],
+        deliverables: [],
+      },
+    });
+
+    expect(parsed.definition_snapshot?.nodes[0]?.split_config).toEqual({
+      mode: "barrier",
+      max_concurrency: 5,
+      max_failures: 0,
+    });
+  });
+
   it("falls back for an unknown snapshot schema without rejecting the run", () => {
     const parsed = WorkflowRunSchema.parse({
       ...oldWorkflowRun,

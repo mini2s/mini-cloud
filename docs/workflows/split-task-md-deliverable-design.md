@@ -13,7 +13,7 @@
 4. 节点进入新状态 **materializing**，**服务端异步 job**（不经 agent）按快照确定性逐条创建子 issue，单条隔离 + 有限自动重试 + 人工单条重试兜底；
 5. 物化完成后现有调度循环（DAG + max_concurrency + barrier/pipeline）原样接管。
 
-非目标：子 issue 执行层改动；per-issue workflow 覆盖（统一绑默认 workflow）。
+非目标：子 issue 执行层改动；在 task.md 中覆盖 workflow（统一走普通 issue 分配和工作区默认 workflow 规则）。
 
 ### 0.1 本轮补齐的实现决策
 
@@ -102,10 +102,10 @@ failed（物化失败）──完整重生成──► supersede g ──► spl
 - `assignee`：显示名或邮箱，仅解析**人类成员**；无匹配/重名/非人类 → 报错指行
 - 依赖：全文解析后统一校验（未知 key/自依赖/环，环检测复用 `validateSplitTaskGraph`）
 - 护栏：文件必须是 UTF-8，解码后不超过 1 MiB；未知字段名报错给拼写建议；坏 H2 标题报错；围栏代码块豁免；50 条上限（沿用现状）
-- 运行配置：approve 同时确认 run 快照中的 `default_issue_workflow_id` 仍可用于当前 workspace，且不形成禁止的嵌套 split；这里不接受 task.md 覆盖 workflow
+- 运行配置：拆分节点不配置或继承默认 workflow；approve 只校验 task.md 中的成员执行者，子 issue 创建后统一走普通 issue 分配服务及工作区默认 workflow 规则
 - 报错：422 + `details: [{line, field, message}]`，一次返回全部问题；非行级错误使用 `line: 0`。现有 `SplitAPIError`/`writeSplitAPIError` 要增加结构化 `Details` 字段，不能只把错误拼进 `error` 字符串
 
-解析器落点：新建 `server/internal/service/split_task_md.go`（纯函数：parse → 结构化任务列表 + 行号错误集），与 DB 解耦便于单测。成员解析、成员启用状态和默认 workflow 校验是 parser 之后的 service validation；快照及 split task 行保存解析后的 member UUID，物化时再复检一次成员仍有效。
+解析器落点：新建 `server/internal/service/split_task_md.go`（纯函数：parse → 结构化任务列表 + 行号错误集），与 DB 解耦便于单测。成员解析和成员启用状态校验是 parser 之后的 service validation；快照及 split task 行保存解析后的 member UUID，物化时再复检一次成员仍有效。
 
 ## 4. Gitea 交付物流集成
 
@@ -232,8 +232,8 @@ CREATE TABLE multica_workflow_split_snapshot (
 4. tx 内依次：
    - `GetWorkflowNodeRunForUpdate`，再锁当前 generation；复核 workflow run 仍 running、generation/submission 仍与请求一致；node 应为 `awaiting_split_review`，或属于“同代 snapshot 已存在”的精确 replay；
    - 若锁内确认是精确 replay，记录 replay outcome 并立即结束 tx，不再执行成员复检、snapshot/task insert、入队和 post-commit side effects；
-   - 复检每个 member 仍启用且有资格被指派，并校验 run 快照中的默认 workflow；
-   - 插入本代 snapshot；按两遍法插入本代 split task（写入解析后的 member UUID 与 run 快照中的默认 `workflow_id`，先取得 task UUID，再把 key 依赖转换为本代 task UUID）；
+   - 复检每个 member 仍启用且有资格被指派；
+   - 插入本代 snapshot；按两遍法插入本代 split task（只写入解析后的 member UUID，不写旧 `workflow_id`；先取得 task UUID，再把 key 依赖转换为本代 task UUID）；
    - 把当前 generic submission 状态写为 `approved`（表示 review verdict，不代表 merge 成功）；
    - generation 与 node → `materializing`；
    - 调用专用 `EnqueueSplitMaterialization(node_run_id, split_plan_generation)`；内部使用 `NextWorkflowDispatchGeneration(..., "materialize")` 创建 job。
@@ -252,7 +252,7 @@ transaction 内任何冲突都不留下半份 snapshot/task/job。snapshot 主�
 2. 校验 node.status=materializing 且 current generation=job.split_plan_generation
 3. LockIssueDuplicateKey(splitTaskDispatchLockKey(task.id))
 4. GetSplitTaskForUpdate(task.id)，复核 generation/status/issue_id/next_attempt_at
-5. 复检 assignee 仍是启用的人类成员，且本代固定的默认 workflow 仍可启动
+5. 复检 assignee 仍是启用的人类成员
 6. CreateOrGetWorkflowSplitIssue(origin_type='workflow_split', origin_id=task.id)
 7. 同一 tx 回写 task.issue_id；commit
 8. commit 后发布 issue created / split_child_issue_created
