@@ -81,3 +81,52 @@ func TestRegisterListeners_FrameContainsActorType(t *testing.T) {
 		})
 	}
 }
+
+// TestRegisterListeners_InboxNewRoutesPointerRecipient is a regression test
+// for the bug where inbox:new was silently dropped in real time. Producers
+// (inboxItemToResponse, publishQuickCreateInbox) set recipient_id via
+// util.UUIDToPtr, i.e. *string. The old `item["recipient_id"].(string)`
+// assertion failed on *string → "" → sendToRecipient returned early, so no
+// recipient ever received inbox:new over WebSocket (the row was still
+// written to the DB, so a manual page refresh showed it). Both the string
+// and *string shapes produced by different code paths must route correctly.
+func TestRegisterListeners_InboxNewRoutesPointerRecipient(t *testing.T) {
+	cases := []struct {
+		name string
+		val  any
+	}{
+		{"string", "user-str"},
+		{"pointer", func() *string { s := "user-ptr"; return &s }()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			bus := events.New()
+			fb := &fakeBroadcaster{}
+			registerListeners(bus, fb)
+
+			bus.Publish(events.Event{
+				Type:        protocol.EventInboxNew,
+				WorkspaceID: "ws-1",
+				ActorType:   "member",
+				ActorID:     "member-x",
+				Payload: map[string]any{
+					"item": map[string]any{"recipient_id": tc.val},
+				},
+			})
+
+			if len(fb.userCalls) == 0 {
+				t.Fatalf("expected SendToUser for %s recipient_id, got none — type-shape regression", tc.name)
+			}
+			want := ""
+			switch v := tc.val.(type) {
+			case string:
+				want = v
+			case *string:
+				want = *v
+			}
+			if got := fb.userCalls[0].userID; got != want {
+				t.Fatalf("SendToUser userID = %q, want %q", got, want)
+			}
+		})
+	}
+}
