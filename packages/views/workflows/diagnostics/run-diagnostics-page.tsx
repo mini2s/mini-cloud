@@ -43,26 +43,47 @@ function formatRunStatus(t: Translator, status: string): string {
   }
 }
 
+// The i18next selector API returns the full key path for missing keys
+// ("run.diagnostics.stage.xxx"). When that happens, surface just the raw
+// suffix so a newer server's enum value stays readable (enum drift
+// downgrades, never crashes).
+function unkey(translated: string, keyPrefix: string, raw: string): string {
+  return translated === `${keyPrefix}${raw}` ? raw : translated;
+}
+
 function stageLabel(t: Translator, stage: string): string {
-  return t(($) => ($.run.diagnostics.stage as Record<string, string>)[stage] ?? stage);
+  return unkey(
+    t(($) => ($.run.diagnostics.stage as Record<string, string>)[stage] ?? stage),
+    "run.diagnostics.stage.",
+    stage,
+  );
 }
 
 // The backend sends i18n keys ("hint.failure.timeout", "hint.stage.running").
-// Translate by walking the diagnostics.hint table; unknown keys fall back to
-// the raw suffix so a newer server's reason code stays visible (enum drift
-// downgrades, never crashes).
+// Translate by indexing the hint tables inside the selector — the i18next
+// selector proxy only supports direct property access, so walking the
+// resource tree with a loop crashes it.
 function hintText(t: Translator, hint: string): string {
-  return t(($) => {
-    if (!hint) return "";
-    const parts = hint.replace(/^hint\./, "").split(".");
-    let node: unknown = $.run.diagnostics.hint;
-    for (const part of parts) {
-      if (node == null || typeof node !== "object") break;
-      node = (node as Record<string, unknown>)[part];
-    }
-    if (typeof node === "string") return node;
-    return parts[parts.length - 1] ?? hint;
-  });
+  if (hint === "hint.running_retry") {
+    return t(($) => $.run.diagnostics.hint.running_retry);
+  }
+  if (hint.startsWith("hint.failure.")) {
+    const reason = hint.slice("hint.failure.".length);
+    return unkey(
+      t(($) => ($.run.diagnostics.hint.failure as Record<string, string>)[reason] ?? reason),
+      "run.diagnostics.hint.failure.",
+      reason,
+    );
+  }
+  if (hint.startsWith("hint.stage.")) {
+    const stage = hint.slice("hint.stage.".length);
+    return unkey(
+      t(($) => ($.run.diagnostics.hint.stage as Record<string, string>)[stage] ?? stage),
+      "run.diagnostics.hint.stage.",
+      stage,
+    );
+  }
+  return hint;
 }
 
 function formatTime(value: string | null | undefined): string | null {
