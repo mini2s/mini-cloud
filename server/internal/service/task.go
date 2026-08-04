@@ -1556,6 +1556,10 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 		s.OnTaskFailed(ctx, task)
 	}
 
+	// Kill the device-side session for the failed task; otherwise a cs-cloud
+	// agent keeps running after the UI already shows the task/node as failed.
+	s.abortFailedTaskOnDevice(task, retryResult.Scheduled)
+
 	// Skip the per-failure system comment when we'll immediately retry —
 	// the new task will surface its own status to the user, and we don't
 	// want to spam the issue with "task timed out" messages on every
@@ -1983,6 +1987,10 @@ func (s *TaskService) HandleFailedTasks(ctx context.Context, tasks []db.MulticaA
 		if !retryResult.Scheduled && s.OnTaskFailed != nil && t.WorkflowNodeRunID.Valid {
 			s.OnTaskFailed(ctx, t)
 		}
+
+		// Kill the device-side session for the failed task; otherwise a
+		// cs-cloud agent keeps running after the UI shows the node failed.
+		s.abortFailedTaskOnDevice(t, retryResult.Scheduled)
 
 		failureReason := "agent_error"
 		if t.FailureReason.Valid && t.FailureReason.String != "" {

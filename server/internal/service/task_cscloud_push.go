@@ -1451,10 +1451,35 @@ func truncatePrompt(s string) string {
 // leaves the agent running at most until its own timeout, and its completion
 // callback will be ignored by an already-finalized task.
 func (s *TaskService) maybeAbortOnDevice(task db.MulticaAgentTaskQueue) {
-	if s.CSCloudPush == nil || !s.CSCloudPush.Enabled() {
+	if task.Status != "dispatched" && task.Status != "running" {
 		return
 	}
-	if task.Status != "dispatched" && task.Status != "running" {
+	s.pushAbortToDevice(task)
+}
+
+// abortFailedTaskOnDevice kills the cs-cloud session of a failed task. Without
+// this, the device keeps the csc session alive after the server finalizes the
+// task — the UI shows the task/node failed while the agent keeps running (seen
+// with agents parked on interactive tools like AskUserQuestion that can never
+// be answered in a non-interactive session).
+//
+// Skipped when a retry is scheduled and the session may legitimately be
+// resumed by the retried task. Timeout failures always abort: the session is
+// either confirmed gone (sweeper probe) or hung past the running timeout, so
+// resuming it would just re-hang.
+func (s *TaskService) abortFailedTaskOnDevice(task db.MulticaAgentTaskQueue, retryScheduled bool) {
+	if retryScheduled && taskFailureReason(task) != "timeout" {
+		return
+	}
+	s.pushAbortToDevice(task)
+}
+
+// pushAbortToDevice posts the abort for a task on its cs-cloud device without
+// a task-status gate — callers decide whether the session should die. The
+// endpoint is task-scoped, so aborting a task whose session never started (or
+// already ended) is a harmless 404 on the device.
+func (s *TaskService) pushAbortToDevice(task db.MulticaAgentTaskQueue) {
+	if s.CSCloudPush == nil || !s.CSCloudPush.Enabled() {
 		return
 	}
 	if !task.RuntimeID.Valid {

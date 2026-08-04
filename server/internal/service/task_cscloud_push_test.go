@@ -464,6 +464,72 @@ func TestMaybeAbortOnDevice_SkipsQueued(t *testing.T) {
 	}
 }
 
+// TestAbortFailedTaskOnDevice_TerminalFailure: a failed task with no retry
+// scheduled always gets its device session aborted, even though its status is
+// already "failed" (the cancel-path status gate must not apply).
+func TestAbortFailedTaskOnDevice_TerminalFailure(t *testing.T) {
+	pusher := &fakePushClient{status: http.StatusOK}
+	dbtx := newPushTestDB(csCloudProvider, "device-abc")
+	svc := &TaskService{Queries: db.New(dbtx), CSCloudPush: pusher}
+
+	task := dbtx.dispatchedResult
+	task.RuntimeID = dbtx.runtime.ID
+	task.Status = "failed"
+	task.FailureReason = pgtype.Text{String: "agent_error", Valid: true}
+	svc.abortFailedTaskOnDevice(task, false)
+	time.Sleep(50 * time.Millisecond)
+
+	if len(pusher.snapshot()) != 1 {
+		t.Fatalf("expected 1 abort request, got %d", len(pusher.snapshot()))
+	}
+	if !strings.Contains(pusher.snapshot()[0].Path, "/abort") {
+		t.Fatalf("expected abort path, got %q", pusher.snapshot()[0].Path)
+	}
+}
+
+// TestAbortFailedTaskOnDevice_SkipsRetryableNonTimeout: a retried non-timeout
+// failure keeps the session alive — the retried task may legitimately resume
+// the same device conversation.
+func TestAbortFailedTaskOnDevice_SkipsRetryableNonTimeout(t *testing.T) {
+	pusher := &fakePushClient{status: http.StatusOK}
+	dbtx := newPushTestDB(csCloudProvider, "device-abc")
+	svc := &TaskService{Queries: db.New(dbtx), CSCloudPush: pusher}
+
+	task := dbtx.dispatchedResult
+	task.RuntimeID = dbtx.runtime.ID
+	task.Status = "failed"
+	task.FailureReason = pgtype.Text{String: "runtime_offline", Valid: true}
+	svc.abortFailedTaskOnDevice(task, true)
+	time.Sleep(50 * time.Millisecond)
+
+	if len(pusher.snapshot()) != 0 {
+		t.Fatalf("expected 0 abort requests for retried non-timeout failure, got %d", len(pusher.snapshot()))
+	}
+}
+
+// TestAbortFailedTaskOnDevice_AbortsTimeoutRetry: a timeout failure aborts
+// even when a retry is scheduled — the session is confirmed gone (sweeper
+// probe) or hung past the running timeout, so resuming it would re-hang.
+func TestAbortFailedTaskOnDevice_AbortsTimeoutRetry(t *testing.T) {
+	pusher := &fakePushClient{status: http.StatusOK}
+	dbtx := newPushTestDB(csCloudProvider, "device-abc")
+	svc := &TaskService{Queries: db.New(dbtx), CSCloudPush: pusher}
+
+	task := dbtx.dispatchedResult
+	task.RuntimeID = dbtx.runtime.ID
+	task.Status = "failed"
+	task.FailureReason = pgtype.Text{String: "timeout", Valid: true}
+	svc.abortFailedTaskOnDevice(task, true)
+	time.Sleep(50 * time.Millisecond)
+
+	if len(pusher.snapshot()) != 1 {
+		t.Fatalf("expected 1 abort request for timeout failure, got %d", len(pusher.snapshot()))
+	}
+	if !strings.Contains(pusher.snapshot()[0].Path, "/abort") {
+		t.Fatalf("expected abort path, got %q", pusher.snapshot()[0].Path)
+	}
+}
+
 func TestComputeCSCloudTaskKind(t *testing.T) {
 	tests := []struct {
 		name string
