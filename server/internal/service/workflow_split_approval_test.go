@@ -227,8 +227,8 @@ func TestApproveSplitWithoutLegacyDefaultWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tasks) != 1 || tasks[0].WorkflowID.Valid || tasks[0].AssigneeType.String != "member" || !tasks[0].AssigneeID.Valid {
-		t.Fatalf("materialized split task = %#v, want member assignee and no legacy workflow", tasks)
+	if len(tasks) != 1 || tasks[0].WorkflowID.Valid || tasks[0].AssigneeType.String != "member" || tasks[0].AssigneeID != fixture.userID {
+		t.Fatalf("materialized split task = %#v, want canonical member user_id and no legacy workflow", tasks)
 	}
 	var parentIssueID pgtype.UUID
 	if err := fixture.pool.QueryRow(fixture.ctx, `
@@ -249,8 +249,8 @@ func TestApproveSplitWithoutLegacyDefaultWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("materializeSplitTask() = %v, want no legacy workflow dependency", err)
 	}
-	if !created || childIssue.WorkflowID.Valid || childIssue.AssigneeType.String != "member" || !childIssue.AssigneeID.Valid {
-		t.Fatalf("child issue = %#v, created=%t; want member assignment and no explicit workflow", childIssue, created)
+	if !created || childIssue.WorkflowID.Valid || childIssue.AssigneeType.String != "member" || childIssue.AssigneeID != fixture.userID {
+		t.Fatalf("child issue = %#v, created=%t; want canonical member user_id and no explicit workflow", childIssue, created)
 	}
 	var materializeJobs int
 	if err := fixture.pool.QueryRow(fixture.ctx, `

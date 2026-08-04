@@ -115,6 +115,7 @@ export function SplitReviewPanel({
   const status = nodeRun?.status ?? "splitting";
   const awaitingReview = status === "awaiting_split_review" && generation > 0 && !!submissionId;
   const materializing = status === "materializing";
+  const blocked = status === "blocked";
   const active = status === "split_active";
 
   // Status can arrive through node-run polling even if the corresponding
@@ -240,7 +241,7 @@ export function SplitReviewPanel({
       </div>
     </div>
   ) : null;
-  const canRetryFailed = materializing && (progress?.exhausted ?? 0) > 0;
+  const canRetryFailed = (materializing || blocked) && (progress?.exhausted ?? 0) > 0;
   const canManagePlan = !!nodeRunId && generation > 0;
   const hasFooterActions = canRetryFailed || canManagePlan || (active && !!onViewChildren);
   const footer = reviewFooter || hasFooterActions ? (
