@@ -390,6 +390,27 @@ WHERE (status = 'dispatched' AND dispatched_at < now() - make_interval(secs => @
    OR (status = 'running' AND started_at < now() - make_interval(secs => @running_timeout_secs::double precision))
 RETURNING *;
 
+-- name: ListRunningCSCloudWorkflowTasksForProbe :many
+-- Returns running cs-cloud workflow tasks (with their runtime + node-run
+-- session binding) that have been running long enough for a CSC session to
+-- have been established. Used by the session-liveness sweeper to probe
+-- whether the device-side CSC session is still alive when the agent has not
+-- reported completion. Local daemon tasks are excluded - they have their own
+-- idle watchdog; only cs-cloud tasks lack a server-side liveness signal.
+SELECT
+  t.id, t.session_id, t.work_dir, t.started_at, t.context,
+  t.workflow_node_run_id, t.runtime_id, t.agent_id,
+  nr.session_id AS node_run_session_id,
+  r.metadata AS runtime_metadata, r.daemon_id AS runtime_daemon_id
+FROM multica_agent_task_queue t
+JOIN multica_agent_runtime r ON r.id = t.runtime_id
+LEFT JOIN multica_workflow_node_run nr ON nr.id = t.workflow_node_run_id
+WHERE t.status = 'running'
+  AND t.workflow_node_run_id IS NOT NULL
+  AND r.provider = 'cs-cloud'
+  AND t.started_at IS NOT NULL
+  AND t.started_at < now() - make_interval(secs => @min_running_secs::double precision);
+
 -- name: ExpireStaleQueuedTasks :many
 -- Fails tasks that have been sitting in 'queued' for longer than the TTL.
 -- This is the cleanup arm of the MUL-1899 "queued backlog" fix: even with the

@@ -2148,6 +2148,74 @@ func (q *Queries) ListQueuedClaimCandidatesByRuntime(ctx context.Context, runtim
 	return items, nil
 }
 
+const listRunningCSCloudWorkflowTasksForProbe = `-- name: ListRunningCSCloudWorkflowTasksForProbe :many
+SELECT
+  t.id, t.session_id, t.work_dir, t.started_at, t.context,
+  t.workflow_node_run_id, t.runtime_id, t.agent_id,
+  nr.session_id AS node_run_session_id,
+  r.metadata AS runtime_metadata, r.daemon_id AS runtime_daemon_id
+FROM multica_agent_task_queue t
+JOIN multica_agent_runtime r ON r.id = t.runtime_id
+LEFT JOIN multica_workflow_node_run nr ON nr.id = t.workflow_node_run_id
+WHERE t.status = 'running'
+  AND t.workflow_node_run_id IS NOT NULL
+  AND r.provider = 'cs-cloud'
+  AND t.started_at IS NOT NULL
+  AND t.started_at < now() - make_interval(secs => $1::double precision)
+`
+
+type ListRunningCSCloudWorkflowTasksForProbeRow struct {
+	ID                pgtype.UUID        `json:"id"`
+	SessionID         pgtype.Text        `json:"session_id"`
+	WorkDir           pgtype.Text        `json:"work_dir"`
+	StartedAt         pgtype.Timestamptz `json:"started_at"`
+	Context           []byte             `json:"context"`
+	WorkflowNodeRunID pgtype.UUID        `json:"workflow_node_run_id"`
+	RuntimeID         pgtype.UUID        `json:"runtime_id"`
+	AgentID           pgtype.UUID        `json:"agent_id"`
+	NodeRunSessionID  pgtype.Text        `json:"node_run_session_id"`
+	RuntimeMetadata   []byte             `json:"runtime_metadata"`
+	RuntimeDaemonID   pgtype.Text        `json:"runtime_daemon_id"`
+}
+
+// Returns running cs-cloud workflow tasks (with their runtime + node-run
+// session binding) that have been running long enough for a CSC session to
+// have been established. Used by the session-liveness sweeper to probe
+// whether the device-side CSC session is still alive when the agent has not
+// reported completion. Local daemon tasks are excluded - they have their own
+// idle watchdog; only cs-cloud tasks lack a server-side liveness signal.
+func (q *Queries) ListRunningCSCloudWorkflowTasksForProbe(ctx context.Context, minRunningSecs float64) ([]ListRunningCSCloudWorkflowTasksForProbeRow, error) {
+	rows, err := q.db.Query(ctx, listRunningCSCloudWorkflowTasksForProbe, minRunningSecs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRunningCSCloudWorkflowTasksForProbeRow{}
+	for rows.Next() {
+		var i ListRunningCSCloudWorkflowTasksForProbeRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.SessionID,
+			&i.WorkDir,
+			&i.StartedAt,
+			&i.Context,
+			&i.WorkflowNodeRunID,
+			&i.RuntimeID,
+			&i.AgentID,
+			&i.NodeRunSessionID,
+			&i.RuntimeMetadata,
+			&i.RuntimeDaemonID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTasksByIssue = `-- name: ListTasksByIssue :many
 SELECT id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, workflow_node_run_id, workflow_dispatch_job_id FROM multica_agent_task_queue
 WHERE issue_id = $1
