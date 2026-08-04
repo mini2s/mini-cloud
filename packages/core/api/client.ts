@@ -163,6 +163,7 @@ import {
   AgentTemplateSchema,
   AgentTemplateSummaryListSchema,
   AttachmentResponseSchema,
+  AgentRuntimeListSchema,
   BatchAddDeptMembersResponseSchema,
   ChildIssuesResponseSchema,
   CommentsListSchema,
@@ -174,6 +175,7 @@ import {
   DashboardUsageByAgentListSchema,
   DashboardUsageDailyListSchema,
   EMPTY_AGENT_TEMPLATE_DETAIL,
+  EMPTY_AGENT_RUNTIME_LIST,
   EMPTY_AGENT_TEMPLATE_SUMMARY_LIST,
   EMPTY_ATTACHMENT,
   EMPTY_BATCH_ADD_DEPT_MEMBERS_RESPONSE,
@@ -1113,7 +1115,10 @@ export class ApiClient {
     const search = new URLSearchParams();
     if (params?.workspace_id) search.set("workspace_id", params.workspace_id);
     if (params?.owner) search.set("owner", params.owner);
-    return this.fetch(`/api/runtimes?${search}`);
+    const raw = await this.fetch<unknown>(`/api/runtimes?${search}`);
+    return parseWithFallback(raw, AgentRuntimeListSchema, EMPTY_AGENT_RUNTIME_LIST, {
+      endpoint: "GET /api/runtimes",
+    });
   }
 
   async listCloudRuntimeNodes(

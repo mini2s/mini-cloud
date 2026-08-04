@@ -27,6 +27,7 @@ import type {
   SplitProgress,
   SplitTasksResponse,
   RuntimePermission,
+  AgentRuntime,
   SessionPermissionResponse,
 } from "../types";
 import type { CloudRuntimeNode } from "../runtimes/cloud-runtime";
@@ -332,6 +333,28 @@ export const EMPTY_BATCH_ADD_DEPT_MEMBERS_RESPONSE: BatchAddDeptMembersResponse 
   added: 0,
   skipped: 0,
 };
+
+export const AgentRuntimeSchema = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  daemon_id: z.string().nullable().default(null),
+  name: z.string(),
+  runtime_mode: z.string(),
+  provider: z.string(),
+  launch_header: z.string().default(""),
+  status: z.string(),
+  device_info: z.string().default(""),
+  metadata: z.record(z.string(), z.unknown()).default({}),
+  owner_id: z.string().nullable().default(null),
+  visibility: z.string().default("private"),
+  last_seen_at: z.string().nullable().default(null),
+  created_at: z.string(),
+  updated_at: z.string(),
+}).loose();
+
+export const AgentRuntimeListSchema = z.array(AgentRuntimeSchema);
+
+export const EMPTY_AGENT_RUNTIME_LIST: AgentRuntime[] = [];
 
 export const CloudRuntimeNodeSchema = z.object({
   id: z.string(),
