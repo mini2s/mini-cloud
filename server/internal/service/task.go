@@ -1760,7 +1760,10 @@ func (s *TaskService) maybeRetryFailedTask(ctx context.Context, parent db.Multic
 		// Autopilot has its own retry semantics; do not double-trigger.
 		return taskRetryResult{}, nil
 	}
-	if !parent.IssueID.Valid && !parent.ChatSessionID.Valid {
+	// Workflow node-run tasks (default-workflow runs carry no IssueID) retry
+	// via EnqueueWorkflowDispatch in createRetryTaskWithRuntimeSelection, so
+	// they are eligible by WorkflowNodeRunID alone - not just IssueID/ChatSessionID.
+	if !parent.IssueID.Valid && !parent.ChatSessionID.Valid && !parent.WorkflowNodeRunID.Valid {
 		return taskRetryResult{}, nil
 	}
 
