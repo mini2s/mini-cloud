@@ -3398,8 +3398,11 @@ func (h *Handler) handleSplitChildIssueStatusChanged(ctx context.Context, prev, 
 	}
 }
 
-// syncSubIssueForNodeRun maps a node run status to the corresponding sub-issue
-// status and updates it in the database.
+// syncSubIssueForNodeRun mirrors a node-run status change onto the linked issue.
+// A workflow-bound run has one origin-stamped sub-issue per node-run; a default
+// single-node run (member/agent/squad) has a single "direct" issue linked via
+// workflow_run_id. Both shapes must stay in sync with their node-run so the
+// board card tracks execution instead of freezing until the run finishes.
 func (h *Handler) syncSubIssueForNodeRun(ctx context.Context, nodeRun db.MulticaWorkflowNodeRun) {
 	run, err := h.Queries.GetWorkflowRun(ctx, nodeRun.WorkflowRunID)
 	if err != nil {
@@ -3407,23 +3410,55 @@ func (h *Handler) syncSubIssueForNodeRun(ctx context.Context, nodeRun db.Multica
 		return
 	}
 
-	issue, err := h.Queries.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
+	// Workflow-bound multi-node run: each node-run owns an origin-stamped sub-issue.
+	subIssue, err := h.Queries.GetIssueByOrigin(ctx, db.GetIssueByOriginParams{
 		WorkspaceID: run.WorkspaceID,
 		OriginType:  pgtype.Text{String: "workflow", Valid: true},
 		OriginID:    nodeRun.ID,
 	})
-	if err != nil {
+	if err == nil {
+		h.applyNodeRunStatusToIssue(ctx, run, nodeRun, subIssue, nodeRunStatusToIssueStatus(nodeRun.Status), true)
+		return
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
 		slog.Warn("syncSubIssueForNodeRun: failed to find sub-issue", "node_run_id", uuidToString(nodeRun.ID), "error", err)
 		return
 	}
 
-	status := nodeRunStatusToIssueStatus(nodeRun.Status)
+	// Default single-node run (member/agent/squad): the issue is the run's direct
+	// issue, linked via workflow_run_id rather than an origin row.
+	directIssue, err := h.Queries.GetDirectIssueByWorkflowRun(ctx, db.GetDirectIssueByWorkflowRunParams{
+		WorkspaceID:   run.WorkspaceID,
+		WorkflowRunID: run.ID,
+	})
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			slog.Warn("syncSubIssueForNodeRun: failed to find direct issue", "node_run_id", uuidToString(nodeRun.ID), "error", err)
+		}
+		return
+	}
+	// A regular (non-default) workflow run whose sub-issues are missing still
+	// resolves its parent issue here — but that parent is driven by its
+	// sub-issues, not by node-run mirroring. Only default-run direct issues
+	// (member/agent/squad) sync. The parent of a real workflow run has
+	// assignee_type "workflow".
+	if directIssue.AssigneeType.Valid && directIssue.AssigneeType.String == "workflow" {
+		return
+	}
+	h.applyNodeRunStatusToIssue(ctx, run, nodeRun, directIssue, nodeRunStatusToDirectIssueStatus(nodeRun.Status), false)
+}
+
+// applyNodeRunStatusToIssue writes the mapped node-run status onto an issue and
+// broadcasts issue:updated. isSubIssue is true for workflow sub-issues (which
+// notify their parent and inject downstream context on completion) and false for
+// default-workflow direct issues (single node, no parent or downstream).
+func (h *Handler) applyNodeRunStatusToIssue(ctx context.Context, run db.MulticaWorkflowRun, nodeRun db.MulticaWorkflowNodeRun, issue db.MulticaIssue, status string, isSubIssue bool) {
 	if status == "" || status == issue.Status {
 		return
 	}
-	// Never regress a completed issue: a done sub-issue stays done even when
-	// the run is cancelled afterwards. CancelRun relies on this guard — it
-	// no longer updates the sub-issue status itself.
+	// Never regress a completed issue: a done issue stays done even when the run
+	// is cancelled afterwards. CancelRun relies on this guard — it no longer
+	// updates the issue status itself.
 	if issue.Status == "done" {
 		return
 	}
@@ -3434,12 +3469,12 @@ func (h *Handler) syncSubIssueForNodeRun(ctx context.Context, nodeRun db.Multica
 		WorkspaceID: issue.WorkspaceID,
 	})
 	if err != nil {
-		slog.Warn("syncSubIssueForNodeRun: failed to update sub-issue status", "issue_id", uuidToString(issue.ID), "error", err)
+		slog.Warn("applyNodeRunStatusToIssue: failed to update issue status", "issue_id", uuidToString(issue.ID), "error", err)
 		return
 	}
 
 	h.publishIssueStatusChanged(ctx, issue, updated)
-	if status == "done" {
+	if isSubIssue && status == "done" {
 		h.notifyParentOfChildDone(ctx, issue, updated)
 		// Inject current node's output into downstream sub-issue descriptions
 		// so the next agents can see what was produced.
@@ -3549,6 +3584,11 @@ func (h *Handler) handleWorkflowRunTerminal(ctx context.Context, run db.MulticaW
 			}
 			return
 		}
+		// The node-status sync (syncSubIssueForNodeRun) already flips the direct
+		// issue to done when its node completes; skip the duplicate write/event.
+		if directIssue.Status == "done" {
+			return
+		}
 
 		updated, directErr := h.Queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
 			ID:          directIssue.ID,
@@ -3606,6 +3646,38 @@ func nodeRunStatusToIssueStatus(nodeRunStatus string) string {
 		return "blocked"
 	case service.NodeRunStatusSkipped, service.NodeRunStatusCancelled:
 		return "cancelled"
+	default:
+		return ""
+	}
+}
+
+// nodeRunStatusToDirectIssueStatus maps a node-run status onto the direct issue
+// of a default single-node run (member/agent/squad). Unlike a workflow sub-issue,
+// a direct issue is "in progress" for every active node state — the run only
+// exists because the issue already started work — so worker_assigned/format_ok
+// map to in_progress rather than todo. Without this, a member task whose node
+// waits in worker_assigned for a deliverable upload would be dragged back to todo.
+func nodeRunStatusToDirectIssueStatus(nodeRunStatus string) string {
+	switch nodeRunStatus {
+	case service.NodeRunStatusPending, service.NodeRunStatusFormatChecking,
+		service.NodeRunStatusFormatOk, service.NodeRunStatusWorkerAssigned,
+		service.NodeRunStatusWorking, service.NodeRunStatusCriticRework,
+		service.NodeRunStatusSplitting, service.NodeRunStatusSplitActive:
+		return "in_progress"
+	case service.NodeRunStatusAwaitingInput, service.NodeRunStatusAwaitingCritic,
+		service.NodeRunStatusCriticReviewing, service.NodeRunStatusAwaitingSplitReview:
+		return "in_review"
+	case service.NodeRunStatusCriticApproved, service.NodeRunStatusCompleted:
+		return "done"
+	case service.NodeRunStatusFailed, service.NodeRunStatusFormatFailed, service.NodeRunStatusBlocked:
+		return "blocked"
+	// cancelled/skipped are deliberately not mirrored onto the direct issue.
+	// For a single-node run these statuses always follow a user or system action
+	// (dragging the issue to todo/backlog/cancelled, or reassigning) that has
+	// already set the issue status; echoing them would override the user's
+	// intent — e.g. a "todo" drag would be rewritten to "cancelled".
+	case service.NodeRunStatusSkipped, service.NodeRunStatusCancelled:
+		return ""
 	default:
 		return ""
 	}
