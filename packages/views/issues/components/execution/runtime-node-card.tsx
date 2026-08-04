@@ -39,7 +39,7 @@ import {
   formatRuntimeDuration,
   resolveRuntimeDurationSeconds,
 } from "./runtime-node-duration";
-import { resolveEnterSessionId } from "./runtime-session";
+import { resolveEnterSessionId, getEnterSessionBlockReason, toastEnterSessionBlocked } from "./runtime-session";
 import { AssigneePicker } from "../pickers/assignee-picker";
 
 export const RUNTIME_NODE_HEIGHT = 176;
@@ -481,14 +481,12 @@ export function RuntimeNodeCard({
   const hasSplitProgress = isSplit && !!splitProgress && splitProgress.total > 0;
   const canToggleSplitChildren = isSplit && splitChildCount > 0 && !!onSplitNodeToggle;
   const sessionId = resolveEnterSessionId(nodeRun, runtimeSummary);
-  const { data: sessionPerm } = useSessionPermission(sessionId);
-  const canEnterSession = !!sessionId && sessionPerm?.can_observe === true;
+  const { data: sessionPerm, error: sessionPermError } = useSessionPermission(sessionId);
   const canOpenSession =
     isEmbeddedInCostrict() &&
     !isGateway &&
     !!sessionId &&
-    !!onOpenSession &&
-    canEnterSession;
+    !!onOpenSession;
   const primaryDeliverable = !isGateway && !isSplit ? deliverables[0] : undefined;
   const remainingDeliverableCount = Math.max(0, deliverables.length - 1);
   const wsId = useWorkspaceId();
@@ -525,6 +523,11 @@ export function RuntimeNodeCard({
     event.preventDefault();
     event.stopPropagation();
     if (!onOpenSession || openSessionState !== "idle") return;
+    const blockedReason = getEnterSessionBlockReason(sessionId, sessionPerm, sessionPermError);
+    if (blockedReason) {
+      toastEnterSessionBlocked(t, blockedReason);
+      return;
+    }
     setOpenSessionState("opening");
     try {
       const opened = await onOpenSession(node.id);
@@ -532,7 +535,7 @@ export function RuntimeNodeCard({
     } catch {
       setOpenSessionState("failed");
     }
-  }, [node.id, onOpenSession, openSessionState]);
+  }, [node.id, onOpenSession, openSessionState, sessionId, sessionPerm, sessionPermError, t]);
 
   useEffect(() => {
     if (openSessionState !== "opened" && openSessionState !== "failed") return undefined;

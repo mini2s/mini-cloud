@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   submitNodeRunAction: vi.fn(),
   skipNodeRun: vi.fn(),
   navigateToSession: vi.fn(),
+  toastError: vi.fn(),
   sessionPermission: { can_observe: false },
   embedded: false,
 }));
@@ -104,7 +105,7 @@ vi.mock("../../../workflows/components/node-run-control-actions", () => ({
     : null,
 }));
 
-vi.mock("sonner", () => ({ toast: { info: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { info: vi.fn(), error: mocks.toastError } }));
 
 vi.mock("@multica/views/i18n", () => ({
   useT: () => ({
@@ -182,6 +183,9 @@ vi.mock("@multica/views/i18n", () => ({
         error: "Error",
         no_output: "No output",
         open_session: "Open session",
+        open_session_missing: "No session bound",
+        open_session_denied: "No permission to view this session",
+        open_session_unavailable: "Session unavailable",
         task_drawer_retry: "Retry",
         skip_node: "Skip node",
         skip_dialog_title: "Skip this node?",
@@ -235,6 +239,7 @@ describe("TaskNodeDetailPanel", () => {
     mocks.uploadIssueDeliverable.mockResolvedValue({ ok: true });
     mocks.submitNodeRun.mockResolvedValue({});
     mocks.invalidateQueries.mockResolvedValue(undefined);
+    mocks.navigateToSession.mockReturnValue(true);
   });
 
   it.each([
@@ -591,13 +596,16 @@ describe("TaskNodeDetailPanel", () => {
     expect(actionRow).toContainElement(screen.getByRole("button", { name: "Open session" }));
   });
 
-  it("only exposes Open session when the user can observe it", () => {
+  it("keeps Open session visible and toasts the reason when entry is blocked", () => {
     mocks.embedded = true;
     const sessionRun = { ...run, session_id: "session-1" };
     const first = render(
       <TaskNodeDetailPanel node={node} nodeRun={sessionRun} workerName="worker" criticName="critic" onClose={vi.fn()} wsId="ws-1" />,
     );
-    expect(screen.queryByRole("button", { name: "Open session" })).not.toBeInTheDocument();
+    const deniedButton = screen.getByRole("button", { name: "Open session" });
+    fireEvent.click(deniedButton);
+    expect(mocks.navigateToSession).not.toHaveBeenCalled();
+    expect(mocks.toastError).toHaveBeenCalledWith("No permission to view this session");
     first.unmount();
 
     mocks.sessionPermission = { can_observe: true };
