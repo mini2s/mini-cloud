@@ -71,7 +71,7 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
       : isSplit
         ? "Task split node"
         : nodeData.workerName ?? nodeData.pluginName ?? workerTypeLabel(nodeData.node.worker_type);
-  const workerConfigured = isAnnotation || isGateway || isSplit ? true : nodeData.workerConfigured ?? Boolean(nodeData.node.worker_id);
+  const workerConfigured = isAnnotation || isGateway ? true : nodeData.workerConfigured ?? Boolean(nodeData.node.worker_id);
   const workerLabel = isGateway
     ? gatewayText
     : isSplit
@@ -84,16 +84,6 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
     : isSplit
     ? "Task split"
     : workerLabel ?? workerTypeLabel(nodeData.node.worker_type);
-  const splitConfig = nodeFormat.split_config;
-  const splitMode = splitConfig?.mode ?? "barrier";
-  const splitConcurrency = splitConfig?.max_concurrency ?? 5;
-  const splitMaxFailures = splitConfig?.max_failures ?? 0;
-  const splitPolicySummary = splitMode === "pipeline"
-    ? t(($) => $.panorama.card.split_pipeline_policy_summary, { concurrency: splitConcurrency })
-    : t(($) => $.panorama.card.split_policy_summary, {
-        concurrency: splitConcurrency,
-        maxFailures: splitMaxFailures,
-      });
   const openNode = () => nodeData.onOpen?.(nodeData.node.id);
   const addConnectedNode = () => nodeData.onAddConnectedNode?.(nodeData.node.id);
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -143,28 +133,7 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
             <span className="mt-1 block break-words text-[10px] leading-3 text-muted-foreground line-clamp-2">{description}</span>
           ) : null}
         </span>
-        {isSplit ? (
-          <div
-            data-testid={`compact-worker-node-meta-${id}`}
-            className="grid grid-rows-[12px_42px] gap-y-1 border-t border-border/45 pt-2"
-          >
-            <div className="grid row-span-2 min-w-0 grid-rows-subgrid gap-1">
-              <span className="block text-[9px] font-bold uppercase leading-3 text-muted-foreground">
-                {t(($) => $.panorama.card.split_policy_label)}
-              </span>
-              <span className="flex min-w-0 items-start gap-1.5 text-[11px] leading-4">
-                <span
-                  aria-hidden="true"
-                  className="mt-[5px] size-1.5 shrink-0 rounded-full bg-blue-500 shadow-[0_0_0_3px_rgba(59,130,246,0.12)]"
-                />
-                <span className="min-w-0">
-                  <span className="block font-semibold leading-4 text-foreground/85">{splitMode}</span>
-                  <span className="block text-[10px] leading-3 text-muted-foreground line-clamp-2">{splitPolicySummary}</span>
-                </span>
-              </span>
-            </div>
-          </div>
-        ) : isAnnotation || isGateway ? (
+        {isAnnotation || isGateway ? (
           <div
             data-testid={`compact-worker-node-meta-${id}`}
             className="flex min-w-0 items-center gap-1.5 border-t border-border/45 pt-2 text-[10px] leading-4 text-muted-foreground"
