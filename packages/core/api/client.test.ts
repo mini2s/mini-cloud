@@ -797,4 +797,59 @@ describe("ApiClient", () => {
       ).rejects.toThrow();
     });
   });
+
+  it("parses runtimes without dropping owner ids", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify([
+          {
+            id: "runtime-1",
+            workspace_id: "ws-1",
+            daemon_id: "daemon-1",
+            name: "Runtime One",
+            runtime_mode: "local",
+            provider: "csc",
+            launch_header: "",
+            status: "online",
+            device_info: "",
+            metadata: {},
+            owner_id: "user-owner",
+            visibility: "public",
+            last_seen_at: null,
+            created_at: "2026-08-04T10:00:00Z",
+            updated_at: "2026-08-04T10:00:00Z",
+          },
+        ]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    const client = new ApiClient("https://api.example.test");
+
+    await expect(client.listRuntimes({ workspace_id: "ws-1" })).resolves.toEqual([
+      expect.objectContaining({
+        id: "runtime-1",
+        owner_id: "user-owner",
+      }),
+    ]);
+  });
+
+  it("falls back to an empty runtime list when the runtime response is malformed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ runtimes: null }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    const client = new ApiClient("https://api.example.test");
+
+    await expect(client.listRuntimes({ workspace_id: "ws-1" })).resolves.toEqual([]);
+  });
 });

@@ -1031,6 +1031,68 @@ describe("WorkflowPanoramaPage (new)", () => {
     );
   });
 
+  it("shows runtime owners when starting a workflow with specified runtime first", async () => {
+    mocks.workflowData = {
+      ...mocks.workflowData,
+      status: "active",
+      default_runtime_selection_policy: "specified_runtime_first",
+      default_runtime_id: null,
+    };
+    mocks.runtimesData = [
+      {
+        id: "runtime-1",
+        workspace_id: "ws-test",
+        daemon_id: "daemon-1",
+        name: "Owner Runtime",
+        runtime_mode: "local",
+        provider: "csc",
+        launch_header: "",
+        status: "online",
+        device_info: "",
+        metadata: {},
+        owner_id: "user-owner",
+        visibility: "public",
+        last_seen_at: "",
+        created_at: "",
+        updated_at: "",
+      },
+      {
+        id: "runtime-2",
+        workspace_id: "ws-test",
+        daemon_id: "daemon-2",
+        name: "Reviewer Runtime",
+        runtime_mode: "local",
+        provider: "csc",
+        launch_header: "",
+        status: "online",
+        device_info: "",
+        metadata: {},
+        owner_id: "user-reviewer",
+        visibility: "public",
+        last_seen_at: "",
+        created_at: "",
+        updated_at: "",
+      },
+    ];
+    mocks.getMemberName.mockImplementation((userId) =>
+      userId === "user-owner" ? "Alice" : "Bob",
+    );
+
+    render(<WorkflowPanoramaPage workflowId="wf-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Test run" }));
+    fireEvent.click(await screen.findByRole("combobox"));
+
+    const options = await screen.findAllByRole("option");
+    expect(options).toHaveLength(2);
+    expect(options[0]).toHaveTextContent("Owner Runtime");
+    expect(options[0]).toHaveTextContent("Alice");
+    expect(options[1]).toHaveTextContent("Reviewer Runtime");
+    expect(options[1]).toHaveTextContent("Bob");
+    expect(mocks.getMemberName).toHaveBeenCalledWith("user-owner");
+    expect(mocks.getMemberName).toHaveBeenCalledWith("user-reviewer");
+  });
+
   it("saves the workflow-level default runtime strategy", async () => {
     mocks.updateWorkflowMutateAsync.mockResolvedValueOnce({});
     render(<WorkflowPanoramaPage workflowId="wf-1" />);

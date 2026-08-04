@@ -11,6 +11,7 @@ const DATABASE_URL =
 export interface SeedRuntimeOptions {
   name: string;
   ownerId?: string | null;
+  provider?: string;
   status?: "online" | "offline";
   visibility?: "private" | "public";
   lastSeenSecondsAgo?: number;
@@ -121,7 +122,7 @@ export class WorkflowRuntimeSelectionFixture {
         this.requireWorkspaceId(),
         `e2e-device-${this.caseId}-${id}`,
         options.name,
-        `e2e-provider-${this.caseId}-${id}`,
+        options.provider ?? `e2e-provider-${this.caseId}-${id}`,
         status,
         `E2E device ${options.name}`,
         JSON.stringify({ e2e_suite: "workflow_runtime_selection", case_id: this.caseId }),
