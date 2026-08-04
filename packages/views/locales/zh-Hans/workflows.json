@@ -572,7 +572,16 @@
           "workflow_failed": "工作流失败",
           "codex_semantic_inactivity": "Agent 长时间无响应"
         }
-      }
+      },
+      "runtime": "运行时",
+      "runtime_offline": "离线",
+      "view_session": "查看会话",
+      "duration": "耗时 {{value}}",
+      "node_started_at": "节点开始 {{time}}",
+      "node_completed_at": "节点结束 {{time}}",
+      "deliverables": "交付物：已提交 {{submitted}}/{{total}}，已通过 {{approved}}",
+      "worker_output": "Worker 产出",
+      "critic_output": "Critic 产出"
     }
   },
   "builtin_roles": {

@@ -572,7 +572,16 @@
           "workflow_failed": "Workflow failed",
           "codex_semantic_inactivity": "Agent became inactive"
         }
-      }
+      },
+      "runtime": "Runtime",
+      "runtime_offline": "offline",
+      "view_session": "View session",
+      "duration": "Duration {{value}}",
+      "node_started_at": "Node started {{time}}",
+      "node_completed_at": "Node finished {{time}}",
+      "deliverables": "Deliverables: {{submitted}}/{{total}} submitted, {{approved}} approved",
+      "worker_output": "Worker output",
+      "critic_output": "Critic output"
     }
   },
   "builtin_roles": {

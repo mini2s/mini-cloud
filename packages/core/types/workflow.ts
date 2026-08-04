@@ -585,6 +585,10 @@ export interface WorkflowNodeRuntimeSummary {
   device_id: string | null;
   has_error: boolean;
   error_message: string;
+  deliverable_signal?: string;
+  required_deliverables_total?: number;
+  required_deliverables_submitted?: number;
+  required_deliverables_approved?: number;
   split_progress: SplitProgress | null;
   /** Present on servers that ship node diagnostics; absent on older ones. */
   diagnostics?: WorkflowNodeDiagnostics | null;

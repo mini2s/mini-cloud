@@ -16,20 +16,33 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: mocks.data, isLoading: false }),
+  useQuery: (opts: { queryKey: unknown[] }) => {
+    if (opts.queryKey?.[0] === "runtimes") return { data: [], isLoading: false };
+    return { data: mocks.data, isLoading: false };
+  },
 }));
 
 vi.mock("@multica/core/hooks", () => ({
   useWorkspaceId: () => "ws-1",
 }));
 
+vi.mock("@multica/core/platform", () => ({
+  isEmbeddedInCostrict: () => false,
+  postCostrictNavigateToSession: vi.fn(),
+}));
+
 vi.mock("@multica/core/workflows/queries", () => ({
   workflowRunCanvasSummaryOptions: () => ({ queryKey: ["canvas-summary"] }),
+}));
+
+vi.mock("@multica/core/runtimes/queries", () => ({
+  runtimeListOptions: (wsId: string) => ({ queryKey: ["runtimes", wsId, "list"] }),
 }));
 
 vi.mock("@multica/core/paths", () => ({
   useWorkspacePaths: () => ({
     workflowRunDetail: (workflowId: string, runId: string) => `/ws/workflows/${workflowId}/runs/${runId}`,
+    runtimeDetail: (id: string) => `/ws/runtimes/${id}`,
   }),
 }));
 

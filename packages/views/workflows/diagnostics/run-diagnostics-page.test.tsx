@@ -7,24 +7,43 @@ import { WorkflowRunDiagnosticsPage, nodeStepStates } from "./run-diagnostics-pa
 
 const mocks = vi.hoisted(() => ({
   data: null as unknown,
+  runtimes: [] as unknown[],
+  embedded: false,
+  sessionPosts: [] as Array<{ sessionId: string; newTab: boolean }>,
   pushed: [] as string[],
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: mocks.data, isLoading: false }),
+  useQuery: (opts: { queryKey: unknown[] }) => {
+    if (opts.queryKey?.[0] === "runtimes") return { data: mocks.runtimes, isLoading: false };
+    return { data: mocks.data, isLoading: false };
+  },
 }));
 
 vi.mock("@multica/core/hooks", () => ({
   useWorkspaceId: () => "ws-1",
 }));
 
+vi.mock("@multica/core/platform", () => ({
+  isEmbeddedInCostrict: () => mocks.embedded,
+  postCostrictNavigateToSession: (args: { sessionId: string; newTab: boolean }) => {
+    mocks.sessionPosts.push(args);
+    return true;
+  },
+}));
+
 vi.mock("@multica/core/workflows/queries", () => ({
   workflowRunCanvasSummaryOptions: () => ({ queryKey: ["canvas-summary"] }),
+}));
+
+vi.mock("@multica/core/runtimes/queries", () => ({
+  runtimeListOptions: (wsId: string) => ({ queryKey: ["runtimes", wsId, "list"] }),
 }));
 
 vi.mock("@multica/core/paths", () => ({
   useWorkspacePaths: () => ({
     workflowRunDetail: (workflowId: string, runId: string) => `/ws/workflows/${workflowId}/runs/${runId}`,
+    runtimeDetail: (id: string) => `/ws/runtimes/${id}`,
   }),
 }));
 
@@ -65,6 +84,15 @@ const translations = {
       no_task: "No task dispatched yet",
       error: "Error",
       summary_nodes: "{{completed}}/{{total}} nodes completed",
+      runtime: "Runtime",
+      runtime_offline: "offline",
+      view_session: "View session",
+      duration: "Duration {{value}}",
+      node_started_at: "Node started {{time}}",
+      node_completed_at: "Node finished {{time}}",
+      deliverables: "Deliverables: {{submitted}}/{{total}} submitted, {{approved}} approved",
+      worker_output: "Worker output",
+      critic_output: "Critic output",
       hint: {
         stage: {
           pending: "Waiting for upstream nodes to complete",
@@ -125,6 +153,9 @@ function baseData(nodeRuns: unknown[], summaries: unknown[]) {
 describe("WorkflowRunDiagnosticsPage", () => {
   beforeEach(() => {
     mocks.data = null;
+    mocks.runtimes = [];
+    mocks.embedded = false;
+    mocks.sessionPosts = [];
     mocks.pushed = [];
   });
 
@@ -259,6 +290,96 @@ describe("WorkflowRunDiagnosticsPage", () => {
     render(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
     fireEvent.click(screen.getByText("Release workflow"));
     expect(mocks.pushed).toEqual(["/ws/workflows/wf-1/runs/run-1"]);
+  });
+
+  it("shows the runtime name with an offline marker and links to the runtime detail", () => {
+    mocks.runtimes = [{ id: "rt-1", name: "gpu-runner", status: "offline" }];
+    mocks.data = baseData(
+      [{ id: "nr-1", node_title: "Design", status: "failed" }],
+      [
+        summary({
+          display_status: "blocked",
+          has_error: true,
+          runtime_id: "rt-1",
+          diagnostics: { lifecycle_stage: "terminal", current_task: null, hint: "hint.stage.terminal" },
+        }),
+      ],
+    );
+    render(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
+    const runtimeButton = screen.getByRole("button", { name: /gpu-runner/ });
+    expect(runtimeButton).toHaveTextContent("(offline)");
+    fireEvent.click(runtimeButton);
+    expect(mocks.pushed).toEqual(["/ws/runtimes/rt-1"]);
+  });
+
+  it("offers a session link only when embedded in CoStrict", () => {
+    mocks.data = baseData(
+      [{ id: "nr-1", node_title: "Design", status: "failed" }],
+      [
+        summary({
+          display_status: "blocked",
+          has_error: true,
+          session_id: "sess-1",
+          diagnostics: { lifecycle_stage: "terminal", current_task: null, hint: "hint.stage.terminal" },
+        }),
+      ],
+    );
+    const { unmount } = render(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
+    expect(screen.queryByRole("button", { name: "View session" })).not.toBeInTheDocument();
+    unmount();
+
+    mocks.embedded = true;
+    render(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "View session" }));
+    expect(mocks.sessionPosts).toEqual([{ sessionId: "sess-1", newTab: true }]);
+  });
+
+  it("shows duration, node timeline and deliverable progress", () => {
+    mocks.data = baseData(
+      [{ id: "nr-1", node_title: "Design", status: "completed", started_at: "2026-08-04T09:00:00Z", completed_at: "2026-08-04T09:05:00Z" }],
+      [
+        summary({
+          display_status: "completed",
+          duration_seconds: 300,
+          required_deliverables_total: 2,
+          required_deliverables_submitted: 2,
+          required_deliverables_approved: 1,
+          diagnostics: { lifecycle_stage: "terminal", current_task: null, hint: "hint.stage.terminal" },
+        }),
+      ],
+    );
+    render(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
+    fireEvent.click(screen.getByText("Design"));
+    expect(screen.getByText("Duration {{value}}")).toBeInTheDocument();
+    expect(screen.getByText("Node started {{time}}")).toBeInTheDocument();
+    expect(screen.getByText("Node finished {{time}}")).toBeInTheDocument();
+    expect(
+      screen.getByText("Deliverables: {{submitted}}/{{total}} submitted, {{approved}} approved"),
+    ).toBeInTheDocument();
+  });
+
+  it("renders worker and critic outputs as collapsible blocks", () => {
+    mocks.data = baseData(
+      [{
+        id: "nr-1",
+        node_title: "Design",
+        status: "completed",
+        worker_output: "Here is the design doc",
+        critic_output: { verdict: "approved" },
+      }],
+      [
+        summary({
+          display_status: "completed",
+          diagnostics: { lifecycle_stage: "terminal", current_task: null, hint: "hint.stage.terminal" },
+        }),
+      ],
+    );
+    render(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
+    fireEvent.click(screen.getByText("Design"));
+    expect(screen.getByText("Worker output")).toBeInTheDocument();
+    expect(screen.getByText("Here is the design doc")).toBeInTheDocument();
+    expect(screen.getByText("Critic output")).toBeInTheDocument();
+    expect(screen.getByText(/"verdict": "approved"/)).toBeInTheDocument();
   });
 });
 

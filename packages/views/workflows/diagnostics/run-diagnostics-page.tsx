@@ -2,10 +2,13 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, ChevronDown, ChevronRight, Circle, LoaderCircle, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Circle, LoaderCircle, Monitor, X } from "lucide-react";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { isEmbeddedInCostrict, postCostrictNavigateToSession } from "@multica/core/platform";
 import { workflowRunCanvasSummaryOptions } from "@multica/core/workflows/queries";
+import { runtimeListOptions } from "@multica/core/runtimes/queries";
 import type {
+  RuntimeDevice,
   WorkflowNodeDiagnostics,
   WorkflowNodeRun,
   WorkflowNodeRuntimeSummary,
@@ -18,6 +21,7 @@ import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { Badge } from "@multica/ui/components/ui/badge";
 import { useNavigation } from "../../navigation";
 import { useT } from "../../i18n";
+import { formatRuntimeDuration } from "../../issues/components/execution/runtime-node-duration";
 
 type Translator = ReturnType<typeof useT<"workflows">>["t"];
 
@@ -152,10 +156,25 @@ export function nodeStepStates(
 interface NodeDiagnosticsRowProps {
   nodeRun: WorkflowNodeRun;
   summary: WorkflowNodeRuntimeSummary | null;
+  runtime: RuntimeDevice | null;
   t: Translator;
 }
 
-function NodeDiagnosticsRow({ nodeRun, summary, t }: NodeDiagnosticsRowProps) {
+// Node run outputs arrive as unknown JSON — render strings verbatim and
+// pretty-print objects, never trust the shape.
+function outputText(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (value == null) return "";
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return "";
+  }
+}
+
+function NodeDiagnosticsRow({ nodeRun, summary, runtime, t }: NodeDiagnosticsRowProps) {
+  const navigation = useNavigation();
+  const wsPaths = useWorkspacePaths();
   const diagnostics = summary?.diagnostics ?? null;
   const failed = summary?.has_error === true || nodeRun.status === "failed" || nodeRun.status === "blocked";
   const [open, setOpen] = useState(failed);
@@ -168,6 +187,16 @@ function NodeDiagnosticsRow({ nodeRun, summary, t }: NodeDiagnosticsRowProps) {
     t(($) => $.run.diagnostics.step_claim),
     t(($) => $.run.diagnostics.step_execute),
   ];
+
+  const sessionId = summary?.session_id ?? nodeRun.session_id ?? null;
+  const runtimeId = summary?.runtime_id ?? nodeRun.runtime_id ?? null;
+  const durationLabel =
+    summary?.duration_seconds != null ? formatRuntimeDuration(summary.duration_seconds) : null;
+  const nodeStartedAt = formatTime(nodeRun.started_at);
+  const nodeCompletedAt = formatTime(nodeRun.completed_at);
+  const deliverablesTotal = summary?.required_deliverables_total ?? 0;
+  const workerOutput = outputText(nodeRun.worker_output);
+  const criticOutput = outputText(nodeRun.critic_output);
 
   return (
     <div className="rounded-lg border">
@@ -218,6 +247,78 @@ function NodeDiagnosticsRow({ nodeRun, summary, t }: NodeDiagnosticsRowProps) {
             <p className="text-xs text-muted-foreground">{t(($) => $.run.diagnostics.no_task)}</p>
           )}
 
+          {durationLabel || nodeStartedAt || nodeCompletedAt ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              {durationLabel ? (
+                <span>{t(($) => $.run.diagnostics.duration, { value: durationLabel })}</span>
+              ) : null}
+              {nodeStartedAt ? (
+                <span>{t(($) => $.run.diagnostics.node_started_at, { time: nodeStartedAt })}</span>
+              ) : null}
+              {nodeCompletedAt ? (
+                <span>{t(($) => $.run.diagnostics.node_completed_at, { time: nodeCompletedAt })}</span>
+              ) : null}
+            </div>
+          ) : null}
+
+          {runtimeId || sessionId ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              {runtimeId ? (
+                <button
+                  type="button"
+                  className="flex items-center gap-1 hover:text-foreground transition-colors"
+                  onClick={() => navigation.push(wsPaths.runtimeDetail(runtimeId))}
+                >
+                  <Monitor className="size-3" />
+                  {t(($) => $.run.diagnostics.runtime)}: {runtime?.name ?? `${runtimeId.slice(0, 8)}…`}
+                  {runtime?.status === "offline" ? (
+                    <span className="text-destructive">({t(($) => $.run.diagnostics.runtime_offline)})</span>
+                  ) : null}
+                </button>
+              ) : null}
+              {sessionId && isEmbeddedInCostrict() ? (
+                <button
+                  type="button"
+                  className="text-primary hover:underline"
+                  onClick={() => postCostrictNavigateToSession({ sessionId, newTab: true })}
+                >
+                  {t(($) => $.run.diagnostics.view_session)}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {deliverablesTotal > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {t(($) => $.run.diagnostics.deliverables, {
+                submitted: summary?.required_deliverables_submitted ?? 0,
+                total: deliverablesTotal,
+                approved: summary?.required_deliverables_approved ?? 0,
+              })}
+            </p>
+          ) : null}
+
+          {workerOutput ? (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-muted-foreground hover:text-foreground transition-colors">
+                {t(($) => $.run.diagnostics.worker_output)}
+              </summary>
+              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-muted/40 p-2">
+                {workerOutput}
+              </pre>
+            </details>
+          ) : null}
+          {criticOutput ? (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-muted-foreground hover:text-foreground transition-colors">
+                {t(($) => $.run.diagnostics.critic_output)}
+              </summary>
+              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-muted/40 p-2">
+                {criticOutput}
+              </pre>
+            </details>
+          ) : null}
+
           {errorMessage ? (
             <div className="space-y-1">
               <p className="text-xs font-medium text-destructive">{t(($) => $.run.diagnostics.error)}</p>
@@ -236,6 +337,11 @@ export function WorkflowRunDiagnosticsPage({ workflowId, runId }: RunDiagnostics
   const wsPaths = useWorkspacePaths();
   const navigation = useNavigation();
   const { data, isLoading } = useQuery(workflowRunCanvasSummaryOptions(wsId, workflowId, runId));
+  const { data: runtimeList } = useQuery(runtimeListOptions(wsId));
+  // The runtime list powers id → name lookup; tolerate any unexpected shape.
+  const runtimeById = new Map(
+    (Array.isArray(runtimeList) ? runtimeList : []).map((r) => [r.id, r]),
+  );
 
   if (isLoading) {
     return (
@@ -283,14 +389,19 @@ export function WorkflowRunDiagnosticsPage({ workflowId, runId }: RunDiagnostics
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         <div className="mx-auto max-w-3xl space-y-2">
-          {nodeRuns.map((nodeRun) => (
-            <NodeDiagnosticsRow
-              key={nodeRun.id}
-              nodeRun={nodeRun}
-              summary={summaryByNodeRunId.get(nodeRun.id) ?? null}
-              t={t}
-            />
-          ))}
+          {nodeRuns.map((nodeRun) => {
+            const summary = summaryByNodeRunId.get(nodeRun.id) ?? null;
+            const runtimeId = summary?.runtime_id ?? nodeRun.runtime_id ?? null;
+            return (
+              <NodeDiagnosticsRow
+                key={nodeRun.id}
+                nodeRun={nodeRun}
+                summary={summary}
+                runtime={runtimeId ? (runtimeById.get(runtimeId) ?? null) : null}
+                t={t}
+              />
+            );
+          })}
         </div>
       </div>
     </div>
