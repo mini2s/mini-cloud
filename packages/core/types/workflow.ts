@@ -544,6 +544,34 @@ export interface PatchSplitConfigRequest {
   expected_config_version: number;
 }
 
+export type WorkflowNodeLifecycleStage =
+  | "pending"
+  | "dispatching"
+  | "dispatched"
+  | "running"
+  | "awaiting_review"
+  | "terminal";
+
+export interface WorkflowNodeTaskSummary {
+  task_id: string;
+  status: string;
+  phase: string;
+  attempt: number;
+  max_attempts: number;
+  dispatched_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  failure_reason: string;
+  error: string;
+}
+
+export interface WorkflowNodeDiagnostics {
+  lifecycle_stage: WorkflowNodeLifecycleStage;
+  current_task: WorkflowNodeTaskSummary | null;
+  /** i18n key (e.g. "hint.failure.timeout") translated client-side. */
+  hint: string;
+}
+
 export interface WorkflowNodeRuntimeSummary {
   workflow_node_id: string;
   node_run_id: string;
@@ -557,7 +585,13 @@ export interface WorkflowNodeRuntimeSummary {
   device_id: string | null;
   has_error: boolean;
   error_message: string;
+  deliverable_signal?: string;
+  required_deliverables_total?: number;
+  required_deliverables_submitted?: number;
+  required_deliverables_approved?: number;
   split_progress: SplitProgress | null;
+  /** Present on servers that ship node diagnostics; absent on older ones. */
+  diagnostics?: WorkflowNodeDiagnostics | null;
 }
 
 export interface WorkflowRunCanvasSummaryResponse {

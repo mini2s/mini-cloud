@@ -1187,6 +1187,25 @@ export const EMPTY_WORKFLOW_NODE_RUN: WorkflowNodeRun = {
 
 export const EMPTY_WORKFLOW_NODE_RUN_LIST: WorkflowNodeRun[] = [];
 
+const WorkflowNodeTaskSummarySchema = z.object({
+  task_id: z.string().default(""),
+  status: z.string().default(""),
+  phase: z.string().default(""),
+  attempt: z.number().default(0),
+  max_attempts: z.number().default(0),
+  dispatched_at: z.string().nullable().default(null),
+  started_at: z.string().nullable().default(null),
+  completed_at: z.string().nullable().default(null),
+  failure_reason: z.string().default(""),
+  error: z.string().default(""),
+}).loose();
+
+const WorkflowNodeDiagnosticsSchema = z.object({
+  lifecycle_stage: z.string().default("pending"),
+  current_task: WorkflowNodeTaskSummarySchema.nullable().default(null),
+  hint: z.string().default(""),
+}).loose();
+
 const WorkflowNodeRuntimeSummarySchema = z.object({
   workflow_node_id: z.string(),
   node_run_id: z.string(),
@@ -1204,6 +1223,7 @@ const WorkflowNodeRuntimeSummarySchema = z.object({
   has_error: z.boolean().default(false),
   error_message: z.string().default(""),
   split_progress: SplitProgressSchema.nullable().default(null),
+  diagnostics: WorkflowNodeDiagnosticsSchema.nullable().default(null),
 }).loose();
 
 export const WorkflowRunCanvasSummaryResponseSchema = z.object({

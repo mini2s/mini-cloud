@@ -321,6 +321,8 @@ vi.mock("@multica/core/paths", () => ({
     issueDetail: (issueId: string) => `/demo111/issues/${issueId}`,
     workflowRunDetail: (workflowId: string, runId: string) =>
       `/demo111/workflows/${workflowId}/runs/${runId}`,
+    workflowRunDiagnostics: (workflowId: string, runId: string) =>
+      `/demo111/workflows/${workflowId}/runs/${runId}/diagnostics`,
   }),
 }));
 
@@ -349,6 +351,9 @@ vi.mock("../../../i18n", () => ({
           tech_lead: { name: "Tech Lead", description: "Tech direction" },
         },
         run: {
+          diagnostics: {
+            entry: "Diagnostics",
+          },
           roles: {
             unknown_node: "Unknown node",
           },
@@ -3076,6 +3081,67 @@ describe("ExecutionPanoramaPage", () => {
     );
 
     expect(screen.queryByTestId("manual-role-assignment-entry")).not.toBeInTheDocument();
+  });
+
+  it("offers a diagnostics entry that navigates to the run diagnostics view", () => {
+    mocks.isLoading = false;
+    mocks.canvasSummaryData = {
+      run: {
+        id: "run-1",
+        workflow_id: "wf-1",
+        status: "running",
+        definition_schema_version: 0,
+        definition_snapshot: null,
+      },
+      node_runs: [],
+      node_runtime_summaries: [],
+    };
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+      </Wrapper>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Diagnostics" }));
+    expect(mocks.navigationPush).toHaveBeenCalledWith(
+      "/demo111/workflows/wf-1/runs/run-1/diagnostics",
+    );
+  });
+
+  it("hides the diagnostics entry when suppressed or without a run", () => {
+    mocks.isLoading = false;
+    mocks.canvasSummaryData = {
+      run: {
+        id: "run-1",
+        workflow_id: "wf-1",
+        status: "running",
+        definition_schema_version: 0,
+        definition_snapshot: null,
+      },
+      node_runs: [],
+      node_runtime_summaries: [],
+    };
+
+    const { unmount } = render(
+      <Wrapper>
+        <ExecutionPanoramaPage
+          workflowId="wf-1"
+          runId="run-1"
+          wsId="ws-1"
+          showDiagnosticsEntry={false}
+        />
+      </Wrapper>,
+    );
+    expect(screen.queryByRole("button", { name: "Diagnostics" })).not.toBeInTheDocument();
+    unmount();
+
+    render(
+      <Wrapper>
+        <ExecutionPanoramaPage workflowId="wf-1" runId={null} wsId="ws-1" />
+      </Wrapper>,
+    );
+    expect(screen.queryByRole("button", { name: "Diagnostics" })).not.toBeInTheDocument();
   });
 
   it("shows the blocked role state without an action to inactive members", () => {

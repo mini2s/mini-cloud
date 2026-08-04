@@ -189,7 +189,7 @@
     "split_plan_eyebrow": "拆分计划",
     "split_plan_close": "关闭拆分计划",
     "split_generation_label": "第 {{generation}} 代",
-    "split_cancel": "取消",
+    "split_cancel": "取消拆分",
     "split_supersede_confirm": "此版本已创建子任务。生成新计划前将取消尚未启动的子任务。是否继续？",
     "split_generate_new_plan": "生成新计划",
     "split_plan_status": "计划状态",
@@ -332,7 +332,6 @@
     "split_recovering": "生成草案中...",
     "split_reset_original": "回退到原始草案",
     "split_resetting_original": "正在回退...",
-    "split_cancel": "取消拆分",
     "split_cancelling": "取消中...",
     "split_confirm_create": "确认创建 {{count}}",
     "split_confirm_create_short": "确认创建",
@@ -526,6 +525,63 @@
         "needs_human": "需要人工指定",
         "invalidated": "成员已失效"
       }
+    },
+    "diagnostics": {
+      "title": "运行诊断",
+      "entry": "诊断",
+      "back_to_run": "返回运行",
+      "summary_nodes": "已完成 {{completed}}/{{total}} 个节点",
+      "stage": {
+        "pending": "待下发",
+        "dispatching": "下发中",
+        "dispatched": "已下发",
+        "running": "运行中",
+        "awaiting_review": "待评审",
+        "terminal": "已结束"
+      },
+      "step_dispatch": "下发",
+      "step_claim": "认领",
+      "step_execute": "执行",
+      "attempt": "第 {{current}}/{{max}} 次尝试",
+      "dispatched_at": "下发于 {{time}}",
+      "started_at": "开始于 {{time}}",
+      "no_task": "尚未下发任务",
+      "error": "错误",
+      "hint": {
+        "stage": {
+          "pending": "等待上游节点完成",
+          "dispatching": "任务已入队，等待运行时认领",
+          "dispatched": "运行时已认领任务，正在启动执行",
+          "running": "任务执行中",
+          "awaiting_review": "等待评审或输入",
+          "terminal": "节点已结束"
+        },
+        "running_retry": "上一次尝试失败，正在重试",
+        "failure": {
+          "timeout": "任务超时",
+          "agent_error": "Agent 执行出错",
+          "agent_empty_output": "Agent 未产出内容",
+          "agent_fallback_message": "Agent 返回了兜底消息",
+          "iteration_limit": "达到迭代次数上限",
+          "runtime_offline": "运行时离线",
+          "runtime_recovery": "运行时已从故障中恢复",
+          "runtime_unavailable": "无可用运行时",
+          "dispatch_failed": "任务下发失败",
+          "cancelled": "任务已取消",
+          "user_cancelled": "用户已取消",
+          "workflow_failed": "工作流失败",
+          "codex_semantic_inactivity": "Agent 长时间无响应"
+        }
+      },
+      "runtime": "运行时",
+      "runtime_offline": "离线",
+      "view_session": "查看会话",
+      "duration": "耗时 {{value}}",
+      "node_started_at": "节点开始 {{time}}",
+      "node_completed_at": "节点结束 {{time}}",
+      "deliverables": "交付物：已提交 {{submitted}}/{{total}}，已通过 {{approved}}",
+      "worker_output": "Worker 产出",
+      "critic_output": "Critic 产出"
     }
   },
   "builtin_roles": {

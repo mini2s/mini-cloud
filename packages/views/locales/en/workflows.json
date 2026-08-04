@@ -189,7 +189,7 @@
     "split_plan_eyebrow": "Split plan",
     "split_plan_close": "Close split plan",
     "split_generation_label": "generation {{generation}}",
-    "split_cancel": "Cancel",
+    "split_cancel": "Cancel split",
     "split_supersede_confirm": "This generation already created child issues. Unstarted children will be cancelled before a new plan is generated. Continue?",
     "split_generate_new_plan": "Generate new plan",
     "split_plan_status": "Plan status",
@@ -332,7 +332,6 @@
     "split_recovering": "Generating draft...",
     "split_reset_original": "Reset to digital human proposal",
     "split_resetting_original": "Resetting...",
-    "split_cancel": "Cancel split",
     "split_cancelling": "Cancelling...",
     "split_confirm_create": "Confirm create {{count}}",
     "split_confirm_create_short": "Confirm create",
@@ -526,6 +525,63 @@
         "needs_human": "Needs assignment",
         "invalidated": "Member inactive"
       }
+    },
+    "diagnostics": {
+      "title": "Run diagnostics",
+      "entry": "Diagnostics",
+      "back_to_run": "Back to run",
+      "summary_nodes": "{{completed}}/{{total}} nodes completed",
+      "stage": {
+        "pending": "Pending dispatch",
+        "dispatching": "Dispatching",
+        "dispatched": "Dispatched",
+        "running": "Running",
+        "awaiting_review": "Awaiting review",
+        "terminal": "Finished"
+      },
+      "step_dispatch": "Dispatch",
+      "step_claim": "Claim",
+      "step_execute": "Execute",
+      "attempt": "Attempt {{current}}/{{max}}",
+      "dispatched_at": "Dispatched {{time}}",
+      "started_at": "Started {{time}}",
+      "no_task": "No task dispatched yet",
+      "error": "Error",
+      "hint": {
+        "stage": {
+          "pending": "Waiting for upstream nodes to complete",
+          "dispatching": "Task queued, waiting for a runtime to claim it",
+          "dispatched": "Runtime claimed the task, execution is starting",
+          "running": "Task is executing",
+          "awaiting_review": "Waiting for review or input",
+          "terminal": "This node has finished"
+        },
+        "running_retry": "Previous attempt failed; retrying",
+        "failure": {
+          "timeout": "Task timed out",
+          "agent_error": "Agent error",
+          "agent_empty_output": "Agent produced no output",
+          "agent_fallback_message": "Agent returned a fallback message",
+          "iteration_limit": "Iteration limit reached",
+          "runtime_offline": "Runtime went offline",
+          "runtime_recovery": "Runtime recovered from a failure",
+          "runtime_unavailable": "No runtime available",
+          "dispatch_failed": "Task dispatch failed",
+          "cancelled": "Task was cancelled",
+          "user_cancelled": "Cancelled by user",
+          "workflow_failed": "Workflow failed",
+          "codex_semantic_inactivity": "Agent became inactive"
+        }
+      },
+      "runtime": "Runtime",
+      "runtime_offline": "offline",
+      "view_session": "View session",
+      "duration": "Duration {{value}}",
+      "node_started_at": "Node started {{time}}",
+      "node_completed_at": "Node finished {{time}}",
+      "deliverables": "Deliverables: {{submitted}}/{{total}} submitted, {{approved}} approved",
+      "worker_output": "Worker output",
+      "critic_output": "Critic output"
     }
   },
   "builtin_roles": {

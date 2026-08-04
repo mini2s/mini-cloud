@@ -116,6 +116,7 @@ export interface ExecutionPanoramaPageProps {
   onPendingCriticUpdate?: (updates: { responsible_user_id: string | null }) => void;
   fillAvailableHeight?: boolean;
   showRoleAssignmentEntry?: boolean;
+  showDiagnosticsEntry?: boolean;
 }
 
 const RUNTIME_CANVAS_FIT_VIEW = {
@@ -667,6 +668,7 @@ export function ExecutionPanoramaPage({
   onPendingCriticUpdate,
   fillAvailableHeight = false,
   showRoleAssignmentEntry = true,
+  showDiagnosticsEntry = true,
 }: ExecutionPanoramaPageProps) {
   const queryClient = useQueryClient();
   const currentUserId = useAuthStore((state) => state.user?.id ?? null);
@@ -1571,6 +1573,17 @@ export function ExecutionPanoramaPage({
       )}
       data-testid="execution-panorama"
     >
+      {showDiagnosticsEntry && runId ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="absolute right-3 top-3 z-10 bg-background/90"
+          onClick={() => navigation.push(paths.workflowRunDiagnostics(workflowId, runId))}
+        >
+          {tWf(($) => $.run.diagnostics.entry)}
+        </Button>
+      ) : null}
       {showRoleAssignmentEntry && requiresManualRoleAssignment ? (
         <div
           className="flex shrink-0 items-center gap-3 border-b border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100"

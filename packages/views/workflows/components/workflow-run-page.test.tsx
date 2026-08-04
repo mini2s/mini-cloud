@@ -35,6 +35,17 @@ vi.mock("@multica/core/hooks", () => ({
   useWorkspaceId: () => "ws-1",
 }));
 
+vi.mock("@multica/core/paths", () => ({
+  useWorkspacePaths: () => ({
+    workflowRunDiagnostics: (workflowId: string, runId: string) =>
+      `/ws/workflows/${workflowId}/runs/${runId}/diagnostics`,
+  }),
+}));
+
+vi.mock("../../navigation", () => ({
+  useNavigation: () => ({ push: vi.fn() }),
+}));
+
 vi.mock("@multica/core/auth", () => ({
   useAuthStore: (selector: (state: unknown) => unknown) => selector({ user: { id: "user-1" } }),
 }));
@@ -83,6 +94,7 @@ vi.mock("../../i18n", () => {
       cancel: "Cancel run",
       cancelling: "Cancelling",
       historical_config_incomplete: "Historical configuration may be incomplete",
+      diagnostics: { entry: "Diagnostics" },
     },
     cancel_dialog: {
       title: "Cancel workflow run?",
@@ -134,6 +146,8 @@ describe("WorkflowRunPage", () => {
       wsId: "ws-1",
       issueId: "issue-1",
       fillAvailableHeight: true,
+      showRoleAssignmentEntry: false,
+      showDiagnosticsEntry: false,
     });
     expect(screen.queryByTestId("legacy-dag-canvas")).not.toBeInTheDocument();
     expect(screen.queryByTestId("legacy-node-run-card")).not.toBeInTheDocument();

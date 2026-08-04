@@ -114,6 +114,32 @@ type WorkflowNodeRuntimeSummaryResponse struct {
 	HasError        bool                   `json:"has_error"`
 	ErrorMessage    string                 `json:"error_message"`
 	SplitProgress   *SplitProgressResponse `json:"split_progress,omitempty"`
+	Diagnostics     *NodeDiagnostics       `json:"diagnostics,omitempty"`
+}
+
+// NodeTaskSummary is the latest agent task dispatched for a node run. It is
+// resolved via the task's workflow_node_run_id back-reference (not the node
+// run's link columns) so retried attempts — which clone a fresh task without
+// updating the node run's links — are still surfaced.
+type NodeTaskSummary struct {
+	TaskID        string  `json:"task_id"`
+	Status        string  `json:"status"`
+	Phase         string  `json:"phase,omitempty"`
+	Attempt       int32   `json:"attempt"`
+	MaxAttempts   int32   `json:"max_attempts"`
+	DispatchedAt  *string `json:"dispatched_at,omitempty"`
+	StartedAt     *string `json:"started_at,omitempty"`
+	CompletedAt   *string `json:"completed_at,omitempty"`
+	FailureReason string  `json:"failure_reason,omitempty"`
+	Error         string  `json:"error,omitempty"`
+}
+
+// NodeDiagnostics explains where a node run is in its dispatch lifecycle.
+// Hint is an i18n key (e.g. "hint.failure.timeout") translated client-side.
+type NodeDiagnostics struct {
+	LifecycleStage string           `json:"lifecycle_stage"`
+	CurrentTask    *NodeTaskSummary `json:"current_task,omitempty"`
+	Hint           string           `json:"hint"`
 }
 
 // ── Converters ───────────────────────────────────────────────────────────────
@@ -258,6 +284,128 @@ func extractNodeRunError(nr db.MulticaWorkflowNodeRun, taskError string) (bool, 
 		}
 	}
 	return true, ""
+}
+
+// nodeLifecycleStage derives where a node run sits in its dispatch lifecycle
+// from the node run status plus its latest task. This is the single source of
+// truth for the diagnostics view's stage progression.
+func nodeLifecycleStage(nr db.MulticaWorkflowNodeRun, task *NodeTaskSummary) string {
+	switch nr.Status {
+	case service.NodeRunStatusCompleted, service.NodeRunStatusFailed,
+		service.NodeRunStatusCancelled, service.NodeRunStatusSkipped,
+		service.NodeRunStatusBlocked, service.NodeRunStatusFormatFailed:
+		return "terminal"
+	case service.NodeRunStatusAwaitingCritic, service.NodeRunStatusAwaitingSplitReview,
+		service.NodeRunStatusAwaitingInput:
+		return "awaiting_review"
+	case service.NodeRunStatusSplitting, service.NodeRunStatusSplitActive:
+		// Split nodes execute through split tasks, not a linked agent task.
+		return "running"
+	}
+	if task == nil {
+		return "pending"
+	}
+	switch task.Status {
+	case "queued":
+		return "dispatching"
+	case "dispatched":
+		return "dispatched"
+	default:
+		// running/completed/failed/cancelled task under a non-terminal node
+		// (e.g. critic task finished, worker rework pending) — the node is
+		// still actively being processed.
+		return "running"
+	}
+}
+
+// nodeDiagnosticsHint returns an i18n key describing the node's situation.
+// Failure hints prefer the task's failure_reason, falling back to the node
+// run's own failure_reason (set when no task exists, e.g. sweeper timeouts).
+func nodeDiagnosticsHint(nr db.MulticaWorkflowNodeRun, task *NodeTaskSummary, stage string) string {
+	reason := ""
+	if task != nil && task.FailureReason != "" {
+		reason = task.FailureReason
+	} else if nr.FailureReason.Valid {
+		reason = nr.FailureReason.String
+	}
+	if stage == "terminal" && reason != "" &&
+		(nr.Status == service.NodeRunStatusFailed || nr.Status == service.NodeRunStatusBlocked ||
+			nr.Status == service.NodeRunStatusFormatFailed) {
+		return "hint.failure." + reason
+	}
+	if stage == "running" && task != nil && task.Attempt > 1 {
+		return "hint.running_retry"
+	}
+	return "hint.stage." + stage
+}
+
+// workflowRunNodeTaskSummaries returns the latest agent task per node run in
+// the run, keyed by node run ID. Tasks are matched through their
+// workflow_node_run_id back-reference so retried attempts (fresh clones that
+// do not update the node run's link columns) are included; the most recently
+// created task wins.
+func (h *Handler) workflowRunNodeTaskSummaries(ctx context.Context, runID pgtype.UUID) (map[string]*NodeTaskSummary, error) {
+	rows, err := h.DB.Query(ctx, `
+		SELECT
+			node_run.id::text,
+			task.id::text,
+			task.status,
+			task.context,
+			task.attempt,
+			task.max_attempts,
+			task.dispatched_at,
+			task.started_at,
+			task.completed_at,
+			COALESCE(task.failure_reason, ''),
+			COALESCE(task.error, '')
+		FROM multica_workflow_node_run node_run
+		JOIN LATERAL (
+			SELECT t.id, t.status, t.context, t.attempt, t.max_attempts,
+				t.dispatched_at, t.started_at, t.completed_at,
+				t.failure_reason, t.error
+			FROM multica_agent_task_queue t
+			WHERE t.workflow_node_run_id = node_run.id
+			ORDER BY t.created_at DESC, t.id DESC
+			LIMIT 1
+		) task ON TRUE
+		WHERE node_run.workflow_run_id = $1
+	`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	summaries := make(map[string]*NodeTaskSummary)
+	for rows.Next() {
+		var nodeRunID string
+		var task NodeTaskSummary
+		var taskContext []byte
+		var dispatchedAt, startedAt, completedAt pgtype.Timestamptz
+		if err := rows.Scan(
+			&nodeRunID, &task.TaskID, &task.Status, &taskContext,
+			&task.Attempt, &task.MaxAttempts,
+			&dispatchedAt, &startedAt, &completedAt,
+			&task.FailureReason, &task.Error,
+		); err != nil {
+			return nil, err
+		}
+		task.DispatchedAt = timestampToPtr(dispatchedAt)
+		task.StartedAt = timestampToPtr(startedAt)
+		task.CompletedAt = timestampToPtr(completedAt)
+		if len(taskContext) > 0 {
+			var ctxPayload struct {
+				Phase string `json:"phase"`
+			}
+			if err := json.Unmarshal(taskContext, &ctxPayload); err == nil {
+				task.Phase = ctxPayload.Phase
+			}
+		}
+		summaries[nodeRunID] = &task
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return summaries, nil
 }
 
 func (h *Handler) workflowRunTaskErrors(ctx context.Context, runID pgtype.UUID) (map[string]string, error) {
@@ -537,6 +685,11 @@ func (h *Handler) GetWorkflowRunCanvasSummary(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusInternalServerError, "failed to summarize task errors")
 		return
 	}
+	taskSummaries, err := h.workflowRunNodeTaskSummaries(r.Context(), run.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to summarize node tasks")
+		return
+	}
 
 	nodeRunResp := make([]WorkflowNodeRunResponse, 0, len(nodeRuns))
 	runtimeSummaries := make([]WorkflowNodeRuntimeSummaryResponse, 0, len(nodeRuns))
@@ -549,6 +702,9 @@ func (h *Handler) GetWorkflowRunCanvasSummary(w http.ResponseWriter, r *http.Req
 			progressCopy := progress
 			splitProgress = &progressCopy
 		}
+
+		currentTask := taskSummaries[uuidToString(nr.ID)]
+		stage := nodeLifecycleStage(nr, currentTask)
 
 		runtimeSummaries = append(runtimeSummaries, WorkflowNodeRuntimeSummaryResponse{
 			WorkflowNodeID:  workflowNodeRunCanvasID(nr),
@@ -563,6 +719,11 @@ func (h *Handler) GetWorkflowRunCanvasSummary(w http.ResponseWriter, r *http.Req
 			HasError:        hasError,
 			ErrorMessage:    errorMessage,
 			SplitProgress:   splitProgress,
+			Diagnostics: &NodeDiagnostics{
+				LifecycleStage: stage,
+				CurrentTask:    currentTask,
+				Hint:           nodeDiagnosticsHint(nr, currentTask, stage),
+			},
 		})
 	}
 

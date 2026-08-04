@@ -245,6 +245,23 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 		Skipped   int `json:"skipped"`
 	}
 
+	type diagnosticsPayload struct {
+		LifecycleStage string `json:"lifecycle_stage"`
+		CurrentTask    *struct {
+			TaskID        string  `json:"task_id"`
+			Status        string  `json:"status"`
+			Phase         string  `json:"phase"`
+			Attempt       int32   `json:"attempt"`
+			MaxAttempts   int32   `json:"max_attempts"`
+			DispatchedAt  *string `json:"dispatched_at"`
+			StartedAt     *string `json:"started_at"`
+			CompletedAt   *string `json:"completed_at"`
+			FailureReason string  `json:"failure_reason"`
+			Error         string  `json:"error"`
+		} `json:"current_task"`
+		Hint string `json:"hint"`
+	}
+
 	var resp struct {
 		NodeRuntimeSummaries []struct {
 			WorkflowNodeID  string                `json:"workflow_node_id"`
@@ -259,6 +276,7 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 			HasError        bool                  `json:"has_error"`
 			ErrorMessage    string                `json:"error_message"`
 			SplitProgress   *splitProgressPayload `json:"split_progress"`
+			Diagnostics     *diagnosticsPayload   `json:"diagnostics"`
 		} `json:"node_runtime_summaries"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
@@ -280,6 +298,7 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 		HasError        bool
 		ErrorMessage    string
 		SplitProgress   *splitProgressPayload
+		Diagnostics     *diagnosticsPayload
 	}{}
 	for _, summary := range resp.NodeRuntimeSummaries {
 		byNodeID[summary.WorkflowNodeID] = struct {
@@ -294,6 +313,7 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 			HasError        bool
 			ErrorMessage    string
 			SplitProgress   *splitProgressPayload
+			Diagnostics     *diagnosticsPayload
 		}{
 			NodeRunID:       summary.NodeRunID,
 			DisplayStatus:   summary.DisplayStatus,
@@ -306,6 +326,7 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 			HasError:        summary.HasError,
 			ErrorMessage:    summary.ErrorMessage,
 			SplitProgress:   summary.SplitProgress,
+			Diagnostics:     summary.Diagnostics,
 		}
 	}
 
@@ -364,5 +385,47 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 		split.SplitProgress.Cancelled != 1 ||
 		split.SplitProgress.Skipped != 1 {
 		t.Fatalf("split progress mismatch: %+v", split.SplitProgress)
+	}
+
+	// Diagnostics: nodes without tasks are pending/terminal with no current task.
+	if completed.Diagnostics == nil || completed.Diagnostics.LifecycleStage != "terminal" {
+		t.Fatalf("expected completed node diagnostics stage terminal, got %+v", completed.Diagnostics)
+	}
+	if completed.Diagnostics.CurrentTask != nil {
+		t.Fatalf("expected no current task for completed node, got %+v", completed.Diagnostics.CurrentTask)
+	}
+	if split.Diagnostics == nil || split.Diagnostics.LifecycleStage != "running" {
+		t.Fatalf("expected split node diagnostics stage running, got %+v", split.Diagnostics)
+	}
+	if blocked.Diagnostics == nil || blocked.Diagnostics.Hint != "hint.stage.terminal" {
+		t.Fatalf("expected blocked node fallback hint, got %+v", blocked.Diagnostics)
+	}
+
+	// Diagnostics: failed node surfaces the latest task (by created_at) with
+	// phase parsed from task context.
+	failedDiag := failed.Diagnostics
+	if failedDiag == nil || failedDiag.LifecycleStage != "terminal" {
+		t.Fatalf("expected failed node diagnostics stage terminal, got %+v", failedDiag)
+	}
+	if failedDiag.CurrentTask == nil {
+		t.Fatalf("expected current task for failed node, got %+v", failedDiag)
+	}
+	if failedDiag.CurrentTask.Status != "failed" || failedDiag.CurrentTask.FailureReason != "agent_error" {
+		t.Fatalf("failed node current task mismatch: %+v", failedDiag.CurrentTask)
+	}
+	if failedDiag.CurrentTask.Phase == "" {
+		t.Fatalf("expected phase parsed from task context, got %+v", failedDiag.CurrentTask)
+	}
+	if failedDiag.Hint != "hint.failure.agent_error" {
+		t.Fatalf("expected failure hint key, got %s", failedDiag.Hint)
+	}
+
+	// Diagnostics: failed critic node's latest task is the critic-phase one.
+	criticDiag := failedCritic.Diagnostics
+	if criticDiag == nil || criticDiag.CurrentTask == nil {
+		t.Fatalf("expected diagnostics for failed critic node, got %+v", criticDiag)
+	}
+	if criticDiag.CurrentTask.TaskID != failedCriticTaskID || criticDiag.CurrentTask.Phase != "critic" {
+		t.Fatalf("expected latest critic task in diagnostics, got %+v", criticDiag.CurrentTask)
 	}
 }
