@@ -1149,6 +1149,12 @@ func (h *Handler) ListNodeRunDeliverableSubmissions(w http.ResponseWriter, r *ht
 	writeJSON(w, http.StatusOK, out)
 }
 
+// agentDefinedDeliverableNamespace is the fixed UUIDv5 namespace for deriving
+// deterministic source_deliverable_ids from (node_run_id, title) so that
+// re-submitting the same agent-defined deliverable is idempotent (ON CONFLICT
+// updates the existing row instead of creating a duplicate).
+var agentDefinedDeliverableNamespace = uuid.MustParse("a3f5c8e1-7b2d-4f6a-9e8c-1d3b5a7c9e0f")
+
 // CreateAgentDefinedDeliverable creates a run-scoped deliverable that the
 // agent defined itself, when the workflow node has no pre-registered
 // deliverable. Returns the new deliverable's id so the cs-cloud CLI can submit
@@ -1173,14 +1179,13 @@ func (h *Handler) CreateAgentDefinedDeliverable(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// source_deliverable_id is a fresh synthetic UUID (there is no definition
-	// source); required=false so an agent-defined deliverable never blocks
-	// completion on its own.
-	sourceID, err := uuid.NewV7()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate id")
-		return
-	}
+	// Deterministic source id: uuid_v5(namespace, node_run_id + title) so
+	// re-submitting the same title on the same node run is idempotent (ON
+	// CONFLICT updates the existing row) instead of creating duplicates.
+	sourceData := make([]byte, 0, 16+len(title))
+	sourceData = append(sourceData, nrUUID.Bytes[:]...)
+	sourceData = append(sourceData, title...)
+	sourceID := uuid.NewSHA1(agentDefinedDeliverableNamespace, sourceData)
 	requirement, err := h.Queries.CreateNodeRunDeliverableRequirement(r.Context(), db.CreateNodeRunDeliverableRequirementParams{
 		WorkflowNodeRunID:   nrUUID,
 		SourceDeliverableID: pgtype.UUID{Bytes: sourceID, Valid: true},

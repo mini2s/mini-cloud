@@ -332,6 +332,11 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		env[k] = v
 	}
 	if phase == "critic" {
+		if task.WorkflowNodeRunID.Valid {
+			if subs, err := s.Queries.ListNodeRunDeliverableSubmissions(ctx, task.WorkflowNodeRunID); err == nil {
+				prompt = appendSubmittedDeliverablesPrompt(prompt, subs)
+			}
+		}
 		prompt = appendCriticReviewPrompt(prompt)
 	} else {
 		if phase == "worker" {
@@ -833,6 +838,41 @@ func appendDeliverablePrompt(prompt string, refs []repositoryDeliverableRefJSON)
 		}
 	}
 	b.WriteString("\nUse `--file` for these document deliverables; use `--repo` for code MR/PR deliverables described under Code Repositories. A deliverable is not considered submitted until its PR is registered.\n")
+	b.WriteString("\n---\n\n")
+	return b.String()
+}
+
+// appendSubmittedDeliverablesPrompt lists the worker's submitted deliverable
+// PR URLs so the critic can find and review them without guessing.
+func appendSubmittedDeliverablesPrompt(prompt string, subs []db.MulticaWorkflowNodeDeliverableSubmission) string {
+	anyURL := false
+	for _, s := range subs {
+		if strings.TrimSpace(s.PullRequestUrl) != "" {
+			anyURL = true
+			break
+		}
+	}
+	if !anyURL {
+		return prompt
+	}
+	var b strings.Builder
+	b.WriteString(prompt)
+	if prompt != "" && !strings.HasSuffix(prompt, "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n---\n## Submitted Deliverables\n\n")
+	b.WriteString("The worker submitted these deliverables. Inspect each before approving or rejecting:\n\n")
+	for _, s := range subs {
+		url := strings.TrimSpace(s.PullRequestUrl)
+		if url == "" {
+			continue
+		}
+		title := strings.TrimSpace(s.PullRequestTitle)
+		if title == "" {
+			title = "deliverable"
+		}
+		fmt.Fprintf(&b, "- %s — %s\n", title, url)
+	}
 	b.WriteString("\n---\n\n")
 	return b.String()
 }
