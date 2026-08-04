@@ -55,6 +55,7 @@ type WorkflowService struct {
 var ErrWorkflowRoleResolutionLimit = errors.New("workflow role resolution active job limit reached")
 var ErrWorkflowHasRuns = errors.New("workflow has runs")
 var ErrWorkflowDefinitionInUse = errors.New("workflow definition is used by an active run")
+var ErrRequiredDeliverablesMissing = errors.New("all required deliverables must be submitted before this node can enter review")
 
 func (s *WorkflowService) roleResolutionEnabledFor(workspaceID pgtype.UUID) bool {
 	if !s.AutoResolveRoles {
@@ -1139,6 +1140,11 @@ func (s *WorkflowService) RetryNodeRun(ctx context.Context, nodeRun db.MulticaWo
 			}
 			return nil
 		}
+		if fresh.FailureReason.Valid && resumeUnsafeFailureReason(fresh.FailureReason.String) {
+			if err := qtx.ClearWorkflowNodeRunSession(ctx, fresh.ID); err != nil {
+				return fmt.Errorf("clear unsafe node-run session: %w", err)
+			}
+		}
 		updated, err = qtx.UpdateWorkflowNodeRunRework(ctx, db.UpdateWorkflowNodeRunReworkParams{
 			ID: fresh.ID, Status: NodeRunStatusFormatOk,
 		})
@@ -1283,7 +1289,7 @@ func (s *WorkflowService) SubmitWorkerOutput(ctx context.Context, nodeRunID pgty
 		if satisfied, err := requiredDeliverablesSatisfiedWithQueries(ctx, qtx, nr); err != nil {
 			return fmt.Errorf("check deliverables: %w", err)
 		} else if !satisfied {
-			return fmt.Errorf("all required deliverables must be submitted before this node can enter review")
+			return ErrRequiredDeliverablesMissing
 		}
 
 		updated, err := qtx.SetWorkflowNodeRunWorkerOutput(ctx, db.SetWorkflowNodeRunWorkerOutputParams{

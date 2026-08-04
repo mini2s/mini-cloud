@@ -184,16 +184,11 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 
 	taskSvc.OnTaskCompleting = func(ctx context.Context, task db.MulticaAgentTaskQueue) error {
 		if splitOrchestrator != nil {
-			return splitOrchestrator.HandleTaskCompletion(ctx, task)
+			if err := splitOrchestrator.HandleTaskCompletion(ctx, task); err != nil {
+				return err
+			}
 		}
-		return nil
-	}
-
-	// Wire the workflow completion gateway: when an agent task linked to a
-	// workflow node run completes, the WorkflowService transitions the node
-	// run state machine.
-	taskSvc.OnTaskCompleted = func(ctx context.Context, task db.MulticaAgentTaskQueue) {
-		_ = workflowSvc.HandleWorkflowTaskCompletion(ctx, task)
+		return workflowSvc.HandleWorkflowTaskCompletion(ctx, task)
 	}
 	// Wire the workflow failure gateway: when an agent task linked to a
 	// workflow node run fails and is not retried, the WorkflowService fails

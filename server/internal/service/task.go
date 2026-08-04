@@ -59,9 +59,8 @@ type TaskService struct {
 	OnTaskCompleting func(ctx context.Context, task db.MulticaAgentTaskQueue) error
 
 	// OnTaskCompleted is an optional callback invoked after a task reaches
-	// the completed state. The WorkflowService uses this to detect agent
-	// tasks belonging to workflow node runs and transition the node run
-	// state machine (worker→awaiting_critic, critic→review).
+	// the completed state. Completion-critical workflow transitions belong in
+	// OnTaskCompleting so their errors can veto the task completion.
 	OnTaskCompleted func(ctx context.Context, task db.MulticaAgentTaskQueue)
 
 	// OnTaskFailed is an optional callback invoked after a task reaches the
@@ -392,7 +391,7 @@ func taskErrorType(reason string) string {
 		return "runtime"
 	case "timeout", "codex_semantic_inactivity":
 		return "timeout"
-	case "iteration_limit", "agent_fallback_message", "agent_empty_output":
+	case "iteration_limit", "agent_fallback_message", "agent_empty_output", "completion_rejected", "missing_required_deliverable":
 		return "agent_output"
 	case "cancelled", "user_cancelled":
 		return "cancelled"
@@ -1623,7 +1622,7 @@ func resumeUnsafeFailureReason(reason string) bool {
 	switch reason {
 	// Keep in sync with GetLastTaskSession / GetLastChatTaskSession and
 	// CreateRetryTask's fresh-session CASE WHEN.
-	case "iteration_limit", "agent_fallback_message", "agent_empty_output", "api_invalid_request", "codex_semantic_inactivity":
+	case "iteration_limit", "agent_fallback_message", "agent_empty_output", "completion_rejected", "missing_required_deliverable", "api_invalid_request", "codex_semantic_inactivity":
 		return true
 	default:
 		return false

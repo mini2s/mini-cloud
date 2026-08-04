@@ -1167,6 +1167,9 @@ func (h *Handler) CreateAgentDefinedDeliverable(w http.ResponseWriter, r *http.R
 	if !ok {
 		return
 	}
+	if !h.requireAgentTaskForNodeRun(w, r, nrUUID) {
+		return
+	}
 
 	var req CreateAgentDefinedDeliverableRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1245,6 +1248,9 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
+	if !h.requireAgentTaskForNodeRun(w, r, nrUUID) {
+		return
+	}
 	submittedByType := actorType
 	submittedByID := parseUUID(actorID)
 	requirement, requirementErr := h.Queries.GetNodeRunDeliverableRequirementForSubmission(r.Context(), db.GetNodeRunDeliverableRequirementForSubmissionParams{
@@ -1308,6 +1314,29 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 	// at submit time.
 
 	writeJSON(w, http.StatusOK, workflowNodeDeliverableSubmissionToResponse(submission))
+}
+
+func (h *Handler) requireAgentTaskForNodeRun(w http.ResponseWriter, r *http.Request, nodeRunID pgtype.UUID) bool {
+	agentID := strings.TrimSpace(r.Header.Get("X-Agent-ID"))
+	if agentID == "" {
+		return true
+	}
+	taskUUID, err := util.ParseUUID(r.Header.Get("X-Task-ID"))
+	if err != nil {
+		writeError(w, http.StatusForbidden, "X-Task-ID is required")
+		return false
+	}
+	agentUUID, err := util.ParseUUID(agentID)
+	if err != nil {
+		writeError(w, http.StatusForbidden, "invalid X-Agent-ID")
+		return false
+	}
+	task, err := h.Queries.GetAgentTask(r.Context(), taskUUID)
+	if err != nil || task.AgentID != agentUUID || task.WorkflowNodeRunID != nodeRunID || task.Status != "running" {
+		writeError(w, http.StatusForbidden, "agent task is not running for this node run")
+		return false
+	}
+	return true
 }
 
 // ReviewNodeRunDeliverable POST /api/node-runs/{nodeRunId}/deliverables/{submissionId}/review

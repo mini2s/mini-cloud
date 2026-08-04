@@ -496,6 +496,7 @@ func TestAppendWorkerPromptWarnsNotToActAsCritic(t *testing.T) {
 		"You are the worker",
 		"Do NOT perform critic review",
 		"Do NOT approve or reject",
+		"Required deliverables must be submitted before finishing",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("worker prompt missing %q:\n%s", want, got)
@@ -581,25 +582,32 @@ func TestInjectGiteaToken(t *testing.T) {
 }
 
 func TestAppendDeliverablePrompt_CheckoutAndSubmit(t *testing.T) {
-	refs := []giteaDeliverableRefJSON{{ID: "d1", Title: "Doc1", Path: "nodes/01-x/d1.md"}}
+	refs := []giteaDeliverableRefJSON{{ID: "d1", Title: "Doc1", Path: "nodes/01-x/d1.md", Required: true}}
 	got := appendDeliverablePrompt("base prompt", refs)
 	for _, want := range []string{
 		".cs-cloud.repos",
 		".cs-cloud.env",
 		"Before submitting, check out the delivery repository listed in `.cs-cloud.repos`",
-		"Develop on the node/inst branch listed for that repository",
+		"Use the clone/update instructions in `.cs-cloud.repos`",
+		"if `.cs-cloud.repos` does not contain executable clone/update instructions for the delivery repository, stop and report the missing instructions instead of guessing",
+		"Develop on the node branch listed for that repository",
 		"cs-cloud workflow deliverable submit --deliverable <id> --file <path> --title \"<PR title>\"",
-		"Document Deliverables",
+		"For code MR/PR deliverables, use the `--mr --repo` form",
+		"Deliverables",
 		// Deliverable id/title/target-path are inlined so the agent knows what to
 		// produce and where (they are NOT in .cs-cloud.repos).
-		"encouraged (but not required) to produce and submit each deliverable below",
+		"Required deliverables must be produced and submitted before `cs-cloud workflow task complete`",
+		"[required] `d1`",
 		"`d1`",
 		"Doc1",
-		"target path: `nodes/01-x/d1.md`",
+		"document target path: `nodes/01-x/d1.md`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("prompt missing %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "use whichever method you prefer") {
+		t.Errorf("prompt must not ask the agent to choose its own checkout method:\n%s", got)
 	}
 	for _, forbidden := range []string{
 		"CS_CLOUD_REPO_CLONE_URL_AUTHED",
@@ -1007,11 +1015,11 @@ func TestAppendCodeRepoPrompt_MultiRepo(t *testing.T) {
 	if !strings.Contains(got, "cs-cloud workflow deliverable submit") {
 		t.Fatalf("prompt missing CLI submit instruction:\n%s", got)
 	}
+	if !strings.Contains(got, "--deliverable <id> --mr --repo <url>") {
+		t.Fatalf("prompt must use cs-cloud's code MR/PR form (--mr --repo):\n%s", got)
+	}
 	if !strings.Contains(got, "--title \"<PR title>\"") {
 		t.Fatalf("prompt must tell the agent to choose the PR/MR title via --title:\n%s", got)
-	}
-	if strings.Contains(got, "--mr") {
-		t.Fatalf("prompt must not hardcode --mr (cs-cloud reads CS_CLOUD_CODE_PROVIDER):\n%s", got)
 	}
 	if strings.Contains(got, "平台会自动") || strings.Contains(got, "平台自动提交") {
 		t.Fatalf("prompt must NOT say platform auto-MR (old wording):\n%s", got)
@@ -1513,6 +1521,13 @@ func TestRepositoryDeliverableEnv_InjectedForAnyDeliverable(t *testing.T) {
 		if _, ok := env[key]; ok {
 			t.Errorf("expected %s to be omitted; credentialed clone URLs should not be dispatched", key)
 		}
+	}
+	var refs []repositoryDeliverableRefJSON
+	if err := json.Unmarshal([]byte(env["CS_CLOUD_GITEA_DELIVERABLES"]), &refs); err != nil {
+		t.Fatalf("parse CS_CLOUD_GITEA_DELIVERABLES: %v", err)
+	}
+	if len(refs) != 1 || !refs[0].Required {
+		t.Fatalf("deliverable refs = %+v, want one required ref", refs)
 	}
 }
 
@@ -2785,10 +2800,13 @@ func TestBuildCSCloudPayload_AddsDeliveryRepoAfterSafetyNet(t *testing.T) {
 	}
 }
 
-// TestBuildCSCloudPayload_NonWorkerPhaseHasRepoContextButNoDeliverables is a regression guard
-// for runtime node tasks: critic/checking phases do not submit deliverables, but
-// they still need the same code and delivery repository context in cs-cloud.
-func TestBuildCSCloudPayload_NonWorkerPhaseHasDeliveryRepoButNoCodeRepo(t *testing.T) {
+// TestBuildCSCloudPayload_CriticPhaseGetsReadOnlyCodeRepo verifies that a critic
+// phase receives the code repos + tokens it needs to review the worker's code-MR
+// deliverables (clone/fetch to inspect diffs), but READ-ONLY: no
+// CS_CLOUD_CODE_PROVIDER (no submit routing) and no worker "Code Repositories"
+// prompt that advertises editing/submitting. The Gitea delivery repo also stays,
+// since a critic may review document deliverables too.
+func TestBuildCSCloudPayload_CriticPhaseGetsReadOnlyCodeRepo(t *testing.T) {
 	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
 	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://gitea.test")
 
@@ -2826,7 +2844,7 @@ func TestBuildCSCloudPayload_NonWorkerPhaseHasDeliveryRepoButNoCodeRepo(t *testi
 		RuntimeID:         mdb.runtime.ID,
 		WorkflowNodeRunID: mdb.nodeRun.ID,
 		Status:            "queued",
-		Context:           []byte(`{"phase":"critic"}`), // not worker
+		Context:           []byte(`{"phase":"critic"}`),
 	}
 
 	payload, err := svc.buildCSCloudPayload(context.Background(), task, mdb.runtime)
@@ -2836,7 +2854,7 @@ func TestBuildCSCloudPayload_NonWorkerPhaseHasDeliveryRepoButNoCodeRepo(t *testi
 	if len(payload.Deliverables) != 0 {
 		t.Errorf("critic phase must not emit deliverables; got %+v", payload.Deliverables)
 	}
-	// Delivery (Gitea) context stays — a critic may review deliverables.
+	// Delivery (Gitea) context stays — a critic may review document deliverables.
 	for _, key := range []string{
 		"CS_CLOUD_GITEA_OWNER",
 		"CS_CLOUD_GITEA_TOKEN",
@@ -2846,31 +2864,43 @@ func TestBuildCSCloudPayload_NonWorkerPhaseHasDeliveryRepoButNoCodeRepo(t *testi
 			t.Errorf("critic phase missing %s in env: %+v", key, payload.Env)
 		}
 	}
-	// Code-repo context is worker-only — a non-worker phase must not carry it.
-	for _, key := range []string{
-		"CS_CLOUD_GITLAB_TOKEN",
-		"CS_CLOUD_GITLAB_BASE_URL",
-		"CS_CLOUD_CODE_PROVIDER",
-	} {
-		if _, ok := payload.Env[key]; ok {
-			t.Errorf("critic phase must not carry code-repo env %s: %+v", key, payload.Env)
-		}
+	// Critic gets READ access to code repos so it can clone/fetch the worker's
+	// code-MR deliverables and inspect diffs — same tokens as the worker.
+	if got := payload.Env["CS_CLOUD_GITLAB_TOKEN"]; got != "gitlab-pat" {
+		t.Fatalf("CS_CLOUD_GITLAB_TOKEN = %q, want gitlab-pat", got)
 	}
-	if strings.Contains(payload.Prompt, "## Code Repositories") {
-		t.Errorf("critic prompt must not include the Code Repositories section")
+	if got := payload.Env["CS_CLOUD_GITLAB_BASE_URL"]; got != "https://gitlab.local" {
+		t.Fatalf("CS_CLOUD_GITLAB_BASE_URL = %q, want https://gitlab.local", got)
 	}
+	// ...but NOT CS_CLOUD_CODE_PROVIDER — that drives cs-cloud's submit routing
+	// and a critic must never submit.
+	if _, ok := payload.Env["CS_CLOUD_CODE_PROVIDER"]; ok {
+		t.Errorf("critic phase must not carry CS_CLOUD_CODE_PROVIDER: %+v", payload.Env)
+	}
+	// Read-only prompt: not the worker edit/submit section, and no submit hint.
+	if strings.Contains(payload.Prompt, "## Code Repositories\n") {
+		t.Errorf("critic prompt must not include the worker Code Repositories section")
+	}
+	if strings.Contains(payload.Prompt, "deliverable submit --repo") {
+		t.Errorf("critic prompt must not advertise the code submit path")
+	}
+	if !strings.Contains(payload.Prompt, "Read-Only Review") {
+		t.Errorf("critic prompt must include the read-only review section")
+	}
+	// Both the code repo (to review code-MR deliverables) and the delivery repo
+	// (for document deliverables) are present.
 	foundCode := false
 	foundDelivery := false
 	for _, r := range payload.Repos {
-		if r.Role == "code" {
+		if r.Role == "code" && r.Provider == "gitlab" && r.URL == "https://gitlab.local/root/demo.git" {
 			foundCode = true
 		}
 		if r.Role == "delivery" {
 			foundDelivery = true
 		}
 	}
-	if foundCode {
-		t.Fatalf("critic phase must not carry a code repo: %+v", payload.Repos)
+	if !foundCode {
+		t.Fatalf("critic phase missing code repo for review: %+v", payload.Repos)
 	}
 	if !foundDelivery {
 		t.Fatalf("critic phase missing delivery repo context: %+v", payload.Repos)

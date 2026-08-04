@@ -400,6 +400,13 @@ func TestSubmitNodeRunDeliverable_AgentAttribution(t *testing.T) {
 	taskID := createHandlerTestTaskForAgent(t, agentID)
 
 	nodeRunID, docID := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
+	if _, err := testPool.Exec(context.Background(), `
+		UPDATE multica_agent_task_queue
+		SET status = 'running', workflow_node_run_id = $2
+		WHERE id = $1
+	`, taskID, nodeRunID); err != nil {
+		t.Fatalf("bind task to node run: %v", err)
+	}
 	t.Cleanup(func() {
 		testPool.Exec(context.Background(), `DELETE FROM multica_workflow_node_deliverable_submission WHERE workflow_node_run_id = $1`, nodeRunID)
 	})
@@ -445,6 +452,78 @@ func TestSubmitNodeRunDeliverable_AgentAttribution(t *testing.T) {
 			t.Errorf("submitted_by_type = %v, want member", resp["submitted_by_type"])
 		}
 	})
+}
+
+func TestSubmitNodeRunDeliverable_RejectsAgentTaskForDifferentNodeRun(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	agentID := createHandlerTestAgent(t, "wrong-node-run-submit-agent", nil)
+	// This helper creates a normal queued issue task with no workflow_node_run_id.
+	// It belongs to the same agent, but it must not authorize submissions for
+	// this node run.
+	foreignTaskID := createHandlerTestTaskForAgent(t, agentID)
+	nodeRunID, docID := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM multica_workflow_node_deliverable_submission WHERE workflow_node_run_id = $1`, nodeRunID)
+	})
+
+	req := newRequest(http.MethodPost, "/api/node-runs/"+nodeRunID+"/deliverables/"+docID+"/submit",
+		map[string]any{"pull_request_url": "https://gitea.test/t-aaa/wf-bbb/pulls/foreign"})
+	req = withURLParams(req, "nodeRunId", nodeRunID, "deliverableId", docID)
+	req.Header.Set("X-Agent-ID", agentID)
+	req.Header.Set("X-Task-ID", foreignTaskID)
+	rec := httptest.NewRecorder()
+	testHandler.SubmitNodeRunDeliverable(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 for agent task not bound to node run. body=%s", rec.Code, rec.Body.String())
+	}
+	var count int
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT count(*)
+		FROM multica_workflow_node_deliverable_submission
+		WHERE workflow_node_run_id = $1
+	`, nodeRunID).Scan(&count); err != nil {
+		t.Fatalf("count submissions: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("foreign task created %d submissions, want 0", count)
+	}
+}
+
+func TestCreateAgentDefinedDeliverable_RejectsAgentTaskForDifferentNodeRun(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	agentID := createHandlerTestAgent(t, "wrong-node-run-create-deliverable-agent", nil)
+	foreignTaskID := createHandlerTestTaskForAgent(t, agentID)
+	nodeRunID, _ := seedDeliverableAndNodeRunIn(t, testWorkspaceID, testUserID)
+
+	req := newRequest(http.MethodPost, "/api/node-runs/"+nodeRunID+"/deliverables",
+		map[string]any{"title": "agent extra"})
+	req = withURLParams(req, "nodeRunId", nodeRunID)
+	req.Header.Set("X-Agent-ID", agentID)
+	req.Header.Set("X-Task-ID", foreignTaskID)
+	rec := httptest.NewRecorder()
+	testHandler.CreateAgentDefinedDeliverable(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 for agent task not bound to node run. body=%s", rec.Code, rec.Body.String())
+	}
+	var count int
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT count(*)
+		FROM multica_workflow_node_run_deliverable
+		WHERE workflow_node_run_id = $1 AND title = 'agent extra'
+	`, nodeRunID).Scan(&count); err != nil {
+		t.Fatalf("count deliverables: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("foreign task created %d agent-defined deliverables, want 0", count)
+	}
 }
 
 func TestSubmitNodeRunDeliverable_BindsCurrentSplitGeneration(t *testing.T) {

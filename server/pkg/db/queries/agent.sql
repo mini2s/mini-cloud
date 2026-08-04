@@ -141,10 +141,10 @@ INSERT INTO multica_agent_task_queue (
 SELECT
     p.agent_id, COALESCE(sqlc.narg('runtime_id')::uuid, p.runtime_id), p.issue_id, p.chat_session_id, p.autopilot_run_id,
     'queued', p.priority, p.trigger_comment_id, p.trigger_summary, p.context,
-    CASE WHEN p.failure_reason IS NOT DISTINCT FROM 'codex_semantic_inactivity' THEN NULL ELSE p.session_id END,
-    CASE WHEN p.failure_reason IS NOT DISTINCT FROM 'codex_semantic_inactivity' THEN NULL ELSE p.work_dir END,
+    CASE WHEN COALESCE(p.failure_reason, '') IN ('iteration_limit', 'agent_fallback_message', 'agent_empty_output', 'completion_rejected', 'missing_required_deliverable', 'api_invalid_request', 'codex_semantic_inactivity') THEN NULL ELSE p.session_id END,
+    CASE WHEN COALESCE(p.failure_reason, '') IN ('iteration_limit', 'agent_fallback_message', 'agent_empty_output', 'completion_rejected', 'missing_required_deliverable', 'api_invalid_request', 'codex_semantic_inactivity') THEN NULL ELSE p.work_dir END,
     p.attempt + 1, p.max_attempts, p.id,
-    p.failure_reason IS NOT DISTINCT FROM 'codex_semantic_inactivity',
+    COALESCE(p.failure_reason, '') IN ('iteration_limit', 'agent_fallback_message', 'agent_empty_output', 'completion_rejected', 'missing_required_deliverable', 'api_invalid_request', 'codex_semantic_inactivity'),
     p.is_leader_task,
     p.workflow_node_run_id
 FROM multica_agent_task_queue p
@@ -334,7 +334,7 @@ WHERE agent_id = $1 AND issue_id = $2
     status = 'completed'
     OR (
       status = 'failed'
-      AND COALESCE(failure_reason, '') NOT IN ('iteration_limit', 'agent_fallback_message', 'api_invalid_request', 'codex_semantic_inactivity')
+      AND COALESCE(failure_reason, '') NOT IN ('iteration_limit', 'agent_fallback_message', 'agent_empty_output', 'completion_rejected', 'missing_required_deliverable', 'api_invalid_request', 'codex_semantic_inactivity')
       AND NOT (COALESCE(error, '') ILIKE '%400%' AND COALESCE(error, '') ILIKE '%invalid_request_error%')
     )
   )

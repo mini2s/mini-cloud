@@ -377,6 +377,51 @@ func TestRetryNodeRunRevivesFailedRunAndCancelledDownstream(t *testing.T) {
 	}
 }
 
+func TestRetryNodeRunClearsResumeUnsafeSessionBinding(t *testing.T) {
+	cases := []struct {
+		reason    string
+		wantClear bool
+	}{
+		{reason: "missing_required_deliverable", wantClear: true},
+		{reason: "timeout", wantClear: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.reason, func(t *testing.T) {
+			fixture := newWorkflowDispatchFixture(t)
+			if _, err := fixture.pool.Exec(fixture.ctx, `
+				UPDATE multica_workflow_node_run
+				SET runtime_id = $2, device_id = 'device-old', session_id = 'session-old'
+				WHERE id = $1
+			`, fixture.nodeRunID, fixture.runtimeID); err != nil {
+				t.Fatal(err)
+			}
+			nodeRun, err := fixture.queries.GetWorkflowNodeRun(fixture.ctx, fixture.nodeRunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := fixture.service.failWorkflowFromNode(fixture.ctx, nodeRun, NodeRunStatusFailed, tc.reason); err != nil {
+				t.Fatal(err)
+			}
+			failed, err := fixture.queries.GetWorkflowNodeRun(fixture.ctx, fixture.nodeRunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := fixture.service.RetryNodeRun(fixture.ctx, failed); err != nil {
+				t.Fatal(err)
+			}
+			retried, err := fixture.queries.GetWorkflowNodeRun(fixture.ctx, fixture.nodeRunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			gotClear := !retried.SessionID.Valid && !retried.RuntimeID.Valid && !retried.DeviceID.Valid
+			if gotClear != tc.wantClear {
+				t.Fatalf("session binding cleared=%v, want %v (runtime=%v device=%v session=%v)",
+					gotClear, tc.wantClear, retried.RuntimeID.Valid, retried.DeviceID.Valid, retried.SessionID.Valid)
+			}
+		})
+	}
+}
+
 func TestRetryNodeRunActivatesRevivedNodeWithSatisfiedUpstreams(t *testing.T) {
 	fixture := newWorkflowDispatchFixture(t)
 	var upstreamNodeRunID, siblingNodeRunID pgtype.UUID

@@ -2482,6 +2482,20 @@ func (q *Queries) UpdateWorkflowNodeRunRework(ctx context.Context, arg UpdateWor
 	return i, err
 }
 
+const clearWorkflowNodeRunSession = `-- name: ClearWorkflowNodeRunSession :exec
+UPDATE multica_workflow_node_run SET
+    runtime_id = NULL,
+    device_id = NULL,
+    session_id = NULL,
+    updated_at = now()
+WHERE id = $1
+`
+
+func (q *Queries) ClearWorkflowNodeRunSession(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, clearWorkflowNodeRunSession, id)
+	return err
+}
+
 const updateWorkflowNodeRunStatus = `-- name: UpdateWorkflowNodeRunStatus :one
 UPDATE multica_workflow_node_run SET
     status = $2,
