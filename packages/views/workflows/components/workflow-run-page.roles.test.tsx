@@ -30,6 +30,13 @@ vi.mock("@tanstack/react-query", () => ({
   },
 }));
 vi.mock("@multica/core/hooks", () => ({ useWorkspaceId: () => "ws-1" }));
+vi.mock("@multica/core/paths", () => ({
+  useWorkspacePaths: () => ({
+    workflowRunDiagnostics: (workflowId: string, runId: string) =>
+      `/ws/workflows/${workflowId}/runs/${runId}/diagnostics`,
+  }),
+}));
+vi.mock("../../navigation", () => ({ useNavigation: () => ({ push: vi.fn() }) }));
 vi.mock("@multica/core/auth", () => ({
   useAuthStore: (selector: (state: unknown) => unknown) => selector({
     user: mocks.currentUserId ? { id: mocks.currentUserId } : null,
@@ -57,6 +64,7 @@ vi.mock("../../i18n", () => {
     run: {
       status: { resolving_roles: "Resolving roles", waiting_role_assignment: "Waiting", running: "Running" },
       cancelling: "Cancelling", cancel: "Cancel", node_runs: "Node runs",
+      diagnostics: { entry: "Diagnostics" },
       roles: {
         resolving: "Resolving workflow roles", waiting: "Waiting for role assignment",
         invalidated: "A member is no longer active", title: "Role assignments", retry: "Retry",

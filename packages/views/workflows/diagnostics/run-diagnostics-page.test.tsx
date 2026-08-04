@@ -1,0 +1,263 @@
+// @vitest-environment jsdom
+
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import type { ReactNode } from "react";
+import { WorkflowRunDiagnosticsPage } from "./run-diagnostics-page";
+
+const mocks = vi.hoisted(() => ({
+  data: null as unknown,
+  pushed: [] as string[],
+}));
+
+vi.mock("@tanstack/react-query", () => ({
+  useQuery: () => ({ data: mocks.data, isLoading: false }),
+}));
+
+vi.mock("@multica/core/hooks", () => ({
+  useWorkspaceId: () => "ws-1",
+}));
+
+vi.mock("@multica/core/workflows/queries", () => ({
+  workflowRunCanvasSummaryOptions: () => ({ queryKey: ["canvas-summary"] }),
+}));
+
+vi.mock("@multica/core/paths", () => ({
+  useWorkspacePaths: () => ({
+    workflowRunDetail: (workflowId: string, runId: string) => `/ws/workflows/${workflowId}/runs/${runId}`,
+  }),
+}));
+
+vi.mock("../../navigation", () => ({
+  useNavigation: () => ({
+    push: (path: string) => {
+      mocks.pushed.push(path);
+    },
+  }),
+}));
+
+vi.mock("../../layout/page-header", () => ({
+  PageHeader: ({ children, className }: { children: ReactNode; className?: string }) => (
+    <div className={className}>{children}</div>
+  ),
+}));
+
+const translations = {
+  detail: { not_found: "Not found" },
+  run: {
+    status: { running: "Running", completed: "Completed", failed: "Failed", cancelled: "Cancelled" },
+    diagnostics: {
+      title: "Run diagnostics",
+      stage: {
+        pending: "Pending dispatch",
+        dispatching: "Dispatching",
+        dispatched: "Dispatched",
+        running: "Running",
+        awaiting_review: "Awaiting review",
+        terminal: "Finished",
+      },
+      step_dispatch: "Dispatch",
+      step_claim: "Claim",
+      step_execute: "Execute",
+      attempt: "Attempt {{current}}/{{max}}",
+      dispatched_at: "Dispatched {{time}}",
+      started_at: "Started {{time}}",
+      no_task: "No task dispatched yet",
+      error: "Error",
+      summary_nodes: "{{completed}}/{{total}} nodes completed",
+      hint: {
+        stage: {
+          pending: "Waiting for upstream nodes to complete",
+          dispatching: "Task queued, waiting for a runtime to claim it",
+          dispatched: "Runtime claimed the task, execution is starting",
+          running: "Task is executing",
+          awaiting_review: "Waiting for review or input",
+          terminal: "This node has finished",
+        },
+        running_retry: "Previous attempt failed; retrying",
+        failure: {
+          timeout: "Task timed out",
+          agent_empty_output: "Agent produced no output",
+        },
+      },
+    },
+  },
+};
+
+vi.mock("../../i18n", () => ({
+  useT: () => ({
+    t: (selector: (value: typeof translations) => string) => selector(translations),
+  }),
+}));
+
+function summary(overrides: Record<string, unknown>) {
+  return {
+    workflow_node_id: "node-1",
+    node_run_id: "nr-1",
+    display_status: "in_progress",
+    active_actor_type: "agent",
+    active_actor_id: null,
+    duration_seconds: null,
+    session_id: null,
+    runtime_id: null,
+    device_id: null,
+    has_error: false,
+    error_message: "",
+    split_progress: null,
+    diagnostics: null,
+    ...overrides,
+  };
+}
+
+function baseData(nodeRuns: unknown[], summaries: unknown[]) {
+  return {
+    run: {
+      id: "run-1",
+      workflow_id: "wf-1",
+      workflow_title: "Release workflow",
+      status: "running",
+    },
+    node_runs: nodeRuns,
+    node_runtime_summaries: summaries,
+  };
+}
+
+describe("WorkflowRunDiagnosticsPage", () => {
+  beforeEach(() => {
+    mocks.data = null;
+    mocks.pushed = [];
+  });
+
+  it("shows not-found when the run is missing", () => {
+    mocks.data = { run: null, node_runs: [], node_runtime_summaries: [] };
+    render(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
+    expect(screen.getByText("Not found")).toBeInTheDocument();
+  });
+
+  it("renders each node with its lifecycle stage", () => {
+    mocks.data = baseData(
+      [
+        { id: "nr-1", node_title: "Design", status: "working" },
+        { id: "nr-2", node_title: "Implement", status: "pending" },
+      ],
+      [
+        summary({
+          node_run_id: "nr-1",
+          diagnostics: { lifecycle_stage: "running", current_task: null, hint: "hint.stage.running" },
+        }),
+        summary({
+          workflow_node_id: "node-2",
+          node_run_id: "nr-2",
+          display_status: "pending",
+          diagnostics: { lifecycle_stage: "pending", current_task: null, hint: "hint.stage.pending" },
+        }),
+      ],
+    );
+    render(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
+    expect(screen.getByText("Design")).toBeInTheDocument();
+    expect(screen.getByText("Implement")).toBeInTheDocument();
+    // "Running" appears both in the run-status badge and the node stage badge.
+    expect(screen.getAllByText("Running").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Pending dispatch")).toBeInTheDocument();
+  });
+
+  it("expands failed nodes by default and shows the error", () => {
+    mocks.data = baseData(
+      [{ id: "nr-1", node_title: "Design", status: "failed" }],
+      [
+        summary({
+          display_status: "blocked",
+          has_error: true,
+          error_message: "Max turns reached",
+          diagnostics: {
+            lifecycle_stage: "terminal",
+            hint: "hint.failure.timeout",
+            current_task: {
+              task_id: "task-1",
+              status: "failed",
+              phase: "worker",
+              attempt: 2,
+              max_attempts: 3,
+              dispatched_at: "2026-08-04T09:00:00Z",
+              started_at: null,
+              completed_at: null,
+              failure_reason: "timeout",
+              error: "Max turns reached",
+            },
+          },
+        }),
+      ],
+    );
+    render(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
+    // Failed rows start expanded — error text visible without clicking.
+    expect(screen.getAllByText("Max turns reached").length).toBeGreaterThan(0);
+    expect(screen.getByText("Task timed out")).toBeInTheDocument();
+    expect(screen.getByText("Attempt {{current}}/{{max}}")).toBeInTheDocument();
+  });
+
+  it("keeps healthy nodes collapsed until clicked", () => {
+    mocks.data = baseData(
+      [{ id: "nr-1", node_title: "Design", status: "working" }],
+      [
+        summary({
+          diagnostics: {
+            lifecycle_stage: "running",
+            hint: "hint.stage.running",
+            current_task: {
+              task_id: "task-1",
+              status: "running",
+              phase: "worker",
+              attempt: 1,
+              max_attempts: 3,
+              dispatched_at: null,
+              started_at: null,
+              completed_at: null,
+              failure_reason: "",
+              error: "",
+            },
+          },
+        }),
+      ],
+    );
+    render(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
+    expect(screen.queryByText("Task is executing")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Design"));
+    expect(screen.getByText("Task is executing")).toBeInTheDocument();
+  });
+
+  it("falls back to the raw status when diagnostics is null (older server)", () => {
+    mocks.data = baseData(
+      [{ id: "nr-1", node_title: "Design", status: "working" }],
+      [summary({ diagnostics: null })],
+    );
+    render(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
+    expect(screen.getByText("working")).toBeInTheDocument();
+  });
+
+  it("shows the raw reason suffix for unknown failure hint keys (enum drift)", () => {
+    mocks.data = baseData(
+      [{ id: "nr-1", node_title: "Design", status: "failed" }],
+      [
+        summary({
+          display_status: "blocked",
+          has_error: true,
+          error_message: "boom",
+          diagnostics: {
+            lifecycle_stage: "terminal",
+            hint: "hint.failure.some_new_reason",
+            current_task: null,
+          },
+        }),
+      ],
+    );
+    render(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
+    expect(screen.getByText("some_new_reason")).toBeInTheDocument();
+  });
+
+  it("navigates back to the run page from the header", () => {
+    mocks.data = baseData([], []);
+    render(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
+    fireEvent.click(screen.getByText("Release workflow"));
+    expect(mocks.pushed).toEqual(["/ws/workflows/wf-1/runs/run-1"]);
+  });
+});

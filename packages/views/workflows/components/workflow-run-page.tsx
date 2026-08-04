@@ -36,6 +36,8 @@ import {
   type WorkflowRuntimeSelectionPolicy,
 } from "@multica/core/types";
 import { useAuthStore } from "@multica/core/auth";
+import { useWorkspacePaths } from "@multica/core/paths";
+import { useNavigation } from "../../navigation";
 import { ExecutionPanoramaPage } from "../../issues/components/execution";
 
 const TERMINAL_RUN_STATES = new Set(["completed", "failed", "cancelled"]);
@@ -184,6 +186,8 @@ function formatWorkflowRoleRetryError(t: WorkflowTranslator, error: unknown): st
 export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
   const { t } = useT("workflows");
   const wsId = useWorkspaceId();
+  const wsPaths = useWorkspacePaths();
+  const navigation = useNavigation();
   const user = useAuthStore((state) => state.user);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const { data: run, isLoading: runLoading } = useQuery(workflowRunOptions(wsId, workflowId, runId));
@@ -344,6 +348,13 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
           ) : null}
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => navigation.push(wsPaths.workflowRunDiagnostics(workflowId, runId))}
+          >
+            {t(($) => $.run.diagnostics.entry)}
+          </Button>
           {canCancel && (
             <Button
               size="sm"
