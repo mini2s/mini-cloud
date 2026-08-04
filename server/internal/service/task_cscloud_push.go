@@ -576,10 +576,12 @@ func requireCodeRepoProviderEnv(repos []csCloudRepoSpec, tokens codeRepoTokens) 
 			needsGithub = true
 		}
 	}
+	// The GitLab token is optional: a public GitLab repo (or one the agent
+	// reaches another way) needs no token, so a missing token must not block
+	// dispatch. The token is still injected into the task env when present —
+	// see buildCSCloudPayload. Only validate that a GitLab repo URL resolves
+	// to a usable base URL.
 	if needsGitlab {
-		if strings.TrimSpace(tokens.GitlabToken) == "" {
-			return fmt.Errorf("missing GitLab token for cs-cloud code repository")
-		}
 		if codeRepoBaseURL(firstRepoURLForProvider(repos, "gitlab")) == "" {
 			return fmt.Errorf("missing GitLab base URL for cs-cloud code repository")
 		}

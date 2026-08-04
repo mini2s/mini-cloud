@@ -81,6 +81,7 @@ func runRuntimeSweeper(ctx context.Context, queries *db.Queries, liveness handle
 			sweepStaleRuntimes(ctx, queries, liveness, taskSvc, bus)
 			sweepStaleTasks(ctx, queries, taskSvc, bus)
 			sweepExpiredQueuedTasks(ctx, queries, taskSvc)
+			taskSvc.SweepStaleWorkflowTaskSessions(ctx)
 			gcRuntimes(ctx, queries, bus)
 		}
 	}

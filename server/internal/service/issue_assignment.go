@@ -143,6 +143,13 @@ func (s *IssueAssignmentService) AfterIssueAssigned(
 		if err != nil || agent.ArchivedAt.Valid || (!agent.RuntimeID.Valid && !agent.IsBuiltin) {
 			return nil
 		}
+		// Prefer the default-workflow single node so the issue has a trackable
+		// node that mirrors its status (and vice versa). Fall back to the bare
+		// agent-task queue when the default workflow is unavailable (e.g. Gitea
+		// unconfigured), preserving the legacy direct-dispatch path.
+		if s.startDefaultWorkflow(ctx, issue) {
+			return nil
+		}
 		runtimeID := runtimeSelection.RuntimeID
 		if agent.IsBuiltin {
 			if resolved := s.resolveIssueRuntime(ctx, issue, actor, runtimeSelection.Policy, runtimeID); resolved.Valid {
@@ -167,6 +174,12 @@ func (s *IssueAssignmentService) AfterIssueAssigned(
 		hasPending, err := s.Queries.HasPendingTaskForIssueAndAgent(ctx, db.HasPendingTaskForIssueAndAgentParams{IssueID: issue.ID, AgentID: squad.LeaderID})
 		if err != nil || hasPending {
 			return err
+		}
+		// Same default-workflow preference as the agent case: a trackable node
+		// whose status mirrors the issue. Fall back to the bare squad-leader
+		// task queue when the default workflow is unavailable.
+		if s.startDefaultWorkflow(ctx, issue) {
+			return nil
 		}
 		runtimeID := runtimeSelection.RuntimeID
 		if leader.IsBuiltin {

@@ -427,3 +427,181 @@ func TestWorkflowRunTerminalPublishesParentDone(t *testing.T) {
 		t.Fatalf("expected prev_status=in_progress, got %q", prev)
 	}
 }
+
+// newDirectIssueSyncFixture builds a default-style single-node run (workflow +
+// node + run + node_run) with a DIRECT issue linked via workflow_run_id and no
+// origin row — the shape used by member/agent/squad tasks. The returned
+// workflowSyncFixture.subIssue holds that direct issue (the issue under test).
+func newDirectIssueSyncFixture(t *testing.T, issueStatus string) workflowSyncFixture {
+	t.Helper()
+	ctx := context.Background()
+	suffix := time.Now().Format(time.RFC3339Nano)
+
+	var workflowID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow (
+			workspace_id, title, description, status, max_retries, created_by_type, created_by_id
+		)
+		VALUES ($1, $2, '', 'active', 0, 'member', $3)
+		RETURNING id
+	`, testWorkspaceID, "direct-sync workflow "+suffix, testUserID).Scan(&workflowID); err != nil {
+		t.Fatalf("create workflow: %v", err)
+	}
+
+	var nodeID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node (
+			workflow_id, title, description, position_x, position_y,
+			format_schema, worker_type, critic_type, sort_order
+		)
+		VALUES ($1, 'Do work', '', 0, 0, '{}'::jsonb, 'agent', 'human', 0)
+		RETURNING id
+	`, workflowID).Scan(&nodeID); err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+
+	var runID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_run (workflow_id, workspace_id, workflow_title, status, triggered_by_type)
+		VALUES ($1, $2, 'direct-sync run', 'running', 'member')
+		RETURNING id
+	`, workflowID, testWorkspaceID).Scan(&runID); err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	nodeRun, err := testHandler.Queries.CreateWorkflowNodeRun(ctx, db.CreateWorkflowNodeRunParams{
+		WorkflowRunID:  parseUUID(runID),
+		WorkflowNodeID: parseUUID(nodeID),
+		NodeTitle:      "Do work",
+		Status:         service.NodeRunStatusPending,
+		RetryCount:     0,
+		WorkerType:     "agent",
+		CriticType:     "human",
+	})
+	if err != nil {
+		t.Fatalf("create node run: %v", err)
+	}
+
+	number, err := testHandler.Queries.IncrementIssueCounter(ctx, parseUUID(testWorkspaceID))
+	if err != nil {
+		t.Fatalf("increment issue counter: %v", err)
+	}
+	// Direct issue: no origin_type/origin_id, linked to the run via workflow_run_id.
+	directIssue, err := testHandler.Queries.CreateIssueWithOrigin(ctx, db.CreateIssueWithOriginParams{
+		WorkspaceID:       parseUUID(testWorkspaceID),
+		Title:             "direct-sync issue " + suffix,
+		Status:            issueStatus,
+		Priority:          "medium",
+		ResponsibleUserID: parseUUID(testUserID),
+		CreatorType:       "member",
+		CreatorID:         parseUUID(testUserID),
+		Number:            number,
+		WorkflowID:        parseUUID(workflowID),
+		WorkflowRunID:     parseUUID(runID),
+	})
+	if err != nil {
+		t.Fatalf("create direct issue: %v", err)
+	}
+
+	t.Cleanup(func() {
+		ctx := context.Background()
+		testPool.Exec(ctx, `DELETE FROM multica_issue WHERE workflow_run_id = $1`, runID)
+		testPool.Exec(ctx, `DELETE FROM multica_workflow WHERE id = $1`, workflowID)
+	})
+
+	return workflowSyncFixture{
+		workflowID: workflowID,
+		runID:      runID,
+		nodeRun:    nodeRun,
+		subIssue:   directIssue,
+	}
+}
+
+// TestSyncDirectIssuePublishesStatusChanged: a default single-node run's direct
+// issue (member/agent/squad) must mirror node-run status changes. Here the node
+// reaches awaiting_critic and the in_progress issue must flip to in_review and
+// broadcast issue:updated. Previously the direct issue was invisible to the sync
+// (only origin sub-issues were found), so the board card froze mid-execution.
+func TestSyncDirectIssuePublishesStatusChanged(t *testing.T) {
+	fx := newDirectIssueSyncFixture(t, "in_progress")
+	getEvents := captureIssueUpdated()
+
+	nodeRun := fx.nodeRun
+	nodeRun.Status = service.NodeRunStatusAwaitingCritic
+	testHandler.syncSubIssueForNodeRun(context.Background(), nodeRun)
+
+	if got := issueStatusInDB(t, fx.subIssue.ID); got != "in_review" {
+		t.Fatalf("expected direct issue in_review, got %q", got)
+	}
+	matches := issueUpdatedEventsFor(getEvents(), uuidToString(fx.subIssue.ID))
+	if len(matches) != 1 {
+		t.Fatalf("expected exactly 1 issue:updated event for direct issue, got %d", len(matches))
+	}
+	payload := matches[0].Payload.(map[string]any)
+	if sc, _ := payload["status_changed"].(bool); !sc {
+		t.Fatalf("expected status_changed=true, payload: %v", payload)
+	}
+	if prev, _ := payload["prev_status"].(string); prev != "in_progress" {
+		t.Fatalf("expected prev_status=in_progress, got %q", prev)
+	}
+}
+
+// TestSyncDirectIssueWorkerAssignedDoesNotRegress guards the member case: a
+// member task is in_progress while its node waits in worker_assigned for a
+// deliverable upload. The sync must NOT drag it back to todo — for direct
+// issues worker_assigned maps to in_progress, not todo.
+func TestSyncDirectIssueWorkerAssignedDoesNotRegress(t *testing.T) {
+	fx := newDirectIssueSyncFixture(t, "in_progress")
+	getEvents := captureIssueUpdated()
+
+	nodeRun := fx.nodeRun
+	nodeRun.Status = service.NodeRunStatusWorkerAssigned
+	testHandler.syncSubIssueForNodeRun(context.Background(), nodeRun)
+
+	if got := issueStatusInDB(t, fx.subIssue.ID); got != "in_progress" {
+		t.Fatalf("expected direct issue to stay in_progress, got %q", got)
+	}
+	if matches := issueUpdatedEventsFor(getEvents(), uuidToString(fx.subIssue.ID)); len(matches) != 0 {
+		t.Fatalf("expected no issue:updated event, got %d", len(matches))
+	}
+}
+
+// TestSyncDirectIssueCompletedNoParentNotification: a direct issue has no parent,
+// so completing its node must flip it to done and broadcast, while skipping the
+// sub-issue-only parent notification / downstream injection.
+func TestSyncDirectIssueCompletedNoParentNotification(t *testing.T) {
+	fx := newDirectIssueSyncFixture(t, "in_progress")
+	getEvents := captureIssueUpdated()
+
+	nodeRun := fx.nodeRun
+	nodeRun.Status = service.NodeRunStatusCompleted
+	testHandler.syncSubIssueForNodeRun(context.Background(), nodeRun)
+
+	if got := issueStatusInDB(t, fx.subIssue.ID); got != "done" {
+		t.Fatalf("expected direct issue done, got %q", got)
+	}
+	matches := issueUpdatedEventsFor(getEvents(), uuidToString(fx.subIssue.ID))
+	if len(matches) != 1 {
+		t.Fatalf("expected exactly 1 issue:updated event for direct issue, got %d", len(matches))
+	}
+}
+
+// TestSyncDirectIssueCancelledDoesNotOverride: cancelling a direct issue's node
+// (the result of dragging the issue to todo/backlog, or reassigning) must NOT
+// echo back and rewrite the issue status. The user/system action already chose
+// the issue status; a cancelled node is a consequence, not a new signal.
+func TestSyncDirectIssueCancelledDoesNotOverride(t *testing.T) {
+	fx := newDirectIssueSyncFixture(t, "todo")
+	getEvents := captureIssueUpdated()
+
+	nodeRun := fx.nodeRun
+	nodeRun.Status = service.NodeRunStatusCancelled
+	testHandler.syncSubIssueForNodeRun(context.Background(), nodeRun)
+
+	if got := issueStatusInDB(t, fx.subIssue.ID); got != "todo" {
+		t.Fatalf("expected direct issue to stay todo, got %q", got)
+	}
+	if matches := issueUpdatedEventsFor(getEvents(), uuidToString(fx.subIssue.ID)); len(matches) != 0 {
+		t.Fatalf("expected no issue:updated event, got %d", len(matches))
+	}
+}
