@@ -2492,6 +2492,8 @@ func issueToMap(issue db.MulticaIssue, issuePrefix string) map[string]any {
 		"due_date":            util.TimestampToPtr(issue.DueDate),
 		"created_at":          util.TimestampToString(issue.CreatedAt),
 		"updated_at":          util.TimestampToString(issue.UpdatedAt),
+		"origin_type":         util.TextToPtr(issue.OriginType),
+		"origin_id":           util.UUIDToPtr(issue.OriginID),
 	}
 }
 

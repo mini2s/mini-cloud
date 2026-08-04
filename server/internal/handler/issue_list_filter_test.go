@@ -114,6 +114,58 @@ func TestListIssues_IncludeWorkflowOrigin(t *testing.T) {
 	}
 }
 
+// TestListIssues_IncludeOriginTypes verifies that
+// include_origin_types=workflow_split lifts the origin exclusion only for
+// split child issues: stage-generated 'workflow' origin issues stay hidden.
+func TestListIssues_IncludeOriginTypes(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+	suffix := time.Now().UnixNano()
+
+	parentID := insertIssueOriginFilterFixture(t, ctx, fmt.Sprintf("origin-types-parent-%d", suffix), "", "")
+	splitChildID := insertIssueOriginFilterFixture(t, ctx, fmt.Sprintf("origin-types-split-%d", suffix), "workflow_split", parentID)
+	workflowChildID := insertIssueOriginFilterFixture(t, ctx, fmt.Sprintf("origin-types-workflow-%d", suffix), "workflow", parentID)
+
+	path := fmt.Sprintf("/api/issues?workspace_id=%s&include_origin_types=workflow_split&limit=500", testWorkspaceID)
+	w := httptest.NewRecorder()
+	testHandler.ListIssues(w, newRequest("GET", path, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("ListIssues: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Issues []IssueResponse `json:"issues"`
+		Total  int64           `json:"total"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+
+	found := map[string]bool{}
+	for _, iss := range resp.Issues {
+		found[iss.ID] = true
+	}
+	if !found[parentID] {
+		t.Fatalf("list must include parent issue %s", parentID)
+	}
+	if !found[splitChildID] {
+		t.Fatalf("include_origin_types=workflow_split list must include split child %s", splitChildID)
+	}
+	if found[workflowChildID] {
+		t.Fatalf("include_origin_types=workflow_split list must still exclude workflow-origin child %s", workflowChildID)
+	}
+
+	badPath := fmt.Sprintf("/api/issues?workspace_id=%s&include_origin_types=bogus&limit=100", testWorkspaceID)
+	badW := httptest.NewRecorder()
+	testHandler.ListIssues(badW, newRequest("GET", badPath, nil))
+	if badW.Code != http.StatusBadRequest {
+		t.Fatalf("ListIssues with unknown origin type: expected 400, got %d: %s", badW.Code, badW.Body.String())
+	}
+}
+
 func TestChildIssueQueriesExcludeWorkflowOriginChildren(t *testing.T) {
 	query, err := os.ReadFile("../../pkg/db/queries/issue.sql")
 	if err != nil {
@@ -283,6 +335,51 @@ func TestListGroupedIssues_IncludeWorkflowOrigin(t *testing.T) {
 	}
 	if _, ok := findGroupedIssueResponse(resp.Groups, childID); !ok {
 		t.Fatalf("include_workflow_origin=true grouped list must include workflow-origin child %s", childID)
+	}
+}
+
+// TestListGroupedIssues_IncludeOriginTypes verifies that
+// include_origin_types=workflow_split lifts the origin exclusion only for
+// split child issues: stage-generated 'workflow' origin issues stay hidden.
+func TestListGroupedIssues_IncludeOriginTypes(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+	suffix := time.Now().UnixNano()
+
+	parentID := insertIssueOriginFilterFixture(t, ctx, fmt.Sprintf("grouped-origin-types-parent-%d", suffix), "", "")
+	splitChildID := insertIssueOriginFilterFixture(t, ctx, fmt.Sprintf("grouped-origin-types-split-%d", suffix), "workflow_split", parentID)
+	workflowChildID := insertIssueOriginFilterFixture(t, ctx, fmt.Sprintf("grouped-origin-types-workflow-%d", suffix), "workflow", parentID)
+
+	path := fmt.Sprintf("/api/issues/grouped?workspace_id=%s&group_by=assignee&statuses=todo&include_origin_types=workflow_split&limit=100", testWorkspaceID)
+	w := httptest.NewRecorder()
+	testHandler.ListGroupedIssues(w, newRequest("GET", path, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("ListGroupedIssues: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp GroupedIssuesResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode grouped response: %v", err)
+	}
+
+	if _, ok := findGroupedIssueResponse(resp.Groups, parentID); !ok {
+		t.Fatalf("grouped list must include parent issue %s", parentID)
+	}
+	if _, ok := findGroupedIssueResponse(resp.Groups, splitChildID); !ok {
+		t.Fatalf("include_origin_types=workflow_split grouped list must include split child %s", splitChildID)
+	}
+	if _, ok := findGroupedIssueResponse(resp.Groups, workflowChildID); ok {
+		t.Fatalf("include_origin_types=workflow_split grouped list must still exclude workflow-origin child %s", workflowChildID)
+	}
+
+	badPath := fmt.Sprintf("/api/issues/grouped?workspace_id=%s&group_by=assignee&include_origin_types=bogus&limit=100", testWorkspaceID)
+	badW := httptest.NewRecorder()
+	testHandler.ListGroupedIssues(badW, newRequest("GET", badPath, nil))
+	if badW.Code != http.StatusBadRequest {
+		t.Fatalf("ListGroupedIssues with unknown origin type: expected 400, got %d: %s", badW.Code, badW.Body.String())
 	}
 }
 

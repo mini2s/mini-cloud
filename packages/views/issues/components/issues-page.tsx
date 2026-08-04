@@ -78,6 +78,9 @@ export function IssuesPage() {
       project_ids: projectFilters,
       include_no_project: includeNoProject,
       label_ids: labelFilters,
+      // Split child issues belong in the swimlane next to manually created
+      // work; stage-generated "workflow" origin issues stay excluded.
+      include_origin_types: ["workflow_split"],
     };
     if (scope === "members") filter.assignee_types = ["member"];
     if (scope === "agents") filter.assignee_types = ["agent", "squad"];

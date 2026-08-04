@@ -10,6 +10,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Migration158LegacySplitRun struct {
+	WorkflowRunID pgtype.UUID `json:"workflow_run_id"`
+}
+
 type MulticaActivityLog struct {
 	ID          pgtype.UUID        `json:"id"`
 	WorkspaceID pgtype.UUID        `json:"workspace_id"`

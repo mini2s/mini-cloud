@@ -811,6 +811,10 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		// `$N::bool IS NULL` check to short-circuit and skip the filter.
 		excludeWorkflowOrigin = pgtype.Bool{Valid: false}
 	}
+	includeOriginTypes, ok := parseIncludeOriginTypes(w, r)
+	if !ok {
+		return
+	}
 
 	// open_only=true returns all non-done/cancelled issues (no limit).
 	if r.URL.Query().Get("open_only") == "true" {
@@ -825,6 +829,7 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 			InvolvesUserID:        involvesUserFilter,
 			MetadataFilter:        metadataFilter,
 			ExcludeWorkflowOrigin: excludeWorkflowOrigin,
+			IncludeOriginTypes:    includeOriginTypes,
 		})
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to list issues")
@@ -895,6 +900,7 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		Scheduled:             scheduledFilter,
 		MetadataFilter:        metadataFilter,
 		ExcludeWorkflowOrigin: excludeWorkflowOrigin,
+		IncludeOriginTypes:    includeOriginTypes,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list issues")
@@ -915,6 +921,7 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		Scheduled:             scheduledFilter,
 		MetadataFilter:        metadataFilter,
 		ExcludeWorkflowOrigin: excludeWorkflowOrigin,
+		IncludeOriginTypes:    includeOriginTypes,
 	})
 	if err != nil {
 		total = int64(len(issues))
@@ -963,6 +970,26 @@ func splitCommaParam(raw string) []string {
 
 func isIssueActorType(s string) bool {
 	return s == "member" || s == "agent" || s == "squad"
+}
+
+// workflowOriginTypes are the origin markers excluded from issue lists by
+// default. include_origin_types=<csv> lifts the exclusion for the listed
+// types only; anything outside this set is rejected.
+var workflowOriginTypes = map[string]bool{"workflow": true, "workflow_split": true}
+
+func parseIncludeOriginTypes(w http.ResponseWriter, r *http.Request) ([]string, bool) {
+	raw := r.URL.Query().Get("include_origin_types")
+	if raw == "" {
+		return nil, true
+	}
+	origins := splitCommaParam(raw)
+	for _, origin := range origins {
+		if !workflowOriginTypes[origin] {
+			writeError(w, http.StatusBadRequest, "invalid include_origin_types")
+			return nil, false
+		}
+	}
+	return origins, true
 }
 
 func parseUUIDParamList(w http.ResponseWriter, raw, fieldName string) ([]pgtype.UUID, bool) {
@@ -1049,8 +1076,29 @@ func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 		args = append(args, v)
 		return "$" + strconv.Itoa(len(args))
 	}
+	// Workflow-origin child issues are excluded by default.
+	// include_workflow_origin=true lifts the exclusion entirely;
+	// include_origin_types=<csv> lifts it only for the listed origin types
+	// (e.g. include_origin_types=workflow_split surfaces split child issues
+	// in the assignee swimlane while stage-generated "workflow" issues stay
+	// hidden).
 	if r.URL.Query().Get("include_workflow_origin") != "true" {
-		where = append(where, "(i.origin_type IS NULL OR i.origin_type NOT IN ('workflow', 'workflow_split'))")
+		excludedOrigins := map[string]bool{"workflow": true, "workflow_split": true}
+		includeOriginTypes, ok := parseIncludeOriginTypes(w, r)
+		if !ok {
+			return
+		}
+		for _, origin := range includeOriginTypes {
+			delete(excludedOrigins, origin)
+		}
+		if len(excludedOrigins) > 0 {
+			origins := make([]string, 0, len(excludedOrigins))
+			for origin := range excludedOrigins {
+				origins = append(origins, origin)
+			}
+			slices.Sort(origins)
+			where = append(where, fmt.Sprintf("(i.origin_type IS NULL OR NOT (i.origin_type = ANY(%s::text[])))", addArg(origins)))
+		}
 	}
 
 	statuses := splitCommaParam(r.URL.Query().Get("statuses"))

@@ -66,24 +66,29 @@ export function MyIssuesPage() {
   // `assigned` tab's semantics.
   const filter: MyIssuesFilter = useMemo(() => {
     if (!user) return {};
-    switch (scope) {
-      case "assigned":
-        return { assignee_id: user.id };
-      case "created":
-        return { creator_id: user.id };
-      case "responsible":
-        return { responsible_user_id: user.id };
-      case "agents":
-        return { involves_user_id: user.id };
-      case "all":
-        // "All" is the union of the three single-relation filters above;
-        // the per-relation user id is plumbed through `userId` to
-        // myIssue*Options. The filter object stays empty so it carries
-        // no narrowing of its own.
-        return {};
-      default:
-        return { assignee_id: user.id };
-    }
+    const scopeFilter = (() => {
+      switch (scope) {
+        case "assigned":
+          return { assignee_id: user.id };
+        case "created":
+          return { creator_id: user.id };
+        case "responsible":
+          return { responsible_user_id: user.id };
+        case "agents":
+          return { involves_user_id: user.id };
+        case "all":
+          // "All" is the union of the three single-relation filters above;
+          // the per-relation user id is plumbed through `userId` to
+          // myIssue*Options. The filter object stays empty so it carries
+          // no narrowing of its own.
+          return {};
+        default:
+          return { assignee_id: user.id };
+      }
+    })();
+    // Split child issues are real work owned by their assignee — surface
+    // them in every scope; stage-generated "workflow" origin stays hidden.
+    return { ...scopeFilter, include_origin_types: ["workflow_split"] };
   }, [scope, user]);
 
   const assigneeGroupFilter = useMemo<AssigneeGroupedIssuesFilter>(

@@ -13,6 +13,9 @@ export type IssuePriority = "urgent" | "high" | "medium" | "low" | "none";
 
 export type IssueAssigneeType = "member" | "agent" | "squad" | "workflow";
 
+/** Origin markers stamped on auto-generated child issues. */
+export type IssueOriginType = "workflow" | "workflow_split";
+
 export interface IssueReaction {
   id: string;
   issue_id: string;

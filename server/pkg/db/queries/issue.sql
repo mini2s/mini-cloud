@@ -12,7 +12,9 @@ FROM multica_issue i
 WHERE i.workspace_id = $1
   AND (sqlc.narg('exclude_workflow_origin')::bool IS NULL
        OR i.origin_type IS NULL
-       OR i.origin_type NOT IN ('workflow', 'workflow_split'))
+       OR i.origin_type NOT IN ('workflow', 'workflow_split')
+       OR (sqlc.narg('include_origin_types')::text[] IS NOT NULL
+           AND i.origin_type = ANY(sqlc.narg('include_origin_types')::text[])))
   AND (sqlc.narg('status')::text IS NULL OR i.status = sqlc.narg('status'))
   AND (sqlc.narg('priority')::text IS NULL OR i.priority = sqlc.narg('priority'))
   AND (sqlc.narg('assignee_id')::uuid IS NULL OR i.assignee_id = sqlc.narg('assignee_id'))
@@ -181,7 +183,9 @@ WHERE i.workspace_id = $1
   AND i.status NOT IN ('done', 'cancelled')
   AND (sqlc.narg('exclude_workflow_origin')::bool IS NULL
        OR i.origin_type IS NULL
-       OR i.origin_type NOT IN ('workflow', 'workflow_split'))
+       OR i.origin_type NOT IN ('workflow', 'workflow_split')
+       OR (sqlc.narg('include_origin_types')::text[] IS NOT NULL
+           AND i.origin_type = ANY(sqlc.narg('include_origin_types')::text[])))
   AND (sqlc.narg('priority')::text IS NULL OR i.priority = sqlc.narg('priority'))
   AND (sqlc.narg('assignee_id')::uuid IS NULL OR i.assignee_id = sqlc.narg('assignee_id'))
   AND (sqlc.narg('assignee_ids')::uuid[] IS NULL OR i.assignee_id = ANY(sqlc.narg('assignee_ids')::uuid[]))
@@ -229,7 +233,9 @@ SELECT count(*) FROM multica_issue i
 WHERE i.workspace_id = $1
   AND (sqlc.narg('exclude_workflow_origin')::bool IS NULL
        OR i.origin_type IS NULL
-       OR i.origin_type NOT IN ('workflow', 'workflow_split'))
+       OR i.origin_type NOT IN ('workflow', 'workflow_split')
+       OR (sqlc.narg('include_origin_types')::text[] IS NOT NULL
+           AND i.origin_type = ANY(sqlc.narg('include_origin_types')::text[])))
   AND (sqlc.narg('status')::text IS NULL OR i.status = sqlc.narg('status'))
   AND (sqlc.narg('priority')::text IS NULL OR i.priority = sqlc.narg('priority'))
   AND (sqlc.narg('assignee_id')::uuid IS NULL OR i.assignee_id = sqlc.narg('assignee_id'))

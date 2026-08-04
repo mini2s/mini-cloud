@@ -119,7 +119,7 @@ func (q *Queries) GetNodeRunDeliverableRequirementForSubmission(ctx context.Cont
 }
 
 const getNodeRunDeliverableSubmission = `-- name: GetNodeRunDeliverableSubmission :one
-SELECT id, workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id, status, content, attachment_id, pull_request_url, review_comment, submitted_at, reviewed_at, created_at, updated_at FROM multica_workflow_node_deliverable_submission
+SELECT id, workflow_node_run_id, deliverable_id, submitted_by_type, submitted_by_id, status, content, attachment_id, pull_request_url, review_comment, submitted_at, reviewed_at, created_at, updated_at, pull_request_title FROM multica_workflow_node_deliverable_submission
 WHERE id = $1
 `
 
@@ -141,6 +141,7 @@ func (q *Queries) GetNodeRunDeliverableSubmission(ctx context.Context, id pgtype
 		&i.ReviewedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PullRequestTitle,
 	)
 	return i, err
 }

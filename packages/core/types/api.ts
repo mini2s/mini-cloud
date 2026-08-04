@@ -1,4 +1,4 @@
-import type { Issue, IssueMetadata, IssueStatus, IssuePriority, IssueAssigneeType } from "./issue";
+import type { Issue, IssueMetadata, IssueStatus, IssuePriority, IssueAssigneeType, IssueOriginType } from "./issue";
 import type { MemberRole } from "./workspace";
 import type { Project } from "./project";
 import type { WorkflowRuntimeSelectionPolicy } from "./workflow";
@@ -84,6 +84,13 @@ export interface ListIssuesParams {
   scheduled?: boolean;
   /** Include child issues created by workflow stages in the result. Defaults to false on server. */
   include_workflow_origin?: boolean;
+  /**
+   * Lift the default workflow-origin exclusion for the listed origin types
+   * only — e.g. ["workflow_split"] surfaces split child issues while
+   * stage-generated "workflow" issues stay hidden. Finer-grained than
+   * `include_workflow_origin`.
+   */
+  include_origin_types?: IssueOriginType[];
 }
 
 export interface IssueActorRef {
@@ -117,6 +124,13 @@ export interface ListGroupedIssuesParams {
   label_ids?: string[];
   group_assignee_type?: IssueAssigneeType | "none";
   group_assignee_id?: string;
+  /**
+   * Lift the default workflow-origin exclusion for the listed origin types
+   * only — e.g. ["workflow_split"] surfaces split child issues in the
+   * assignee swimlane while stage-generated "workflow" issues stay hidden.
+   * Ignored when `include_workflow_origin=true` is sent.
+   */
+  include_origin_types?: IssueOriginType[];
 }
 
 /** Raw backend response shape for `GET /api/issues`. */

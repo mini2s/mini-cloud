@@ -153,22 +153,24 @@ SELECT count(*) FROM multica_issue i
 WHERE i.workspace_id = $1
   AND ($2::bool IS NULL
        OR i.origin_type IS NULL
-       OR i.origin_type NOT IN ('workflow', 'workflow_split'))
-  AND ($3::text IS NULL OR i.status = $3)
-  AND ($4::text IS NULL OR i.priority = $4)
-  AND ($5::uuid IS NULL OR i.assignee_id = $5)
-  AND ($6::uuid[] IS NULL OR i.assignee_id = ANY($6::uuid[]))
-  AND ($7::uuid IS NULL OR i.creator_id = $7)
-  AND ($8::uuid IS NULL OR i.responsible_user_id = $8)
-  AND ($9::uuid IS NULL OR i.project_id = $9)
-  AND ($10::bool IS NULL OR (i.start_date IS NOT NULL OR i.due_date IS NOT NULL))
-  AND ($11::jsonb IS NULL OR i.metadata @> $11::jsonb)
+       OR i.origin_type NOT IN ('workflow', 'workflow_split')
+       OR ($3::text[] IS NOT NULL
+           AND i.origin_type = ANY($3::text[])))
+  AND ($4::text IS NULL OR i.status = $4)
+  AND ($5::text IS NULL OR i.priority = $5)
+  AND ($6::uuid IS NULL OR i.assignee_id = $6)
+  AND ($7::uuid[] IS NULL OR i.assignee_id = ANY($7::uuid[]))
+  AND ($8::uuid IS NULL OR i.creator_id = $8)
+  AND ($9::uuid IS NULL OR i.responsible_user_id = $9)
+  AND ($10::uuid IS NULL OR i.project_id = $10)
+  AND ($11::bool IS NULL OR (i.start_date IS NOT NULL OR i.due_date IS NOT NULL))
+  AND ($12::jsonb IS NULL OR i.metadata @> $12::jsonb)
   AND (
-    $12::uuid IS NULL
+    $13::uuid IS NULL
     OR (i.assignee_type = 'agent' AND i.assignee_id IN (
           SELECT a.id FROM multica_agent a
            WHERE a.workspace_id = $1
-             AND a.owner_id     = $12::uuid
+             AND a.owner_id     = $13::uuid
     ))
     OR (i.assignee_type = 'squad' AND i.assignee_id IN (
           SELECT sm.squad_id
@@ -176,14 +178,14 @@ WHERE i.workspace_id = $1
             JOIN multica_squad s ON s.id = sm.squad_id
            WHERE s.workspace_id = $1
              AND sm.member_type = 'member'
-             AND sm.member_id   = $12::uuid
+             AND sm.member_id   = $13::uuid
           UNION
           SELECT s.id
             FROM multica_squad s
             JOIN multica_agent a ON a.id = s.leader_id
            WHERE s.workspace_id = $1
              AND a.workspace_id = $1
-             AND a.owner_id     = $12::uuid
+             AND a.owner_id     = $13::uuid
           UNION
           SELECT sm.squad_id
             FROM multica_squad_member sm
@@ -192,7 +194,7 @@ WHERE i.workspace_id = $1
            WHERE s.workspace_id = $1
              AND sm.member_type = 'agent'
              AND a.workspace_id = $1
-             AND a.owner_id     = $12::uuid
+             AND a.owner_id     = $13::uuid
     ))
   )
 `
@@ -200,6 +202,7 @@ WHERE i.workspace_id = $1
 type CountIssuesParams struct {
 	WorkspaceID           pgtype.UUID   `json:"workspace_id"`
 	ExcludeWorkflowOrigin pgtype.Bool   `json:"exclude_workflow_origin"`
+	IncludeOriginTypes    []string      `json:"include_origin_types"`
 	Status                pgtype.Text   `json:"status"`
 	Priority              pgtype.Text   `json:"priority"`
 	AssigneeID            pgtype.UUID   `json:"assignee_id"`
@@ -217,6 +220,7 @@ func (q *Queries) CountIssues(ctx context.Context, arg CountIssuesParams) (int64
 	row := q.db.QueryRow(ctx, countIssues,
 		arg.WorkspaceID,
 		arg.ExcludeWorkflowOrigin,
+		arg.IncludeOriginTypes,
 		arg.Status,
 		arg.Priority,
 		arg.AssigneeID,
@@ -977,23 +981,25 @@ FROM multica_issue i
 WHERE i.workspace_id = $1
   AND ($4::bool IS NULL
        OR i.origin_type IS NULL
-       OR i.origin_type NOT IN ('workflow', 'workflow_split'))
-  AND ($5::text IS NULL OR i.status = $5)
-  AND ($6::text IS NULL OR i.priority = $6)
-  AND ($7::uuid IS NULL OR i.assignee_id = $7)
-  AND ($8::uuid[] IS NULL OR i.assignee_id = ANY($8::uuid[]))
-  AND ($9::uuid IS NULL OR i.creator_id = $9)
-  AND ($10::uuid IS NULL OR i.responsible_user_id = $10)
-  AND ($11::uuid IS NULL OR i.project_id = $11)
-  AND ($12::bool IS NULL OR (i.start_date IS NOT NULL OR i.due_date IS NOT NULL))
-  AND ($13::jsonb IS NULL OR i.metadata @> $13::jsonb)
+       OR i.origin_type NOT IN ('workflow', 'workflow_split')
+       OR ($5::text[] IS NOT NULL
+           AND i.origin_type = ANY($5::text[])))
+  AND ($6::text IS NULL OR i.status = $6)
+  AND ($7::text IS NULL OR i.priority = $7)
+  AND ($8::uuid IS NULL OR i.assignee_id = $8)
+  AND ($9::uuid[] IS NULL OR i.assignee_id = ANY($9::uuid[]))
+  AND ($10::uuid IS NULL OR i.creator_id = $10)
+  AND ($11::uuid IS NULL OR i.responsible_user_id = $11)
+  AND ($12::uuid IS NULL OR i.project_id = $12)
+  AND ($13::bool IS NULL OR (i.start_date IS NOT NULL OR i.due_date IS NOT NULL))
+  AND ($14::jsonb IS NULL OR i.metadata @> $14::jsonb)
   AND (
-    $14::uuid IS NULL
+    $15::uuid IS NULL
     -- (1) assignee is an multica_agent owned by the user
     OR (i.assignee_type = 'agent' AND i.assignee_id IN (
           SELECT a.id FROM multica_agent a
            WHERE a.workspace_id = $1
-             AND a.owner_id     = $14::uuid
+             AND a.owner_id     = $15::uuid
     ))
     -- (2)(3)(4) assignee is a multica_squad related to the user — three relations
     OR (i.assignee_type = 'squad' AND i.assignee_id IN (
@@ -1003,7 +1009,7 @@ WHERE i.workspace_id = $1
             JOIN multica_squad s ON s.id = sm.squad_id
            WHERE s.workspace_id = $1
              AND sm.member_type = 'member'
-             AND sm.member_id   = $14::uuid
+             AND sm.member_id   = $15::uuid
           UNION
           -- (3) the multica_squad's canonical leader is an multica_agent owned by the user.
           -- We read multica_squad.leader_id directly rather than relying on a
@@ -1014,7 +1020,7 @@ WHERE i.workspace_id = $1
             JOIN multica_agent a ON a.id = s.leader_id
            WHERE s.workspace_id = $1
              AND a.workspace_id = $1
-             AND a.owner_id     = $14::uuid
+             AND a.owner_id     = $15::uuid
           UNION
           -- (4) the multica_squad has an multica_agent multica_member owned by the user
           SELECT sm.squad_id
@@ -1024,7 +1030,7 @@ WHERE i.workspace_id = $1
            WHERE s.workspace_id = $1
              AND sm.member_type = 'agent'
              AND a.workspace_id = $1
-             AND a.owner_id     = $14::uuid
+             AND a.owner_id     = $15::uuid
     ))
   )
 ORDER BY i.position ASC, i.created_at DESC
@@ -1036,6 +1042,7 @@ type ListIssuesParams struct {
 	Limit                 int32         `json:"limit"`
 	Offset                int32         `json:"offset"`
 	ExcludeWorkflowOrigin pgtype.Bool   `json:"exclude_workflow_origin"`
+	IncludeOriginTypes    []string      `json:"include_origin_types"`
 	Status                pgtype.Text   `json:"status"`
 	Priority              pgtype.Text   `json:"priority"`
 	AssigneeID            pgtype.UUID   `json:"assignee_id"`
@@ -1088,6 +1095,7 @@ func (q *Queries) ListIssues(ctx context.Context, arg ListIssuesParams) ([]ListI
 		arg.Limit,
 		arg.Offset,
 		arg.ExcludeWorkflowOrigin,
+		arg.IncludeOriginTypes,
 		arg.Status,
 		arg.Priority,
 		arg.AssigneeID,
@@ -1152,20 +1160,22 @@ WHERE i.workspace_id = $1
   AND i.status NOT IN ('done', 'cancelled')
   AND ($2::bool IS NULL
        OR i.origin_type IS NULL
-       OR i.origin_type NOT IN ('workflow', 'workflow_split'))
-  AND ($3::text IS NULL OR i.priority = $3)
-  AND ($4::uuid IS NULL OR i.assignee_id = $4)
-  AND ($5::uuid[] IS NULL OR i.assignee_id = ANY($5::uuid[]))
-  AND ($6::uuid IS NULL OR i.creator_id = $6)
-  AND ($7::uuid IS NULL OR i.responsible_user_id = $7)
-  AND ($8::uuid IS NULL OR i.project_id = $8)
-  AND ($9::jsonb IS NULL OR i.metadata @> $9::jsonb)
+       OR i.origin_type NOT IN ('workflow', 'workflow_split')
+       OR ($3::text[] IS NOT NULL
+           AND i.origin_type = ANY($3::text[])))
+  AND ($4::text IS NULL OR i.priority = $4)
+  AND ($5::uuid IS NULL OR i.assignee_id = $5)
+  AND ($6::uuid[] IS NULL OR i.assignee_id = ANY($6::uuid[]))
+  AND ($7::uuid IS NULL OR i.creator_id = $7)
+  AND ($8::uuid IS NULL OR i.responsible_user_id = $8)
+  AND ($9::uuid IS NULL OR i.project_id = $9)
+  AND ($10::jsonb IS NULL OR i.metadata @> $10::jsonb)
   AND (
-    $10::uuid IS NULL
+    $11::uuid IS NULL
     OR (i.assignee_type = 'agent' AND i.assignee_id IN (
           SELECT a.id FROM multica_agent a
            WHERE a.workspace_id = $1
-             AND a.owner_id     = $10::uuid
+             AND a.owner_id     = $11::uuid
     ))
     OR (i.assignee_type = 'squad' AND i.assignee_id IN (
           SELECT sm.squad_id
@@ -1173,14 +1183,14 @@ WHERE i.workspace_id = $1
             JOIN multica_squad s ON s.id = sm.squad_id
            WHERE s.workspace_id = $1
              AND sm.member_type = 'member'
-             AND sm.member_id   = $10::uuid
+             AND sm.member_id   = $11::uuid
           UNION
           SELECT s.id
             FROM multica_squad s
             JOIN multica_agent a ON a.id = s.leader_id
            WHERE s.workspace_id = $1
              AND a.workspace_id = $1
-             AND a.owner_id     = $10::uuid
+             AND a.owner_id     = $11::uuid
           UNION
           SELECT sm.squad_id
             FROM multica_squad_member sm
@@ -1189,7 +1199,7 @@ WHERE i.workspace_id = $1
            WHERE s.workspace_id = $1
              AND sm.member_type = 'agent'
              AND a.workspace_id = $1
-             AND a.owner_id     = $10::uuid
+             AND a.owner_id     = $11::uuid
     ))
   )
 ORDER BY i.position ASC, i.created_at DESC
@@ -1198,6 +1208,7 @@ ORDER BY i.position ASC, i.created_at DESC
 type ListOpenIssuesParams struct {
 	WorkspaceID           pgtype.UUID   `json:"workspace_id"`
 	ExcludeWorkflowOrigin pgtype.Bool   `json:"exclude_workflow_origin"`
+	IncludeOriginTypes    []string      `json:"include_origin_types"`
 	Priority              pgtype.Text   `json:"priority"`
 	AssigneeID            pgtype.UUID   `json:"assignee_id"`
 	AssigneeIds           []pgtype.UUID `json:"assignee_ids"`
@@ -1242,6 +1253,7 @@ func (q *Queries) ListOpenIssues(ctx context.Context, arg ListOpenIssuesParams) 
 	rows, err := q.db.Query(ctx, listOpenIssues,
 		arg.WorkspaceID,
 		arg.ExcludeWorkflowOrigin,
+		arg.IncludeOriginTypes,
 		arg.Priority,
 		arg.AssigneeID,
 		arg.AssigneeIds,

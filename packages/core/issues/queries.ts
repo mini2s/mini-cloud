@@ -69,7 +69,7 @@ export const issueKeys = {
 
 export type MyIssuesFilter = Pick<
   ListIssuesParams,
-  "assignee_id" | "assignee_ids" | "creator_id" | "responsible_user_id" | "project_id" | "involves_user_id"
+  "assignee_id" | "assignee_ids" | "creator_id" | "responsible_user_id" | "project_id" | "involves_user_id" | "include_origin_types"
 >;
 
 export type AssigneeGroupedIssuesFilter = Omit<
@@ -85,11 +85,23 @@ export const PAGINATED_STATUSES: readonly IssueStatus[] = BOARD_STATUSES;
 export const GRAPH_STATUSES: readonly IssueStatus[] = ALL_STATUSES;
 
 /** Flatten a bucketed response to a single Issue[] for consumers that want the whole list. */
-export function flattenIssueBuckets(data: ListIssuesCache) {
+export function flattenIssueBuckets(
+  data: ListIssuesCache,
+  opts?: { keepOriginTypes?: readonly string[] },
+) {
+  const keep = new Set(opts?.keepOriginTypes ?? []);
   const out = [];
   for (const status of PAGINATED_STATUSES) {
     const bucket = data.byStatus[status];
-    if (bucket) out.push(...bucket.issues.filter((issue) => !isWorkflowOriginIssue(issue)));
+    if (bucket) {
+      out.push(
+        ...bucket.issues.filter(
+          (issue) =>
+            !isWorkflowOriginIssue(issue) ||
+            (issue.origin_type != null && keep.has(issue.origin_type)),
+        ),
+      );
+    }
   }
   return out;
 }
@@ -150,10 +162,10 @@ async function fetchAllIssues(): Promise<Issue[]> {
  */
 async function fetchAllMyFirstPages(userId: string): Promise<ListIssuesCache> {
   const [byAssignee, byCreator, byResponsible, byInvolves] = await Promise.all([
-    fetchFirstPages({ assignee_id: userId }),
-    fetchFirstPages({ creator_id: userId }),
-    fetchFirstPages({ responsible_user_id: userId }),
-    fetchFirstPages({ involves_user_id: userId }),
+    fetchFirstPages({ assignee_id: userId, include_origin_types: ["workflow_split"] }),
+    fetchFirstPages({ creator_id: userId, include_origin_types: ["workflow_split"] }),
+    fetchFirstPages({ responsible_user_id: userId, include_origin_types: ["workflow_split"] }),
+    fetchFirstPages({ involves_user_id: userId, include_origin_types: ["workflow_split"] }),
   ]);
   const byStatus: ListIssuesCache["byStatus"] = {};
   for (const status of PAGINATED_STATUSES) {
@@ -292,7 +304,9 @@ export function myIssueListOptions(
       scope === "all" && userId
         ? fetchAllMyFirstPages(userId)
         : fetchFirstPages(filter),
-    select: flattenIssueBuckets,
+    // My Issues surfaces split child issues (they are real assigned work);
+    // stage-generated "workflow" origin issues stay hidden.
+    select: (data) => flattenIssueBuckets(data, { keepOriginTypes: ["workflow_split"] }),
   });
 }
 
