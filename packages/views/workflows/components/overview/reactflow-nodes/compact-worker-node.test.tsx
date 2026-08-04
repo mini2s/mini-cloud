@@ -401,7 +401,7 @@ describe("CompactWorkerNode", () => {
     expect(screen.queryByText("Needs worker")).not.toBeInTheDocument();
   });
 
-  it("renders split nodes with split-specific card semantics instead of worker metadata", () => {
+  it("renders split nodes with execution policy plus the same worker and critic actor slots as task nodes", () => {
     const rfn = {
       id: "split-1",
       type: "compactWorker",
@@ -425,23 +425,42 @@ describe("CompactWorkerNode", () => {
           },
         }),
         pluginName: undefined,
-        workerName: undefined,
+        workerName: "Split Planner",
+        workerIdentity: {
+          ...baseData.workerIdentity!,
+          name: "Split Planner",
+        },
+        criticIdentity: {
+          type: "member",
+          id: "member-1",
+          name: "Split Reviewer",
+          typeLabel: "Member",
+          initials: "SR",
+          avatarUrl: null,
+        },
+        workerConfigured: true,
+        criticConfigured: true,
       },
     } as Node;
     renderWithProvider(rfn);
 
     expect(screen.getByText("Task split")).toBeInTheDocument();
+    expect(screen.getByTestId("compact-worker-node-worker-role-split-1")).toHaveTextContent("Split Planner");
+    expect(screen.getByTestId("compact-worker-node-worker-role-split-1")).toHaveTextContent("Digital human");
+    expect(screen.getByTestId("compact-worker-node-critic-role-split-1")).toHaveTextContent("Split Reviewer");
+    expect(screen.getByTestId("compact-worker-node-critic-role-split-1")).toHaveTextContent("Member");
+    expect(screen.getByText("Localized Worker")).toBeInTheDocument();
+    expect(screen.getByText("Localized Critic")).toBeInTheDocument();
+    expect(screen.getByText("Execution policy")).toBeInTheDocument();
     expect(screen.getByText("barrier")).toBeInTheDocument();
     expect(screen.getByText("Concurrency 5 · Max failures 0")).toBeInTheDocument();
     expect(screen.queryByText("Implementation workflow")).not.toBeInTheDocument();
     expect(screen.queryByText("Child workflow")).not.toBeInTheDocument();
-    expect(screen.getByText("Execution policy")).toBeInTheDocument();
-    expect(screen.queryByText("GPT-4 Agent")).not.toBeInTheDocument();
     expect(screen.queryByTestId("compact-worker-node-badge-split-1")).not.toBeInTheDocument();
 
     const meta = screen.getByTestId("compact-worker-node-meta-split-1");
     expect(meta).toHaveClass("border-t");
-    expect(meta).not.toHaveClass("grid-cols-2");
+    expect(meta.className).toContain("grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)_minmax(0,1fr)]");
 
     const node = screen.getByTestId("compact-worker-split-1");
     const surface = node.querySelector('[data-node-shape-surface="true"]');

@@ -71,7 +71,7 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
       : isSplit
         ? "Task split node"
         : nodeData.workerName ?? nodeData.pluginName ?? workerTypeLabel(nodeData.node.worker_type);
-  const workerConfigured = isAnnotation || isGateway || isSplit ? true : nodeData.workerConfigured ?? Boolean(nodeData.node.worker_id);
+  const workerConfigured = isAnnotation || isGateway ? true : nodeData.workerConfigured ?? Boolean(nodeData.node.worker_id);
   const workerLabel = isGateway
     ? gatewayText
     : isSplit
@@ -146,7 +146,7 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
         {isSplit ? (
           <div
             data-testid={`compact-worker-node-meta-${id}`}
-            className="grid grid-rows-[12px_42px] gap-y-1 border-t border-border/45 pt-2"
+            className="grid grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)_minmax(0,1fr)] grid-rows-[12px_42px] gap-x-2 gap-y-1 border-t border-border/45 pt-2"
           >
             <div className="grid row-span-2 min-w-0 grid-rows-subgrid gap-1">
               <span className="block text-[9px] font-bold uppercase leading-3 text-muted-foreground">
@@ -158,11 +158,31 @@ export const CompactWorkerNode = memo(function CompactWorkerNode({
                   className="mt-[5px] size-1.5 shrink-0 rounded-full bg-blue-500 shadow-[0_0_0_3px_rgba(59,130,246,0.12)]"
                 />
                 <span className="min-w-0">
-                  <span className="block font-semibold leading-4 text-foreground/85">{splitMode}</span>
-                  <span className="block text-[10px] leading-3 text-muted-foreground line-clamp-2">{splitPolicySummary}</span>
+                  <span className="block truncate font-semibold leading-4 text-foreground/85" title={splitMode}>
+                    {splitMode}
+                  </span>
+                  <span className="block text-[10px] leading-3 text-muted-foreground line-clamp-2" title={splitPolicySummary}>
+                    {splitPolicySummary}
+                  </span>
                 </span>
               </span>
             </div>
+            <WorkflowActorSlot
+              testId={`compact-worker-node-worker-role-${id}`}
+              slot="worker"
+              label={t(($) => $.panorama.card.worker_label)}
+              identity={nodeData.workerIdentity}
+              fallback={t(($) => $.panorama.card.actor_not_configured)}
+              state={workerConfigured ? "configured" : "missing"}
+            />
+            <WorkflowActorSlot
+              testId={`compact-worker-node-critic-role-${id}`}
+              slot="critic"
+              label={t(($) => $.panorama.card.critic_label)}
+              identity={nodeData.criticIdentity}
+              fallback={t(($) => $.panorama.card.actor_optional)}
+              state={nodeData.criticConfigured === true ? "configured" : "optional"}
+            />
           </div>
         ) : isAnnotation || isGateway ? (
           <div
