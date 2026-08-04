@@ -145,9 +145,6 @@ const (
 	// Split workflow lifecycle events
 	EventSplitGenerationDispatched = "split_generation_dispatched"
 	EventSplitContextRendered      = "split_context_rendered"
-	EventSplitDraftAdded           = "split_draft_added"
-	EventSplitDraftSubmitFailed    = "split_draft_submit_failed"
-	EventSplitDraftSubmitted       = "split_draft_submitted"
 	EventSplitReviewReady          = "split_review_ready"
 	EventSplitApproved             = "split_approved"
 	EventSplitChildIssueCreated    = "split_child_issue_created"

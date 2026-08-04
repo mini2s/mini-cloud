@@ -31,114 +31,40 @@ func (q *Queries) CancelOpenSplitTask(ctx context.Context, id pgtype.UUID) (int6
 	return result.RowsAffected(), nil
 }
 
-const cancelOpenSplitTasksByNodeRun = `-- name: CancelOpenSplitTasksByNodeRun :exec
-UPDATE multica_workflow_split_task
-SET status = CASE
-      WHEN issue_id IS NULL THEN 'discarded'
-      WHEN run_id IS NULL THEN 'skipped'
-      ELSE 'cancelled'
-    END,
-    updated_at = now()
-WHERE node_run_id = $1
-  AND status NOT IN ('done', 'failed', 'cancelled', 'skipped', 'discarded')
-`
-
-func (q *Queries) CancelOpenSplitTasksByNodeRun(ctx context.Context, nodeRunID pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, cancelOpenSplitTasksByNodeRun, nodeRunID)
-	return err
-}
-
-const claimSplitTaskForRunStart = `-- name: ClaimSplitTaskForRunStart :one
-UPDATE multica_workflow_split_task
-SET dispatch_key = $2::text,
-    updated_at = now()
-WHERE id = $1
-  AND status = 'created'
-  AND run_id IS NULL
-  AND (dispatch_key IS NULL OR dispatch_key = $2::text)
-RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
-`
-
-type ClaimSplitTaskForRunStartParams struct {
-	ID          pgtype.UUID `json:"id"`
-	DispatchKey string      `json:"dispatch_key"`
-}
-
-func (q *Queries) ClaimSplitTaskForRunStart(ctx context.Context, arg ClaimSplitTaskForRunStartParams) (MulticaWorkflowSplitTask, error) {
-	row := q.db.QueryRow(ctx, claimSplitTaskForRunStart, arg.ID, arg.DispatchKey)
-	var i MulticaWorkflowSplitTask
-	err := row.Scan(
-		&i.ID,
-		&i.NodeRunID,
-		&i.WorkspaceID,
-		&i.Title,
-		&i.Description,
-		&i.DependsOn,
-		&i.SortOrder,
-		&i.Status,
-		&i.IssueID,
-		&i.RunID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DraftKey,
-		&i.DraftSource,
-		&i.WorkflowID,
-		&i.Version,
-		&i.DispatchKey,
-		&i.LastError,
-		&i.AssigneeType,
-		&i.AssigneeID,
-	)
-	return i, err
-}
-
-const countSplitTasksByNodeRun = `-- name: CountSplitTasksByNodeRun :one
-SELECT count(*)::bigint
-FROM multica_workflow_split_task
-WHERE node_run_id = $1
-  AND status <> 'discarded'
-`
-
-func (q *Queries) CountSplitTasksByNodeRun(ctx context.Context, nodeRunID pgtype.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, countSplitTasksByNodeRun, nodeRunID)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
-const createSplitTask = `-- name: CreateSplitTask :one
+const createMaterializationSplitTask = `-- name: CreateMaterializationSplitTask :one
 INSERT INTO multica_workflow_split_task (
-    node_run_id, workspace_id, draft_key, title, description,
-    depends_on, sort_order, status, draft_source
+    node_run_id, workspace_id, split_plan_generation, draft_key, title,
+    description, depends_on, sort_order, status,
+    assignee_type, assignee_id
 ) VALUES (
-    $1, $2, $8, $3, $4,
-    $5, $6, $7, $9
-) RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
+    $1, $2, $3, $4, $5,
+    $6, '[]'::jsonb, $7, 'created',
+    'member', $8
+)
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id, split_plan_generation, materialize_retry_count, materialize_next_attempt_at
 `
 
-type CreateSplitTaskParams struct {
-	NodeRunID   pgtype.UUID `json:"node_run_id"`
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
-	Title       string      `json:"title"`
-	Description string      `json:"description"`
-	DependsOn   []byte      `json:"depends_on"`
-	SortOrder   int32       `json:"sort_order"`
-	Status      string      `json:"status"`
-	DraftKey    pgtype.Text `json:"draft_key"`
-	DraftSource pgtype.Text `json:"draft_source"`
+type CreateMaterializationSplitTaskParams struct {
+	NodeRunID           pgtype.UUID `json:"node_run_id"`
+	WorkspaceID         pgtype.UUID `json:"workspace_id"`
+	SplitPlanGeneration pgtype.Int4 `json:"split_plan_generation"`
+	DraftKey            pgtype.Text `json:"draft_key"`
+	Title               string      `json:"title"`
+	Description         string      `json:"description"`
+	SortOrder           int32       `json:"sort_order"`
+	AssigneeID          pgtype.UUID `json:"assignee_id"`
 }
 
-func (q *Queries) CreateSplitTask(ctx context.Context, arg CreateSplitTaskParams) (MulticaWorkflowSplitTask, error) {
-	row := q.db.QueryRow(ctx, createSplitTask,
+func (q *Queries) CreateMaterializationSplitTask(ctx context.Context, arg CreateMaterializationSplitTaskParams) (MulticaWorkflowSplitTask, error) {
+	row := q.db.QueryRow(ctx, createMaterializationSplitTask,
 		arg.NodeRunID,
 		arg.WorkspaceID,
+		arg.SplitPlanGeneration,
+		arg.DraftKey,
 		arg.Title,
 		arg.Description,
-		arg.DependsOn,
 		arg.SortOrder,
-		arg.Status,
-		arg.DraftKey,
-		arg.DraftSource,
+		arg.AssigneeID,
 	)
 	var i MulticaWorkflowSplitTask
 	err := row.Scan(
@@ -162,6 +88,9 @@ func (q *Queries) CreateSplitTask(ctx context.Context, arg CreateSplitTaskParams
 		&i.LastError,
 		&i.AssigneeType,
 		&i.AssigneeID,
+		&i.SplitPlanGeneration,
+		&i.MaterializeRetryCount,
+		&i.MaterializeNextAttemptAt,
 	)
 	return i, err
 }
@@ -174,7 +103,7 @@ SET status = 'failed',
 WHERE issue_id = $2
   AND run_id IS NULL
   AND status IN ('created', 'running')
-RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id, split_plan_generation, materialize_retry_count, materialize_next_attempt_at
 `
 
 type FailSplitTaskExecutionByIssueParams struct {
@@ -206,45 +135,15 @@ func (q *Queries) FailSplitTaskExecutionByIssue(ctx context.Context, arg FailSpl
 		&i.LastError,
 		&i.AssigneeType,
 		&i.AssigneeID,
-	)
-	return i, err
-}
-
-const getSplitTask = `-- name: GetSplitTask :one
-SELECT id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id FROM multica_workflow_split_task
-WHERE id = $1
-`
-
-func (q *Queries) GetSplitTask(ctx context.Context, id pgtype.UUID) (MulticaWorkflowSplitTask, error) {
-	row := q.db.QueryRow(ctx, getSplitTask, id)
-	var i MulticaWorkflowSplitTask
-	err := row.Scan(
-		&i.ID,
-		&i.NodeRunID,
-		&i.WorkspaceID,
-		&i.Title,
-		&i.Description,
-		&i.DependsOn,
-		&i.SortOrder,
-		&i.Status,
-		&i.IssueID,
-		&i.RunID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DraftKey,
-		&i.DraftSource,
-		&i.WorkflowID,
-		&i.Version,
-		&i.DispatchKey,
-		&i.LastError,
-		&i.AssigneeType,
-		&i.AssigneeID,
+		&i.SplitPlanGeneration,
+		&i.MaterializeRetryCount,
+		&i.MaterializeNextAttemptAt,
 	)
 	return i, err
 }
 
 const getSplitTaskByIssueID = `-- name: GetSplitTaskByIssueID :one
-SELECT id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id FROM multica_workflow_split_task
+SELECT id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id, split_plan_generation, materialize_retry_count, materialize_next_attempt_at FROM multica_workflow_split_task
 WHERE issue_id = $1
 `
 
@@ -272,18 +171,67 @@ func (q *Queries) GetSplitTaskByIssueID(ctx context.Context, issueID pgtype.UUID
 		&i.LastError,
 		&i.AssigneeType,
 		&i.AssigneeID,
+		&i.SplitPlanGeneration,
+		&i.MaterializeRetryCount,
+		&i.MaterializeNextAttemptAt,
 	)
 	return i, err
 }
 
-const listSplitTasksByNodeRun = `-- name: ListSplitTasksByNodeRun :many
-SELECT id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id FROM multica_workflow_split_task
-WHERE node_run_id = $1
-ORDER BY sort_order ASC, created_at ASC
+const getSplitTaskForUpdate = `-- name: GetSplitTaskForUpdate :one
+SELECT id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id, split_plan_generation, materialize_retry_count, materialize_next_attempt_at FROM multica_workflow_split_task
+WHERE id = $1
+FOR UPDATE
 `
 
-func (q *Queries) ListSplitTasksByNodeRun(ctx context.Context, nodeRunID pgtype.UUID) ([]MulticaWorkflowSplitTask, error) {
-	rows, err := q.db.Query(ctx, listSplitTasksByNodeRun, nodeRunID)
+func (q *Queries) GetSplitTaskForUpdate(ctx context.Context, id pgtype.UUID) (MulticaWorkflowSplitTask, error) {
+	row := q.db.QueryRow(ctx, getSplitTaskForUpdate, id)
+	var i MulticaWorkflowSplitTask
+	err := row.Scan(
+		&i.ID,
+		&i.NodeRunID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.DependsOn,
+		&i.SortOrder,
+		&i.Status,
+		&i.IssueID,
+		&i.RunID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DraftKey,
+		&i.DraftSource,
+		&i.WorkflowID,
+		&i.Version,
+		&i.DispatchKey,
+		&i.LastError,
+		&i.AssigneeType,
+		&i.AssigneeID,
+		&i.SplitPlanGeneration,
+		&i.MaterializeRetryCount,
+		&i.MaterializeNextAttemptAt,
+	)
+	return i, err
+}
+
+const listDueSplitTasksForMaterialization = `-- name: ListDueSplitTasksForMaterialization :many
+SELECT id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id, split_plan_generation, materialize_retry_count, materialize_next_attempt_at FROM multica_workflow_split_task
+WHERE node_run_id = $1
+  AND split_plan_generation = $2
+  AND issue_id IS NULL
+  AND status = 'created'
+  AND (materialize_next_attempt_at IS NULL OR materialize_next_attempt_at <= now())
+ORDER BY sort_order ASC, id ASC
+`
+
+type ListDueSplitTasksForMaterializationParams struct {
+	NodeRunID           pgtype.UUID `json:"node_run_id"`
+	SplitPlanGeneration pgtype.Int4 `json:"split_plan_generation"`
+}
+
+func (q *Queries) ListDueSplitTasksForMaterialization(ctx context.Context, arg ListDueSplitTasksForMaterializationParams) ([]MulticaWorkflowSplitTask, error) {
+	rows, err := q.db.Query(ctx, listDueSplitTasksForMaterialization, arg.NodeRunID, arg.SplitPlanGeneration)
 	if err != nil {
 		return nil, err
 	}
@@ -312,6 +260,9 @@ func (q *Queries) ListSplitTasksByNodeRun(ctx context.Context, nodeRunID pgtype.
 			&i.LastError,
 			&i.AssigneeType,
 			&i.AssigneeID,
+			&i.SplitPlanGeneration,
+			&i.MaterializeRetryCount,
+			&i.MaterializeNextAttemptAt,
 		); err != nil {
 			return nil, err
 		}
@@ -323,15 +274,20 @@ func (q *Queries) ListSplitTasksByNodeRun(ctx context.Context, nodeRunID pgtype.
 	return items, nil
 }
 
-const listSplitTasksByNodeRunForUpdate = `-- name: ListSplitTasksByNodeRunForUpdate :many
-SELECT id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id FROM multica_workflow_split_task
+const listSplitTasksByGeneration = `-- name: ListSplitTasksByGeneration :many
+SELECT id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id, split_plan_generation, materialize_retry_count, materialize_next_attempt_at FROM multica_workflow_split_task
 WHERE node_run_id = $1
-ORDER BY sort_order ASC, created_at ASC
-FOR UPDATE
+  AND split_plan_generation = $2
+ORDER BY sort_order ASC, id ASC
 `
 
-func (q *Queries) ListSplitTasksByNodeRunForUpdate(ctx context.Context, nodeRunID pgtype.UUID) ([]MulticaWorkflowSplitTask, error) {
-	rows, err := q.db.Query(ctx, listSplitTasksByNodeRunForUpdate, nodeRunID)
+type ListSplitTasksByGenerationParams struct {
+	NodeRunID           pgtype.UUID `json:"node_run_id"`
+	SplitPlanGeneration pgtype.Int4 `json:"split_plan_generation"`
+}
+
+func (q *Queries) ListSplitTasksByGeneration(ctx context.Context, arg ListSplitTasksByGenerationParams) ([]MulticaWorkflowSplitTask, error) {
+	rows, err := q.db.Query(ctx, listSplitTasksByGeneration, arg.NodeRunID, arg.SplitPlanGeneration)
 	if err != nil {
 		return nil, err
 	}
@@ -360,6 +316,9 @@ func (q *Queries) ListSplitTasksByNodeRunForUpdate(ctx context.Context, nodeRunI
 			&i.LastError,
 			&i.AssigneeType,
 			&i.AssigneeID,
+			&i.SplitPlanGeneration,
+			&i.MaterializeRetryCount,
+			&i.MaterializeNextAttemptAt,
 		); err != nil {
 			return nil, err
 		}
@@ -372,7 +331,7 @@ func (q *Queries) ListSplitTasksByNodeRunForUpdate(ctx context.Context, nodeRunI
 }
 
 const listSplitTasksByRunID = `-- name: ListSplitTasksByRunID :many
-SELECT st.id, st.node_run_id, st.workspace_id, st.title, st.description, st.depends_on, st.sort_order, st.status, st.issue_id, st.run_id, st.created_at, st.updated_at, st.draft_key, st.draft_source, st.workflow_id, st.version, st.dispatch_key, st.last_error, st.assignee_type, st.assignee_id
+SELECT st.id, st.node_run_id, st.workspace_id, st.title, st.description, st.depends_on, st.sort_order, st.status, st.issue_id, st.run_id, st.created_at, st.updated_at, st.draft_key, st.draft_source, st.workflow_id, st.version, st.dispatch_key, st.last_error, st.assignee_type, st.assignee_id, st.split_plan_generation, st.materialize_retry_count, st.materialize_next_attempt_at
 FROM multica_workflow_split_task st
 JOIN multica_workflow_run wr ON wr.id = st.run_id
 WHERE wr.id = $1
@@ -409,6 +368,9 @@ func (q *Queries) ListSplitTasksByRunID(ctx context.Context, id pgtype.UUID) ([]
 			&i.LastError,
 			&i.AssigneeType,
 			&i.AssigneeID,
+			&i.SplitPlanGeneration,
+			&i.MaterializeRetryCount,
+			&i.MaterializeNextAttemptAt,
 		); err != nil {
 			return nil, err
 		}
@@ -427,7 +389,7 @@ SET status = 'running',
     updated_at = now()
 WHERE id = $1
   AND status = 'created'
-RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id, split_plan_generation, materialize_retry_count, materialize_next_attempt_at
 `
 
 func (q *Queries) MarkSplitTaskRunningIfCreated(ctx context.Context, id pgtype.UUID) (MulticaWorkflowSplitTask, error) {
@@ -454,72 +416,28 @@ func (q *Queries) MarkSplitTaskRunningIfCreated(ctx context.Context, id pgtype.U
 		&i.LastError,
 		&i.AssigneeType,
 		&i.AssigneeID,
+		&i.SplitPlanGeneration,
+		&i.MaterializeRetryCount,
+		&i.MaterializeNextAttemptAt,
 	)
 	return i, err
 }
 
-const markSplitTasksApproved = `-- name: MarkSplitTasksApproved :exec
+const resetSplitTaskMaterializationRetry = `-- name: ResetSplitTaskMaterializationRetry :one
 UPDATE multica_workflow_split_task
-SET status = 'approved',
-    updated_at = now()
-WHERE node_run_id = $1
-  AND id = ANY($2::uuid[])
-  AND status = 'draft'
-`
-
-type MarkSplitTasksApprovedParams struct {
-	NodeRunID pgtype.UUID   `json:"node_run_id"`
-	Column2   []pgtype.UUID `json:"column_2"`
-}
-
-func (q *Queries) MarkSplitTasksApproved(ctx context.Context, arg MarkSplitTasksApprovedParams) error {
-	_, err := q.db.Exec(ctx, markSplitTasksApproved, arg.NodeRunID, arg.Column2)
-	return err
-}
-
-const markSplitTasksDiscardedExcept = `-- name: MarkSplitTasksDiscardedExcept :exec
-UPDATE multica_workflow_split_task
-SET status = 'discarded',
-    updated_at = now()
-WHERE node_run_id = $1
-  AND NOT (id = ANY($2::uuid[]))
-  AND status = 'draft'
-`
-
-type MarkSplitTasksDiscardedExceptParams struct {
-	NodeRunID pgtype.UUID   `json:"node_run_id"`
-	Column2   []pgtype.UUID `json:"column_2"`
-}
-
-func (q *Queries) MarkSplitTasksDiscardedExcept(ctx context.Context, arg MarkSplitTasksDiscardedExceptParams) error {
-	_, err := q.db.Exec(ctx, markSplitTasksDiscardedExcept, arg.NodeRunID, arg.Column2)
-	return err
-}
-
-const resetSplitTaskForRetry = `-- name: ResetSplitTaskForRetry :one
-UPDATE multica_workflow_split_task
-SET workflow_id = COALESCE($3, workflow_id),
-    run_id = NULL,
-    dispatch_key = NULL,
+SET materialize_retry_count = 0,
+    materialize_next_attempt_at = NULL,
     last_error = NULL,
     status = 'created',
-    version = version + 1,
     updated_at = now()
 WHERE id = $1
-  AND node_run_id = $2
-  AND status IN ('failed', 'cancelled', 'skipped')
-  AND issue_id IS NOT NULL
-RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
+  AND issue_id IS NULL
+  AND status = 'failed'
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id, split_plan_generation, materialize_retry_count, materialize_next_attempt_at
 `
 
-type ResetSplitTaskForRetryParams struct {
-	ID         pgtype.UUID `json:"id"`
-	NodeRunID  pgtype.UUID `json:"node_run_id"`
-	WorkflowID pgtype.UUID `json:"workflow_id"`
-}
-
-func (q *Queries) ResetSplitTaskForRetry(ctx context.Context, arg ResetSplitTaskForRetryParams) (MulticaWorkflowSplitTask, error) {
-	row := q.db.QueryRow(ctx, resetSplitTaskForRetry, arg.ID, arg.NodeRunID, arg.WorkflowID)
+func (q *Queries) ResetSplitTaskMaterializationRetry(ctx context.Context, id pgtype.UUID) (MulticaWorkflowSplitTask, error) {
+	row := q.db.QueryRow(ctx, resetSplitTaskMaterializationRetry, id)
 	var i MulticaWorkflowSplitTask
 	err := row.Scan(
 		&i.ID,
@@ -542,6 +460,9 @@ func (q *Queries) ResetSplitTaskForRetry(ctx context.Context, arg ResetSplitTask
 		&i.LastError,
 		&i.AssigneeType,
 		&i.AssigneeID,
+		&i.SplitPlanGeneration,
+		&i.MaterializeRetryCount,
+		&i.MaterializeNextAttemptAt,
 	)
 	return i, err
 }
@@ -559,7 +480,7 @@ WHERE st.issue_id = $1
   AND i.assignee_type IS NOT NULL
   AND i.assignee_id IS NOT NULL
   AND i.status NOT IN ('done', 'cancelled')
-RETURNING st.id, st.node_run_id, st.workspace_id, st.title, st.description, st.depends_on, st.sort_order, st.status, st.issue_id, st.run_id, st.created_at, st.updated_at, st.draft_key, st.draft_source, st.workflow_id, st.version, st.dispatch_key, st.last_error, st.assignee_type, st.assignee_id
+RETURNING st.id, st.node_run_id, st.workspace_id, st.title, st.description, st.depends_on, st.sort_order, st.status, st.issue_id, st.run_id, st.created_at, st.updated_at, st.draft_key, st.draft_source, st.workflow_id, st.version, st.dispatch_key, st.last_error, st.assignee_type, st.assignee_id, st.split_plan_generation, st.materialize_retry_count, st.materialize_next_attempt_at
 `
 
 func (q *Queries) RetrySplitTaskExecutionByIssue(ctx context.Context, issueID pgtype.UUID) (MulticaWorkflowSplitTask, error) {
@@ -586,38 +507,86 @@ func (q *Queries) RetrySplitTaskExecutionByIssue(ctx context.Context, issueID pg
 		&i.LastError,
 		&i.AssigneeType,
 		&i.AssigneeID,
+		&i.SplitPlanGeneration,
+		&i.MaterializeRetryCount,
+		&i.MaterializeNextAttemptAt,
 	)
 	return i, err
 }
 
-const setSplitTaskAssignee = `-- name: SetSplitTaskAssignee :one
+const setMaterializationSplitTaskDependencies = `-- name: SetMaterializationSplitTaskDependencies :one
 UPDATE multica_workflow_split_task
-SET assignee_type = $4,
-    assignee_id = $5,
-    version = version + 1,
+SET depends_on = $2,
     updated_at = now()
 WHERE id = $1
-  AND node_run_id = $2
-  AND version = $3
-  AND status = 'draft'
-RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
+  AND status = 'created'
+  AND issue_id IS NULL
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id, split_plan_generation, materialize_retry_count, materialize_next_attempt_at
 `
 
-type SetSplitTaskAssigneeParams struct {
-	ID           pgtype.UUID `json:"id"`
-	NodeRunID    pgtype.UUID `json:"node_run_id"`
-	Version      int64       `json:"version"`
-	AssigneeType pgtype.Text `json:"assignee_type"`
-	AssigneeID   pgtype.UUID `json:"assignee_id"`
+type SetMaterializationSplitTaskDependenciesParams struct {
+	ID        pgtype.UUID `json:"id"`
+	DependsOn []byte      `json:"depends_on"`
 }
 
-func (q *Queries) SetSplitTaskAssignee(ctx context.Context, arg SetSplitTaskAssigneeParams) (MulticaWorkflowSplitTask, error) {
-	row := q.db.QueryRow(ctx, setSplitTaskAssignee,
+func (q *Queries) SetMaterializationSplitTaskDependencies(ctx context.Context, arg SetMaterializationSplitTaskDependenciesParams) (MulticaWorkflowSplitTask, error) {
+	row := q.db.QueryRow(ctx, setMaterializationSplitTaskDependencies, arg.ID, arg.DependsOn)
+	var i MulticaWorkflowSplitTask
+	err := row.Scan(
+		&i.ID,
+		&i.NodeRunID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.DependsOn,
+		&i.SortOrder,
+		&i.Status,
+		&i.IssueID,
+		&i.RunID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DraftKey,
+		&i.DraftSource,
+		&i.WorkflowID,
+		&i.Version,
+		&i.DispatchKey,
+		&i.LastError,
+		&i.AssigneeType,
+		&i.AssigneeID,
+		&i.SplitPlanGeneration,
+		&i.MaterializeRetryCount,
+		&i.MaterializeNextAttemptAt,
+	)
+	return i, err
+}
+
+const setSplitTaskMaterializationRetry = `-- name: SetSplitTaskMaterializationRetry :one
+UPDATE multica_workflow_split_task
+SET materialize_retry_count = $2,
+    materialize_next_attempt_at = $4,
+    last_error = $5::jsonb,
+    status = $3,
+    updated_at = now()
+WHERE id = $1
+  AND issue_id IS NULL
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id, split_plan_generation, materialize_retry_count, materialize_next_attempt_at
+`
+
+type SetSplitTaskMaterializationRetryParams struct {
+	ID                       pgtype.UUID        `json:"id"`
+	MaterializeRetryCount    int32              `json:"materialize_retry_count"`
+	Status                   string             `json:"status"`
+	MaterializeNextAttemptAt pgtype.Timestamptz `json:"materialize_next_attempt_at"`
+	LastError                []byte             `json:"last_error"`
+}
+
+func (q *Queries) SetSplitTaskMaterializationRetry(ctx context.Context, arg SetSplitTaskMaterializationRetryParams) (MulticaWorkflowSplitTask, error) {
+	row := q.db.QueryRow(ctx, setSplitTaskMaterializationRetry,
 		arg.ID,
-		arg.NodeRunID,
-		arg.Version,
-		arg.AssigneeType,
-		arg.AssigneeID,
+		arg.MaterializeRetryCount,
+		arg.Status,
+		arg.MaterializeNextAttemptAt,
+		arg.LastError,
 	)
 	var i MulticaWorkflowSplitTask
 	err := row.Scan(
@@ -641,6 +610,57 @@ func (q *Queries) SetSplitTaskAssignee(ctx context.Context, arg SetSplitTaskAssi
 		&i.LastError,
 		&i.AssigneeType,
 		&i.AssigneeID,
+		&i.SplitPlanGeneration,
+		&i.MaterializeRetryCount,
+		&i.MaterializeNextAttemptAt,
+	)
+	return i, err
+}
+
+const setSplitTaskMaterializedIssue = `-- name: SetSplitTaskMaterializedIssue :one
+UPDATE multica_workflow_split_task
+SET issue_id = $2,
+    status = 'created',
+    materialize_next_attempt_at = NULL,
+    last_error = NULL,
+    updated_at = now()
+WHERE id = $1
+  AND issue_id IS NULL
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id, split_plan_generation, materialize_retry_count, materialize_next_attempt_at
+`
+
+type SetSplitTaskMaterializedIssueParams struct {
+	ID      pgtype.UUID `json:"id"`
+	IssueID pgtype.UUID `json:"issue_id"`
+}
+
+func (q *Queries) SetSplitTaskMaterializedIssue(ctx context.Context, arg SetSplitTaskMaterializedIssueParams) (MulticaWorkflowSplitTask, error) {
+	row := q.db.QueryRow(ctx, setSplitTaskMaterializedIssue, arg.ID, arg.IssueID)
+	var i MulticaWorkflowSplitTask
+	err := row.Scan(
+		&i.ID,
+		&i.NodeRunID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.DependsOn,
+		&i.SortOrder,
+		&i.Status,
+		&i.IssueID,
+		&i.RunID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DraftKey,
+		&i.DraftSource,
+		&i.WorkflowID,
+		&i.Version,
+		&i.DispatchKey,
+		&i.LastError,
+		&i.AssigneeType,
+		&i.AssigneeID,
+		&i.SplitPlanGeneration,
+		&i.MaterializeRetryCount,
+		&i.MaterializeNextAttemptAt,
 	)
 	return i, err
 }
@@ -652,7 +672,7 @@ SET status = $2,
 WHERE issue_id = $1
   AND run_id IS NULL
   AND status IN ('created', 'running')
-RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id, split_plan_generation, materialize_retry_count, materialize_next_attempt_at
 `
 
 type SetSplitTaskTerminalByIssueParams struct {
@@ -684,189 +704,11 @@ func (q *Queries) SetSplitTaskTerminalByIssue(ctx context.Context, arg SetSplitT
 		&i.LastError,
 		&i.AssigneeType,
 		&i.AssigneeID,
+		&i.SplitPlanGeneration,
+		&i.MaterializeRetryCount,
+		&i.MaterializeNextAttemptAt,
 	)
 	return i, err
-}
-
-const updateSplitTaskDraftFields = `-- name: UpdateSplitTaskDraftFields :one
-UPDATE multica_workflow_split_task
-SET title = COALESCE($4, title),
-    description = COALESCE($5, description),
-    depends_on = COALESCE($6, depends_on),
-    status = CASE
-      WHEN $7::boolean IS TRUE THEN 'discarded'
-      WHEN $7::boolean IS FALSE AND status = 'discarded' THEN 'draft'
-      ELSE status
-    END,
-    version = version + 1,
-    updated_at = now()
-WHERE id = $1
-  AND node_run_id = $2
-  AND status IN ('draft', 'discarded')
-  AND version = $3
-RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
-`
-
-type UpdateSplitTaskDraftFieldsParams struct {
-	ID          pgtype.UUID `json:"id"`
-	NodeRunID   pgtype.UUID `json:"node_run_id"`
-	Version     int64       `json:"version"`
-	Title       pgtype.Text `json:"title"`
-	Description pgtype.Text `json:"description"`
-	DependsOn   []byte      `json:"depends_on"`
-	Discarded   pgtype.Bool `json:"discarded"`
-}
-
-func (q *Queries) UpdateSplitTaskDraftFields(ctx context.Context, arg UpdateSplitTaskDraftFieldsParams) (MulticaWorkflowSplitTask, error) {
-	row := q.db.QueryRow(ctx, updateSplitTaskDraftFields,
-		arg.ID,
-		arg.NodeRunID,
-		arg.Version,
-		arg.Title,
-		arg.Description,
-		arg.DependsOn,
-		arg.Discarded,
-	)
-	var i MulticaWorkflowSplitTask
-	err := row.Scan(
-		&i.ID,
-		&i.NodeRunID,
-		&i.WorkspaceID,
-		&i.Title,
-		&i.Description,
-		&i.DependsOn,
-		&i.SortOrder,
-		&i.Status,
-		&i.IssueID,
-		&i.RunID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DraftKey,
-		&i.DraftSource,
-		&i.WorkflowID,
-		&i.Version,
-		&i.DispatchKey,
-		&i.LastError,
-		&i.AssigneeType,
-		&i.AssigneeID,
-	)
-	return i, err
-}
-
-const updateSplitTaskFields = `-- name: UpdateSplitTaskFields :one
-UPDATE multica_workflow_split_task
-SET title = COALESCE($2, title),
-    description = COALESCE($3, description),
-    depends_on = COALESCE($4, depends_on),
-    sort_order = COALESCE($5::int, sort_order),
-    updated_at = now()
-WHERE id = $1
-RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
-`
-
-type UpdateSplitTaskFieldsParams struct {
-	ID          pgtype.UUID `json:"id"`
-	Title       pgtype.Text `json:"title"`
-	Description pgtype.Text `json:"description"`
-	DependsOn   []byte      `json:"depends_on"`
-	SortOrder   pgtype.Int4 `json:"sort_order"`
-}
-
-func (q *Queries) UpdateSplitTaskFields(ctx context.Context, arg UpdateSplitTaskFieldsParams) (MulticaWorkflowSplitTask, error) {
-	row := q.db.QueryRow(ctx, updateSplitTaskFields,
-		arg.ID,
-		arg.Title,
-		arg.Description,
-		arg.DependsOn,
-		arg.SortOrder,
-	)
-	var i MulticaWorkflowSplitTask
-	err := row.Scan(
-		&i.ID,
-		&i.NodeRunID,
-		&i.WorkspaceID,
-		&i.Title,
-		&i.Description,
-		&i.DependsOn,
-		&i.SortOrder,
-		&i.Status,
-		&i.IssueID,
-		&i.RunID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DraftKey,
-		&i.DraftSource,
-		&i.WorkflowID,
-		&i.Version,
-		&i.DispatchKey,
-		&i.LastError,
-		&i.AssigneeType,
-		&i.AssigneeID,
-	)
-	return i, err
-}
-
-const updateSplitTaskIssueID = `-- name: UpdateSplitTaskIssueID :exec
-UPDATE multica_workflow_split_task
-SET issue_id = $2,
-    status = 'created',
-    updated_at = now()
-WHERE id = $1
-  AND issue_id IS NULL
-`
-
-type UpdateSplitTaskIssueIDParams struct {
-	ID      pgtype.UUID `json:"id"`
-	IssueID pgtype.UUID `json:"issue_id"`
-}
-
-func (q *Queries) UpdateSplitTaskIssueID(ctx context.Context, arg UpdateSplitTaskIssueIDParams) error {
-	_, err := q.db.Exec(ctx, updateSplitTaskIssueID, arg.ID, arg.IssueID)
-	return err
-}
-
-const updateSplitTaskRunID = `-- name: UpdateSplitTaskRunID :exec
-UPDATE multica_workflow_split_task
-SET run_id = $2,
-    status = 'running',
-    updated_at = now()
-WHERE id = $1
-  AND run_id IS NULL
-`
-
-type UpdateSplitTaskRunIDParams struct {
-	ID    pgtype.UUID `json:"id"`
-	RunID pgtype.UUID `json:"run_id"`
-}
-
-func (q *Queries) UpdateSplitTaskRunID(ctx context.Context, arg UpdateSplitTaskRunIDParams) error {
-	_, err := q.db.Exec(ctx, updateSplitTaskRunID, arg.ID, arg.RunID)
-	return err
-}
-
-const updateSplitTaskRunIDWithDispatchKey = `-- name: UpdateSplitTaskRunIDWithDispatchKey :execrows
-UPDATE multica_workflow_split_task
-SET run_id = $2,
-    status = 'running',
-    updated_at = now()
-WHERE id = $1
-  AND status = 'created'
-  AND dispatch_key = $3::text
-  AND run_id IS NULL
-`
-
-type UpdateSplitTaskRunIDWithDispatchKeyParams struct {
-	ID          pgtype.UUID `json:"id"`
-	RunID       pgtype.UUID `json:"run_id"`
-	DispatchKey string      `json:"dispatch_key"`
-}
-
-func (q *Queries) UpdateSplitTaskRunIDWithDispatchKey(ctx context.Context, arg UpdateSplitTaskRunIDWithDispatchKeyParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateSplitTaskRunIDWithDispatchKey, arg.ID, arg.RunID, arg.DispatchKey)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }
 
 const updateSplitTaskStatus = `-- name: UpdateSplitTaskStatus :one
@@ -874,7 +716,7 @@ UPDATE multica_workflow_split_task
 SET status = $2,
     updated_at = now()
 WHERE id = $1
-RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id, split_plan_generation, materialize_retry_count, materialize_next_attempt_at
 `
 
 type UpdateSplitTaskStatusParams struct {
@@ -906,6 +748,9 @@ func (q *Queries) UpdateSplitTaskStatus(ctx context.Context, arg UpdateSplitTask
 		&i.LastError,
 		&i.AssigneeType,
 		&i.AssigneeID,
+		&i.SplitPlanGeneration,
+		&i.MaterializeRetryCount,
+		&i.MaterializeNextAttemptAt,
 	)
 	return i, err
 }
@@ -916,7 +761,7 @@ SET status = $2,
     last_error = $3::jsonb,
     updated_at = now()
 WHERE id = $1
-RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
+RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id, split_plan_generation, materialize_retry_count, materialize_next_attempt_at
 `
 
 type UpdateSplitTaskStatusWithErrorParams struct {
@@ -949,77 +794,9 @@ func (q *Queries) UpdateSplitTaskStatusWithError(ctx context.Context, arg Update
 		&i.LastError,
 		&i.AssigneeType,
 		&i.AssigneeID,
-	)
-	return i, err
-}
-
-const upsertSplitDraftTaskByKey = `-- name: UpsertSplitDraftTaskByKey :one
-INSERT INTO multica_workflow_split_task (
-    node_run_id, workspace_id, draft_key, title, description,
-    depends_on, sort_order, status, draft_source
-) VALUES (
-    $1, $2, $3, $4, $5,
-    $6, $7, 'draft', $8
-)
-ON CONFLICT (node_run_id, draft_key)
-WHERE draft_key IS NOT NULL AND draft_key <> '' AND status <> 'discarded'
-DO UPDATE SET
-    title = EXCLUDED.title,
-    description = EXCLUDED.description,
-    depends_on = EXCLUDED.depends_on,
-    sort_order = EXCLUDED.sort_order,
-    status = 'draft',
-    draft_source = EXCLUDED.draft_source,
-    version = multica_workflow_split_task.version + 1,
-    updated_at = now()
-WHERE multica_workflow_split_task.status = 'draft'
-RETURNING id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
-`
-
-type UpsertSplitDraftTaskByKeyParams struct {
-	NodeRunID   pgtype.UUID `json:"node_run_id"`
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
-	DraftKey    pgtype.Text `json:"draft_key"`
-	Title       string      `json:"title"`
-	Description string      `json:"description"`
-	DependsOn   []byte      `json:"depends_on"`
-	SortOrder   int32       `json:"sort_order"`
-	DraftSource pgtype.Text `json:"draft_source"`
-}
-
-func (q *Queries) UpsertSplitDraftTaskByKey(ctx context.Context, arg UpsertSplitDraftTaskByKeyParams) (MulticaWorkflowSplitTask, error) {
-	row := q.db.QueryRow(ctx, upsertSplitDraftTaskByKey,
-		arg.NodeRunID,
-		arg.WorkspaceID,
-		arg.DraftKey,
-		arg.Title,
-		arg.Description,
-		arg.DependsOn,
-		arg.SortOrder,
-		arg.DraftSource,
-	)
-	var i MulticaWorkflowSplitTask
-	err := row.Scan(
-		&i.ID,
-		&i.NodeRunID,
-		&i.WorkspaceID,
-		&i.Title,
-		&i.Description,
-		&i.DependsOn,
-		&i.SortOrder,
-		&i.Status,
-		&i.IssueID,
-		&i.RunID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DraftKey,
-		&i.DraftSource,
-		&i.WorkflowID,
-		&i.Version,
-		&i.DispatchKey,
-		&i.LastError,
-		&i.AssigneeType,
-		&i.AssigneeID,
+		&i.SplitPlanGeneration,
+		&i.MaterializeRetryCount,
+		&i.MaterializeNextAttemptAt,
 	)
 	return i, err
 }

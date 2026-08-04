@@ -118,14 +118,11 @@ import type {
   WorkflowRunCanvasSummaryResponse,
   WorkflowStage,
   ApproveSplitRequest,
-  BatchPatchSplitDraftTasksRequest,
-  BatchPatchSplitTaskAssigneesRequest,
-  CreateSplitDraftTaskRequest,
+  RejectSplitRequest,
+  GenerateSplitRequest,
+  RetrySplitTaskRequest,
   PatchSplitConfigRequest,
-  PatchSplitDraftTaskRequest,
-  PatchSplitTaskAssigneeRequest,
   SplitTasksResponse,
-  SplitChatResponse,
   CreateWorkflowRequest,
   UpdateWorkflowRequest,
   CreateNodeRequest,
@@ -216,8 +213,6 @@ import {
   EMPTY_WORKFLOW_EDGES_RESPONSE,
   SplitTasksResponseSchema,
   EMPTY_SPLIT_TASKS_RESPONSE,
-  SplitChatResponseSchema,
-  EMPTY_SPLIT_CHAT_RESPONSE,
   SplitIssueWorkflowOptionsSchema,
   EMPTY_SPLIT_ISSUE_WORKFLOW_OPTIONS,
   WorkflowStagesResponseSchema,
@@ -2457,30 +2452,13 @@ export class ApiClient {
     });
   }
 
-  async generateSplitTasks(nodeRunId: string): Promise<SplitTasksResponse> {
+  async generateSplitTasks(nodeRunId: string, req: GenerateSplitRequest): Promise<SplitTasksResponse> {
     const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/generate`, {
       method: "POST",
+      body: JSON.stringify(req),
     });
     return parseWithFallback(raw, SplitTasksResponseSchema, EMPTY_SPLIT_TASKS_RESPONSE, {
       endpoint: "POST /api/node-runs/:id/split/generate",
-    });
-  }
-
-  async recoverSplitTasks(nodeRunId: string): Promise<SplitTasksResponse> {
-    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/recover`, {
-      method: "POST",
-    });
-    return parseWithFallback(raw, SplitTasksResponseSchema, EMPTY_SPLIT_TASKS_RESPONSE, {
-      endpoint: "POST /api/node-runs/:id/split/recover",
-    });
-  }
-
-  async resetSplitTasksToOriginal(nodeRunId: string): Promise<SplitTasksResponse> {
-    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/reset-original`, {
-      method: "POST",
-    });
-    return parseWithFallback(raw, SplitTasksResponseSchema, EMPTY_SPLIT_TASKS_RESPONSE, {
-      endpoint: "POST /api/node-runs/:id/split/reset-original",
     });
   }
 
@@ -2494,40 +2472,23 @@ export class ApiClient {
     });
   }
 
-  async createSplitDraftTask(nodeRunId: string, req: CreateSplitDraftTaskRequest): Promise<SplitTasksResponse> {
-    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/draft-tasks`, {
+  async rejectSplitTasks(nodeRunId: string, req: RejectSplitRequest): Promise<SplitTasksResponse> {
+    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/reject`, {
       method: "POST",
       body: JSON.stringify(req),
     });
     return parseWithFallback(raw, SplitTasksResponseSchema, EMPTY_SPLIT_TASKS_RESPONSE, {
-      endpoint: "POST /api/node-runs/:id/split/draft-tasks",
+      endpoint: "POST /api/node-runs/:id/split/reject",
     });
   }
 
-  async patchSplitDraftTask(
-    nodeRunId: string,
-    taskId: string,
-    req: PatchSplitDraftTaskRequest,
-  ): Promise<SplitTasksResponse> {
-    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/draft-tasks/${taskId}`, {
-      method: "PATCH",
+  async retrySplitTask(nodeRunId: string, taskId: string, req: RetrySplitTaskRequest): Promise<SplitTasksResponse> {
+    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/tasks/${taskId}/retry`, {
+      method: "POST",
       body: JSON.stringify(req),
     });
     return parseWithFallback(raw, SplitTasksResponseSchema, EMPTY_SPLIT_TASKS_RESPONSE, {
-      endpoint: "PATCH /api/node-runs/:id/split/draft-tasks/:taskId",
-    });
-  }
-
-  async batchPatchSplitDraftTasks(
-    nodeRunId: string,
-    req: BatchPatchSplitDraftTasksRequest,
-  ): Promise<SplitTasksResponse> {
-    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/draft-tasks/batch`, {
-      method: "PATCH",
-      body: JSON.stringify(req),
-    });
-    return parseWithFallback(raw, SplitTasksResponseSchema, EMPTY_SPLIT_TASKS_RESPONSE, {
-      endpoint: "PATCH /api/node-runs/:id/split/draft-tasks/batch",
+      endpoint: "POST /api/node-runs/:id/split/tasks/:taskId/retry",
     });
   }
 
@@ -2541,50 +2502,10 @@ export class ApiClient {
     });
   }
 
-  async patchSplitTaskAssignee(
-    nodeRunId: string,
-    taskId: string,
-    req: PatchSplitTaskAssigneeRequest,
-  ): Promise<SplitTasksResponse> {
-    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/draft-tasks/${taskId}/assignee`, {
-      method: "PATCH",
-      body: JSON.stringify(req),
-    });
-    return parseWithFallback(raw, SplitTasksResponseSchema, EMPTY_SPLIT_TASKS_RESPONSE, {
-      endpoint: "PATCH /api/node-runs/:id/split/draft-tasks/:taskId/assignee",
-    });
-  }
-
-  async batchPatchSplitTaskAssignees(
-    nodeRunId: string,
-    req: BatchPatchSplitTaskAssigneesRequest,
-  ): Promise<SplitTasksResponse> {
-    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/draft-tasks/assignees`, {
-      method: "PATCH",
-      body: JSON.stringify(req),
-    });
-    return parseWithFallback(raw, SplitTasksResponseSchema, EMPTY_SPLIT_TASKS_RESPONSE, {
-      endpoint: "PATCH /api/node-runs/:id/split/draft-tasks/assignees",
-    });
-  }
-
   async listSplitIssueWorkflowOptions(workflowId: string): Promise<Workflow[]> {
     const raw = await this.fetch<unknown>(`/api/workflows/${workflowId}/split/issue-workflow-options`);
     return parseWithFallback(raw, SplitIssueWorkflowOptionsSchema, EMPTY_SPLIT_ISSUE_WORKFLOW_OPTIONS, {
       endpoint: "GET /api/workflows/:id/split/issue-workflow-options",
-    });
-  }
-
-  async submitSplitReviewChat(
-    nodeRunId: string,
-    req: { content: string; attachment_ids?: string[] },
-  ): Promise<SplitChatResponse> {
-    const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/chat`, {
-      method: "POST",
-      body: JSON.stringify(req),
-    });
-    return parseWithFallback(raw, SplitChatResponseSchema, EMPTY_SPLIT_CHAT_RESPONSE, {
-      endpoint: "POST /api/node-runs/:id/split/chat",
     });
   }
 
@@ -2595,9 +2516,10 @@ export class ApiClient {
     });
   }
 
-  async cancelSplitNode(nodeRunId: string): Promise<WorkflowNodeRun> {
+  async cancelSplitNode(nodeRunId: string, expectedSplitGeneration: number): Promise<WorkflowNodeRun> {
     const raw = await this.fetch<unknown>(`/api/node-runs/${nodeRunId}/split/cancel`, {
       method: "POST",
+      body: JSON.stringify({ expected_split_generation: expectedSplitGeneration }),
     });
     return parseWithFallback(raw, WorkflowNodeRunSchema, EMPTY_WORKFLOW_NODE_RUN, {
       endpoint: "POST /api/node-runs/:id/split/cancel",

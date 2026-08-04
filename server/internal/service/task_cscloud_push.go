@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/cloudruntime"
 	"github.com/multica-ai/multica/server/internal/gitea"
+	"github.com/multica-ai/multica/server/internal/splitprompt"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -164,10 +165,6 @@ type csCloudTaskRunPayload struct {
 
 // shouldSkipPriorTaskState reports whether the task should start a fresh
 // session/workdir instead of resuming the prior (agent, issue) conversation.
-// Mirrors handler.shouldSkipPriorTaskState but lives in the service package
-// (cross-package import is not allowed). The handler's split_chat check is
-// omitted here because split tasks are daemon-only and never dispatched to
-// cs-cloud, so only the manual-rerun (ForceFreshSession) gate remains.
 func shouldSkipPriorTaskState(t db.MulticaAgentTaskQueue) bool {
 	return t.ForceFreshSession
 }
@@ -292,7 +289,7 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	// review, they don't submit, so they must not emit a Deliverables slice.
 	phase := workflowPhaseFromTask(task)
 	deliverables := []csCloudDeliverableSpec{}
-	if phase == "worker" {
+	if isDeliverableProducerPhase(phase) {
 		deliverables = s.deliverableSpecsForTask(ctx, task)
 	}
 	requiresGiteaEnv := workflowNodeTaskRequiresGiteaEnv(task)
@@ -338,10 +335,12 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		if phase == "worker" {
 			prompt = appendWorkerTaskPrompt(prompt)
 		}
-		if raw, ok := repoEnv["CS_CLOUD_GITEA_DELIVERABLES"]; ok {
-			var refs []repositoryDeliverableRefJSON
-			if json.Unmarshal([]byte(raw), &refs) == nil && len(refs) > 0 {
-				prompt = appendDeliverablePrompt(prompt, refs)
+		if phase != splitPhaseGenerate {
+			if raw, ok := repoEnv["CS_CLOUD_GITEA_DELIVERABLES"]; ok {
+				var refs []repositoryDeliverableRefJSON
+				if json.Unmarshal([]byte(raw), &refs) == nil && len(refs) > 0 {
+					prompt = appendDeliverablePrompt(prompt, refs)
+				}
 			}
 		}
 		// Rework feedback: if this worker task is a retry (retry_count > 0),
@@ -386,6 +385,8 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		// `cs-cloud repo checkout <url>` (Task 7's prompt) and uses it for
 		// document deliverables. Separate from code repos — has its own alias
 		// ("delivery") so appendCodeRepoPrompt's listing is unaffected.
+	}
+	if requiresGiteaEnv {
 		if dr, ok := s.resolveDeliveryRepo(ctx, runtime.WorkspaceID); ok {
 			repos = append(repos, dr)
 		}
@@ -710,7 +711,9 @@ func (s *TaskService) deliverableSpecsForTask(ctx context.Context, task db.Multi
 	if err != nil {
 		return nil
 	}
-	rows, err := s.Queries.ListWorkflowNodeDeliverables(ctx, nr.WorkflowNodeID)
+	// Submission endpoints are keyed by the immutable runtime requirement ID,
+	// not the mutable workflow-definition deliverable ID.
+	rows, err := s.Queries.ListNodeRunDeliverableRequirements(ctx, nr.ID)
 	if err != nil {
 		return nil
 	}
@@ -816,6 +819,10 @@ func workflowPhaseFromTask(task db.MulticaAgentTaskQueue) string {
 
 func workflowNodeTaskRequiresGiteaEnv(task db.MulticaAgentTaskQueue) bool {
 	return task.WorkflowNodeRunID.Valid
+}
+
+func isDeliverableProducerPhase(phase string) bool {
+	return phase == "worker" || phase == splitPhaseGenerate
 }
 
 // repositoryDeliverableRefJSON is the per-deliverable shape cs-cloud's
@@ -1098,6 +1105,9 @@ func computeCSCloudTaskKind(task db.MulticaAgentTaskQueue) string {
 }
 
 func (s *TaskService) buildCSCloudPrompt(ctx context.Context, task db.MulticaAgentTaskQueue, kind string) (string, error) {
+	if workflowPhaseFromTask(task) == splitPhaseGenerate {
+		return s.buildCSCloudSplitPrompt(task)
+	}
 	switch kind {
 	case "chat":
 		return s.buildChatPrompt(ctx, task)
@@ -1114,6 +1124,34 @@ func (s *TaskService) buildCSCloudPrompt(ctx context.Context, task db.MulticaAge
 		// direct / fallback
 		return s.buildIssuePrompt(ctx, task)
 	}
+}
+
+func (s *TaskService) buildCSCloudSplitPrompt(task db.MulticaAgentTaskQueue) (string, error) {
+	var payload struct {
+		Generation          int32                `json:"split_plan_generation"`
+		DeliverableID       string               `json:"split_deliverable_id"`
+		ParentTitle         string               `json:"parent_issue_title"`
+		ParentDescription   string               `json:"parent_issue_description"`
+		SplitConfig         splitprompt.Config   `json:"split_config"`
+		Members             []splitprompt.Member `json:"workspace_members"`
+		MembersTruncated    bool                 `json:"workspace_members_truncated"`
+		ReviewComment       string               `json:"review_comment"`
+		ReviewedContent     string               `json:"reviewed_content"`
+		ReviewHeadCommitSHA string               `json:"review_head_commit_sha"`
+		ReviewTaskPath      string               `json:"review_task_path"`
+	}
+	if err := json.Unmarshal(task.Context, &payload); err != nil {
+		return "", fmt.Errorf("parse split planner context: %w", err)
+	}
+	return splitprompt.Build(splitprompt.Input{
+		NodeRunID:  util.UUIDToString(task.WorkflowNodeRunID),
+		Generation: payload.Generation, DeliverableID: payload.DeliverableID,
+		ParentTitle: payload.ParentTitle, ParentDescription: payload.ParentDescription,
+		SplitConfig: payload.SplitConfig,
+		Members:     payload.Members, MembersTruncated: payload.MembersTruncated,
+		ReviewComment: payload.ReviewComment, ReviewedContent: payload.ReviewedContent,
+		ReviewHeadCommitSHA: payload.ReviewHeadCommitSHA, ReviewTaskPath: payload.ReviewTaskPath,
+	}), nil
 }
 
 func (s *TaskService) buildIssuePrompt(ctx context.Context, task db.MulticaAgentTaskQueue) (string, error) {

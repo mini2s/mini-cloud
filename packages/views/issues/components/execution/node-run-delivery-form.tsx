@@ -15,7 +15,7 @@ import { NativeSelect, NativeSelectOption } from "@multica/ui/components/ui/nati
 import { useT } from "@multica/views/i18n";
 import { hasInvalidLinkLine, parseLinkLines, readFileAsBase64 } from "../../../common/deliverable-upload";
 
-interface NodeRunDeliveryFormProps {
+export interface NodeRunDeliveryFormProps {
   wsId: string;
   issueId: string;
   nodeRunId: string;
@@ -25,17 +25,7 @@ interface NodeRunDeliveryFormProps {
   runId?: string | null;
 }
 
-/**
- * The human worker's unified delivery form, hosted in the execution panel's
- * footer dock. Documents and code links are staged locally (repeat file picks
- * accumulate, links one per line) together with an optional execution summary;
- * a single Submit uploads the staged deliverables — the summary rides along
- * and lands in the worker output when the upload advances the node into
- * review — or, when nothing is staged, submits the summary alone. Server-side
- * the advance happens once every required deliverable is submitted, so staging
- * a partial set is safe.
- */
-export function NodeRunDeliveryForm({
+export function useNodeRunDelivery({
   wsId,
   issueId,
   nodeRunId,
@@ -44,12 +34,12 @@ export function NodeRunDeliveryForm({
   workflowId,
   runId,
 }: NodeRunDeliveryFormProps) {
-  const { t } = useT("issues");
-  const { t: tw } = useT("workflows");
   const queryClient = useQueryClient();
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
   const [fileInputKey, setFileInputKey] = useState(0);
   const [linkInput, setLinkInput] = useState("");
+  const [linkDraft, setLinkDraft] = useState("");
+  const [isLinkEditorOpen, setIsLinkEditorOpen] = useState(false);
   const [summary, setSummary] = useState("");
   const [selectedDeliverableID, setSelectedDeliverableID] = useState<string>();
 
@@ -71,7 +61,24 @@ export function NodeRunDeliveryForm({
 
   const links = parseLinkLines(linkInput);
   const linksInvalid = hasInvalidLinkLine(links);
+  const linkDraftLines = parseLinkLines(linkDraft);
+  const linkDraftInvalid = hasInvalidLinkLine(linkDraftLines);
   const dirty = stagedFiles.length > 0 || links.length > 0 || summary.trim().length > 0;
+
+  const confirmLinkDraft = () => {
+    if (linkDraftLines.length === 0 || linkDraftInvalid) return;
+    setLinkInput((current) => [...parseLinkLines(current), ...linkDraftLines].join("\n"));
+    setLinkDraft("");
+    setIsLinkEditorOpen(false);
+  };
+
+  const reset = () => {
+    setStagedFiles([]);
+    setLinkInput("");
+    setLinkDraft("");
+    setIsLinkEditorOpen(false);
+    setSummary("");
+  };
 
   // Summary-only submits go through the worker-output endpoint, which the
   // server rejects while required deliverables are still unsubmitted. Catch
@@ -108,6 +115,8 @@ export function NodeRunDeliveryForm({
       // stays in the worker phase and the note applies to the next round too.
       setStagedFiles([]);
       setLinkInput("");
+      setLinkDraft("");
+      setIsLinkEditorOpen(false);
       await queryClient.invalidateQueries({
         queryKey: workflowKeys.nodeRunDeliverables(nodeRunId),
       });
@@ -126,6 +135,65 @@ export function NodeRunDeliveryForm({
       }
     },
   });
+
+  return {
+    stagedFiles,
+    setStagedFiles,
+    fileInputKey,
+    setFileInputKey,
+    linkInput,
+    setLinkInput,
+    linkDraft,
+    setLinkDraft,
+    isLinkEditorOpen,
+    setIsLinkEditorOpen,
+    linkDraftLines,
+    linkDraftInvalid,
+    confirmLinkDraft,
+    summary,
+    setSummary,
+    selectedDeliverableIDResolved,
+    setSelectedDeliverableID,
+    selectedLinks,
+    titleById,
+    links,
+    linksInvalid,
+    dirty,
+    summaryOnlyBlocked,
+    reset,
+    submitMutation,
+  };
+}
+
+export type NodeRunDeliveryController = ReturnType<typeof useNodeRunDelivery>;
+
+/**
+ * The human worker's unified delivery form. Documents and code links are
+ * staged locally together with an optional execution summary; a single Submit
+ * uploads them and advances the node after all required deliverables exist.
+ */
+export function NodeRunDeliveryForm(props: NodeRunDeliveryFormProps) {
+  const { deliverables } = props;
+  const { t } = useT("issues");
+  const { t: tw } = useT("workflows");
+  const {
+    stagedFiles,
+    setStagedFiles,
+    fileInputKey,
+    setFileInputKey,
+    linkInput,
+    setLinkInput,
+    summary,
+    setSummary,
+    selectedDeliverableIDResolved,
+    setSelectedDeliverableID,
+    selectedLinks,
+    titleById,
+    linksInvalid,
+    dirty,
+    summaryOnlyBlocked,
+    submitMutation,
+  } = useNodeRunDelivery(props);
 
   const groupTag = (label: string) => (
     <span className="shrink-0 rounded border bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">

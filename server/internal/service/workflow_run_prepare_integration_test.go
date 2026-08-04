@@ -132,7 +132,63 @@ func TestPrepareWorkflowRunSnapshotIgnoresDeprecatedSplitWorkflow(t *testing.T) 
 	if err != nil {
 		t.Fatalf("deprecated split workflow field prevented run preparation: %v", err)
 	}
-	fixture.assertRunEntityCounts(t, prepared.Run.ID, 1, 0, 1, 1)
+	fixture.assertRunEntityCounts(t, prepared.Run.ID, 1, 0, 2, 1)
+}
+
+func TestPrepareWorkflowRunSnapshotRegistersAndDispatchesSplitTaskPlan(t *testing.T) {
+	fixture := newWorkflowPrepareFixture(t, true)
+	defer fixture.cleanup(t)
+
+	if _, err := fixture.pool.Exec(fixture.ctx, `
+		UPDATE multica_workflow_node
+		SET format_schema = jsonb_build_object(
+			'type', 'split',
+			'split_config', jsonb_build_object(
+				'mode', 'barrier',
+				'max_concurrency', 1,
+				'max_failures', 0
+			)
+		)
+		WHERE workflow_id = $1
+	`, fixture.workflowID); err != nil {
+		t.Fatal(err)
+	}
+
+	prepared, err := fixture.service.PrepareWorkflowRunSnapshot(fixture.ctx, fixture.workflowID, PrepareWorkflowRunParams{
+		TriggeredByType: "member", TriggeredByID: fixture.userID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prepared.NodeRuns) != 1 {
+		t.Fatalf("node runs = %d, want 1", len(prepared.NodeRuns))
+	}
+	nodeRun := prepared.NodeRuns[0]
+	var title, purpose, nodeStatus, generationStatus, phase string
+	var currentGeneration, jobPlanGeneration int32
+	if err := fixture.pool.QueryRow(fixture.ctx, `
+		SELECT deliverable.title, deliverable.purpose, node_run.status,
+		       node_run.split_plan_generation, generation.status,
+		       job.phase, job.split_plan_generation
+		FROM multica_workflow_node_run node_run
+		JOIN multica_workflow_node_run_deliverable deliverable
+		  ON deliverable.workflow_node_run_id = node_run.id
+		 AND deliverable.purpose = 'split_task_plan'
+		JOIN multica_workflow_split_generation generation
+		  ON generation.node_run_id = node_run.id
+		 AND generation.generation = node_run.split_plan_generation
+		JOIN multica_workflow_node_run_dispatch_job job
+		  ON job.workflow_node_run_id = node_run.id
+		 AND job.phase = 'split'
+		WHERE node_run.id = $1
+	`, nodeRun.ID).Scan(&title, &purpose, &nodeStatus, &currentGeneration, &generationStatus, &phase, &jobPlanGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if title != "task" || purpose != "split_task_plan" || nodeStatus != NodeRunStatusSplitting ||
+		currentGeneration != 1 || generationStatus != "splitting" || phase != "split" || jobPlanGeneration != 1 {
+		t.Fatalf("split runtime state = title:%q purpose:%q node:%q generation:%d/%q job:%q/%d",
+			title, purpose, nodeStatus, currentGeneration, generationStatus, phase, jobPlanGeneration)
+	}
 }
 
 func TestPrepareWorkflowRunSnapshotDispatchKeyIsIdempotent(t *testing.T) {

@@ -233,7 +233,9 @@ func scanIssue(i *db.MulticaIssue, dest []any) error {
 		&i.Priority, &i.AssigneeType, &i.AssigneeID, &i.CreatorType,
 		&i.CreatorID, &i.ParentIssueID, &i.AcceptanceCriteria,
 		&i.ContextRefs, &i.Position, &i.DueDate, &i.CreatedAt,
-		&i.UpdatedAt,
+		&i.UpdatedAt, &i.Number, &i.ProjectID, &i.OriginType, &i.OriginID,
+		&i.FirstExecutedAt, &i.StartDate, &i.Metadata, &i.WorkflowID,
+		&i.WorkflowRunID, &i.StageID, &i.ResponsibleUserID,
 	}
 	return copyRow(vals, dest)
 }
@@ -678,20 +680,8 @@ func scanWorkspaceFull(w *db.MulticaWorkspace, dest []any) error {
 }
 
 // scanIssueFull scans all MulticaIssue fields (SELECT *).
-// The existing scanIssue only goes up to UpdatedAt; this one includes
-// ResponsibleUserID, Number, ProjectID, OriginType, OriginID,
-// FirstExecutedAt, StartDate, Metadata, WorkflowID, WorkflowRunID, StageID.
 func scanIssueFull(i *db.MulticaIssue, dest []any) error {
-	vals := []any{
-		&i.ID, &i.WorkspaceID, &i.Title, &i.Description, &i.Status,
-		&i.Priority, &i.AssigneeType, &i.AssigneeID, &i.CreatorType,
-		&i.CreatorID, &i.ParentIssueID, &i.AcceptanceCriteria,
-		&i.ContextRefs, &i.Position, &i.DueDate, &i.CreatedAt,
-		&i.UpdatedAt, &i.Number, &i.ProjectID, &i.OriginType,
-		&i.OriginID, &i.FirstExecutedAt, &i.StartDate, &i.Metadata,
-		&i.WorkflowID, &i.WorkflowRunID, &i.StageID,
-	}
-	return copyRow(vals, dest)
+	return scanIssue(i, dest)
 }
 
 // mockRowsProjectResources is a pgx.Rows that yields pre-set
@@ -1086,6 +1076,29 @@ func TestBuildCSCloudPrompt_WorkflowTaskUsesSourceIssueWhenTaskIssueMissing(t *t
 	}
 }
 
+func TestBuildCSCloudPromptSplitGenerateUsesTaskMarkdownContract(t *testing.T) {
+	task := db.MulticaAgentTaskQueue{
+		IssueID:           pgtype.UUID{Bytes: [16]byte{1}, Valid: true},
+		WorkflowNodeRunID: pgtype.UUID{Bytes: [16]byte{2}, Valid: true},
+		Context:           []byte(`{"type":"workflow","phase":"split_generate","split_plan_generation":2,"split_deliverable_id":"deliverable-1","parent_issue_title":"Parent","split_config":{"mode":"barrier","max_concurrency":5,"max_failures":1},"workspace_members":[{"display_name":"Ada","email":"ada@example.com"}]}`),
+	}
+	prompt, err := (&TaskService{}).buildCSCloudPrompt(context.Background(), task, "direct")
+	if err != nil {
+		t.Fatalf("build split prompt: %v", err)
+	}
+	for _, want := range []string{"split-plan document producer", "Split plan generation: 2", "mode=barrier, max_concurrency=5, max_failures=1", "## Task: <title>", "ada@example.com", "--deliverable deliverable-1 --file task.md"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("split cloud prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "workflow split draft") {
+		t.Fatalf("split cloud prompt contains retired draft CLI:\n%s", prompt)
+	}
+	if !strings.HasSuffix(prompt, "Run `cs-cloud workflow task complete --summary \"<one-line summary of the task plan>\"` as your last action, then stop.\n") {
+		t.Fatalf("split cloud prompt must end with the mandatory completion command:\n%s", prompt)
+	}
+}
+
 // TestBuildCSCloudPrompt_DefaultWorkflowAgentTaskIncludesIssue proves the
 // end-to-end fix for an agent-bound default-workflow issue: the task carries a
 // WorkflowNodeRunID but no IssueID (default-workflow runs create no sub-issue),
@@ -1133,10 +1146,10 @@ func TestBuildCSCloudPrompt_DefaultWorkflowAgentTaskIncludesIssue(t *testing.T) 
 // --- deliverableSpecsForTask tests ---
 
 // deliverableTestDB is a focused mock for deliverableSpecsForTask.
-// It handles GetWorkflowNodeRun and ListWorkflowNodeDeliverables.
+// It handles GetWorkflowNodeRun and ListNodeRunDeliverableRequirements.
 type deliverableTestDB struct {
 	nodeRun      *db.MulticaWorkflowNodeRun
-	deliverables []db.MulticaWorkflowNodeDeliverable
+	deliverables []db.MulticaWorkflowNodeRunDeliverable
 }
 
 func (m *deliverableTestDB) QueryRow(_ context.Context, sql string, _ ...interface{}) pgx.Row {
@@ -1150,9 +1163,9 @@ func (m *deliverableTestDB) QueryRow(_ context.Context, sql string, _ ...interfa
 }
 
 func (m *deliverableTestDB) Query(_ context.Context, sql string, _ ...interface{}) (pgx.Rows, error) {
-	if strings.Contains(sql, "ListWorkflowNodeDeliverables") {
+	if strings.Contains(sql, "ListNodeRunDeliverableRequirements") {
 		if m.deliverables != nil {
-			return &mockRowsDeliverables{rows: m.deliverables, idx: -1}, nil
+			return &mockRowsNodeRunDeliverables{rows: m.deliverables, idx: -1}, nil
 		}
 	}
 	return nil, pgx.ErrNoRows
@@ -1188,6 +1201,10 @@ func scanNodeRun(nr *db.MulticaWorkflowNodeRun, dest []any) error {
 		&nr.CriticAgentTaskID, &nr.RuntimeID, &nr.DeviceID, &nr.SessionID,
 		&nr.SplitReviewChatSessionID, &nr.RuntimeSelectionReason,
 		&nr.FailureReason, &nr.SplitConfigVersion,
+		&nr.SourceWorkflowNodeID, &nr.NodeDescription, &nr.FormatSchema,
+		&nr.CriticApiUrl, &nr.StageSnapshot, &nr.WorkerRoleSnapshot,
+		&nr.CriticRoleSnapshot, &nr.RuntimeConfig, &nr.WorkerNameSnapshot,
+		&nr.CriticNameSnapshot, &nr.SplitPlanGeneration,
 	}
 	return copyRow(vals, dest)
 }
@@ -1241,31 +1258,31 @@ func (m *mockRowsNodeRunDeliverables) Scan(dest ...any) error {
 	vals := []any{
 		&r.ID, &r.WorkflowNodeRunID, &r.SourceDeliverableID,
 		&r.Title, &r.Description, &r.Required,
-		&r.SortOrder, &r.CreatedAt,
+		&r.SortOrder, &r.CreatedAt, &r.Purpose,
 	}
 	return copyRow(vals, dest)
 }
 
 func TestDeliverableSpecsForTask_PullRequestAndDocument(t *testing.T) {
 	nrID := testUUID(100)
-	prDeliverable := db.MulticaWorkflowNodeDeliverable{
-		ID:             testUUID(50),
-		WorkflowNodeID: testUUID(60),
-		Title:          "Code PR",
-		Required:       true,
+	prDeliverable := db.MulticaWorkflowNodeRunDeliverable{
+		ID:                testUUID(50),
+		WorkflowNodeRunID: nrID,
+		Title:             "Code PR",
+		Required:          true,
 	}
-	docDeliverable := db.MulticaWorkflowNodeDeliverable{
-		ID:             testUUID(51),
-		WorkflowNodeID: testUUID(60),
-		Title:          "Design Doc",
-		Required:       true,
+	docDeliverable := db.MulticaWorkflowNodeRunDeliverable{
+		ID:                testUUID(51),
+		WorkflowNodeRunID: nrID,
+		Title:             "Design Doc",
+		Required:          true,
 	}
 	mdb := &deliverableTestDB{
 		nodeRun: &db.MulticaWorkflowNodeRun{
 			ID:             nrID,
 			WorkflowNodeID: testUUID(60),
 		},
-		deliverables: []db.MulticaWorkflowNodeDeliverable{prDeliverable, docDeliverable},
+		deliverables: []db.MulticaWorkflowNodeRunDeliverable{prDeliverable, docDeliverable},
 	}
 	svc := &TaskService{Queries: db.New(mdb)}
 	task := db.MulticaAgentTaskQueue{WorkflowNodeRunID: pgtype.UUID{Bytes: nrID.Bytes, Valid: true}}
@@ -1317,10 +1334,10 @@ func TestDeliverableSpecsForTask_NodeRunNotFound(t *testing.T) {
 
 func TestDeliverableSpecsForTask_UnifiedEndpoint(t *testing.T) {
 	nrID := testUUID(200)
-	deliverables := []db.MulticaWorkflowNodeDeliverable{
-		{ID: testUUID(210), WorkflowNodeID: testUUID(220), Title: "Design Doc", Required: true},
-		{ID: testUUID(211), WorkflowNodeID: testUUID(220), Title: "Code PR", Required: true},
-		{ID: testUUID(212), WorkflowNodeID: testUUID(220), Title: "Test Plan", Required: false},
+	deliverables := []db.MulticaWorkflowNodeRunDeliverable{
+		{ID: testUUID(210), WorkflowNodeRunID: nrID, Title: "Design Doc", Required: true},
+		{ID: testUUID(211), WorkflowNodeRunID: nrID, Title: "Code PR", Required: true},
+		{ID: testUUID(212), WorkflowNodeRunID: nrID, Title: "Test Plan", Required: false},
 	}
 	mdb := &deliverableTestDB{
 		nodeRun: &db.MulticaWorkflowNodeRun{

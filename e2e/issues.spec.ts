@@ -95,44 +95,4 @@ test.describe("Issues", () => {
     await expect(page.getByRole("button", { name: "New Issue" })).toBeVisible();
   });
 
-  test("dynamic split starts child issues with each draft workflow", async ({ page }) => {
-    const {
-      parentIssue,
-      splitNode,
-      implementationWorkflow,
-      testWorkflow,
-    } = await api.createDynamicSplitScenario({ draftCount: 3 });
-
-    await page.goto(`/${workspaceSlug}/issues/${parentIssue.id}`);
-    await expect(page.getByTestId("execution-panorama")).toBeVisible({ timeout: 10000 });
-
-    await page.getByTestId(`runtime-node-card-${splitNode.id}`).click();
-    await expect(page.getByText("Split review")).toBeVisible();
-
-    const secondTaskWorkflow = page.getByLabel("Execution workflow for Child task 2");
-    await secondTaskWorkflow.selectOption(testWorkflow.id);
-    await expect(secondTaskWorkflow).toHaveValue(testWorkflow.id);
-
-    await page.getByRole("button", { name: /confirm create 3/i }).click();
-    await page.getByRole("button", { name: /^confirm create$/i }).click();
-
-    await expect(page.getByTestId("split-node-status")).toHaveText("split_active", {
-      timeout: 10000,
-    });
-
-    const children = await api.listChildIssues(parentIssue.id);
-    expect(children).toHaveLength(3);
-    expect(children.map((issue) => issue.workflow_id)).toEqual([
-      implementationWorkflow.id,
-      testWorkflow.id,
-      implementationWorkflow.id,
-    ]);
-
-    const runs = await api.listWorkflowRunsForIssues(children.map((issue) => issue.id));
-    expect(runs.map((run) => run.workflow_id)).toEqual([
-      implementationWorkflow.id,
-      testWorkflow.id,
-      implementationWorkflow.id,
-    ]);
-  });
 });

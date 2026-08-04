@@ -10,14 +10,60 @@ INSERT INTO multica_workflow_node_run_dispatch_job (
     generation,
     status,
     max_attempts,
-    scheduled_at
+    scheduled_at,
+    split_plan_generation
 ) VALUES (
     $1, $2, $3, $4, 'pending', $5,
-    COALESCE(sqlc.narg('scheduled_at')::timestamptz, now())
+    COALESCE(sqlc.narg('scheduled_at')::timestamptz, now()),
+    sqlc.narg('split_plan_generation')
 )
 ON CONFLICT (workflow_node_run_id, phase, generation)
 DO UPDATE SET workflow_node_run_id = EXCLUDED.workflow_node_run_id
 RETURNING *;
+
+-- name: DeferWorkflowDispatchJob :one
+UPDATE multica_workflow_node_run_dispatch_job
+SET status = 'pending',
+    attempt_count = 0,
+    locked_by = NULL,
+    lease_expires_at = NULL,
+    scheduled_at = sqlc.arg('scheduled_at'),
+    last_error = '',
+    updated_at = now()
+WHERE id = sqlc.arg('id')
+  AND generation = sqlc.arg('generation')
+  AND status = 'running'
+  AND locked_by = sqlc.arg('locked_by')
+RETURNING *;
+
+-- name: FindActiveWorkflowDispatchJob :one
+SELECT * FROM multica_workflow_node_run_dispatch_job
+WHERE workflow_node_run_id = $1
+  AND phase = $2
+  AND split_plan_generation = sqlc.narg('split_plan_generation')
+  AND status IN ('pending', 'running')
+ORDER BY generation DESC
+LIMIT 1
+FOR UPDATE;
+
+-- name: ExpediteWorkflowDispatchJob :one
+UPDATE multica_workflow_node_run_dispatch_job
+SET scheduled_at = LEAST(scheduled_at, now()),
+    updated_at = now()
+WHERE id = $1
+  AND status = 'pending'
+RETURNING *;
+
+-- name: InvalidateSplitGenerationDispatchJobs :exec
+UPDATE multica_workflow_node_run_dispatch_job
+SET status = 'failed',
+    last_error = 'stale_split_generation',
+    locked_by = NULL,
+    lease_expires_at = NULL,
+    updated_at = now()
+WHERE workflow_node_run_id = $1
+  AND split_plan_generation = $2
+  AND status IN ('pending', 'running');
 
 -- name: ClaimWorkflowDispatchJob :one
 WITH candidate AS (
@@ -38,6 +84,10 @@ SET status = 'running',
 FROM candidate
 WHERE job.id = candidate.id
 RETURNING job.*;
+
+-- name: GetWorkflowDispatchJob :one
+SELECT * FROM multica_workflow_node_run_dispatch_job
+WHERE id = $1;
 
 -- name: RenewWorkflowDispatchJobLease :one
 UPDATE multica_workflow_node_run_dispatch_job

@@ -209,6 +209,11 @@ RETURNING *;
 SELECT * FROM multica_agent_task_queue
 WHERE id = $1;
 
+-- name: GetAgentTaskForUpdate :one
+SELECT * FROM multica_agent_task_queue
+WHERE id = $1
+FOR UPDATE;
+
 -- name: ClaimAgentTask :one
 -- Claims the next queued task for an multica_agent, enforcing per-(multica_issue, multica_agent) serialization:
 -- a task is only claimable when no other task for the same multica_issue AND same multica_agent is

@@ -22,6 +22,7 @@ const STATUS_MAP: Record<NodeRunStatus, {
   critic_rework:       { icon: RotateCcw,     className: "text-orange-500" },
   splitting:           { icon: Loader2,       className: "text-blue-500", spin: true },
   awaiting_split_review: { icon: UserCheck,   className: "text-amber-500" },
+  materializing:       { icon: Loader2,       className: "text-primary", spin: true },
   split_active:        { icon: Loader2,       className: "text-blue-500", spin: true },
   completed:           { icon: CheckCircle2,  className: "text-green-500" },
   failed:              { icon: AlertCircle,   className: "text-red-500" },

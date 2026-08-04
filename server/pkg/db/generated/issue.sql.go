@@ -817,7 +817,7 @@ func (q *Queries) GetIssueInWorkspace(ctx context.Context, arg GetIssueInWorkspa
 }
 
 const getOpenSplitTaskByIssueID = `-- name: GetOpenSplitTaskByIssueID :one
-SELECT id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id
+SELECT id, node_run_id, workspace_id, title, description, depends_on, sort_order, status, issue_id, run_id, created_at, updated_at, draft_key, draft_source, workflow_id, version, dispatch_key, last_error, assignee_type, assignee_id, split_plan_generation, materialize_retry_count, materialize_next_attempt_at
 FROM multica_workflow_split_task
 WHERE issue_id = $1
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped', 'discarded')
@@ -848,6 +848,9 @@ func (q *Queries) GetOpenSplitTaskByIssueID(ctx context.Context, issueID pgtype.
 		&i.LastError,
 		&i.AssigneeType,
 		&i.AssigneeID,
+		&i.SplitPlanGeneration,
+		&i.MaterializeRetryCount,
+		&i.MaterializeNextAttemptAt,
 	)
 	return i, err
 }

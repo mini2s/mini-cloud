@@ -1,793 +1,380 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ApproveSplitRequest, SplitProgress, SplitTask, SplitTaskAssigneeType, WorkflowNode, WorkflowNodeRun } from "@multica/core/types";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import type {
+  WorkflowNode,
+  WorkflowNodeRun,
+  WorkflowNodeRuntimeSummary,
+} from "@multica/core/types";
+import { toWorkflowRuntimeDisplayStatus } from "@multica/core/types";
 import { ApiError } from "@multica/core/api";
-import { useAuthStore } from "@multica/core/auth";
-import { memberListOptions, agentListOptions, squadListOptions } from "@multica/core/workspace/queries";
-import { toast } from "sonner";
-import { Activity, CheckCheck, GitBranch, ListTree, RefreshCcw, SquareX, Undo2 } from "lucide-react";
-import { Button } from "@multica/ui/components/ui/button";
-import { Badge } from "@multica/ui/components/ui/badge";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@multica/ui/components/ui/alert-dialog";
-import {
+  nodeRunDeliverableSubmissionsOptions,
   splitTasksOptions,
-  workflowActiveListOptions,
   useApproveSplitTasks,
-  useBatchPatchSplitTaskAssignees,
-  usePatchSplitDraftTask,
-  usePatchSplitTaskAssignee,
   useCancelSplitNode,
   useGenerateSplitTasks,
-  useRecoverSplitTasks,
-  useResetSplitTasksToOriginal,
-  useSubmitSplitReviewChat,
+  useRejectSplitTasks,
+  useRetrySplitTask,
 } from "@multica/core/workflows/queries";
-import { pendingChatTaskOptions } from "@multica/core/chat/queries";
-import { childIssuesOptions } from "@multica/core/issues/queries";
 import {
-  NodeDetailSection,
-  WorkflowNodeDetailPanelShell,
-} from "../../../common/workflow-node-detail-panel-shell";
-import { SplitProgressBadge } from "./split-progress-badge";
-import { SplitDraftLedger } from "./split-draft-ledger";
-import { SplitDependencyNote } from "./split-dependency-note";
-import { SplitChatReview } from "./split-chat-review";
-import { useT } from "../../../i18n";
+  AlignLeft,
+  AlertTriangle,
+  Ban,
+  Check,
+  FileText,
+  GitBranch,
+  Inbox,
+  RefreshCcw,
+  XCircle,
+} from "lucide-react";
+import { toast } from "sonner";
+import { useT } from "@multica/views/i18n";
+import { WorkflowNodeDetailPanelShell } from "../../../common/workflow-node-detail-panel-shell";
+import {
+  CurrentDeliverablesCard,
+  DrawerBadge,
+  DrawerMoreOperations,
+  DrawerSection,
+  IssueDescriptionCard,
+  PreviousDeliverableCard,
+  drawerButtonClass,
+  drawerSmallButtonClass,
+  type DeliverableDrawerItem,
+  formatDeliverableTime,
+} from "../../../common/node-deliverable-drawer-ui";
+import { RuntimeDisplayStatusIcon } from "../../../issues/components/execution/node-run-status-icon";
+import {
+  runtimeDisplayStatusText,
+  runtimeDisplayStatusTone,
+} from "../../../issues/components/execution/runtime-display-status";
 
 interface SplitReviewPanelProps {
   node: WorkflowNode;
   nodeRun: WorkflowNodeRun | null;
+  runtimeSummary?: WorkflowNodeRuntimeSummary | null;
+  previousNodeRun?: WorkflowNodeRun | null;
   wsId: string;
   workflowId?: string;
   runId?: string;
   parentIssueId?: string;
+  issueDescription?: string | null;
   onClose: () => void;
+  onViewChildren?: () => void;
   plannerName?: string;
-  selectedDraftTaskIds?: string[];
-  onSelectedDraftTaskIdsChange?: (taskIds: string[]) => void;
 }
 
-const TERMINAL_NODE_STATUSES = new Set(["completed", "failed", "cancelled", "skipped"]);
+type ValidationDetail = { line?: number; field?: string; message?: string };
 
-const EMPTY_PROGRESS: SplitProgress = {
-  total: 0,
-  created: 0,
-  running: 0,
-  done: 0,
-  failed: 0,
-  cancelled: 0,
-  skipped: 0,
-};
-const EMPTY_SPLIT_TASKS: SplitTask[] = [];
-
-function useElapsedSeconds(startedAt: string | null | undefined, active: boolean): number {
-	const [now, setNow] = useState(() => Date.now());
-	useEffect(() => {
-		if (!active || !startedAt) return;
-		const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-		return () => window.clearInterval(timer);
-	}, [active, startedAt]);
-	if (!startedAt) return 0;
-	return Math.max(0, Math.floor((now - new Date(startedAt).getTime()) / 1_000));
-}
-
-function formatElapsed(seconds: number): string {
-	return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-}
-
-function isNodeRunCancellable(status: string | null | undefined): boolean {
-  if (!status) return false;
-  return !TERMINAL_NODE_STATUSES.has(status);
-}
-
-function isSplitGenerateActionStatus(status: string | null | undefined): boolean {
-  return status === "awaiting_split_review";
-}
-
-function splitFailureMessage(nodeRun: WorkflowNodeRun | null): string | null {
-  if (!nodeRun || nodeRun.status !== "failed") return null;
-  const outputs = [nodeRun.worker_output, nodeRun.critic_output];
-  for (const output of outputs) {
-    if (!output || typeof output !== "object") continue;
-    const record = output as Record<string, unknown>;
-    if (typeof record.error === "string" && record.error.trim().length > 0) {
-      return record.error;
-    }
-    if (typeof record.message === "string" && record.message.trim().length > 0) {
-      return record.message;
-    }
-  }
-  return null;
-}
-
-function splitConfigFromNode(node: WorkflowNode) {
-  if (
-    node.format_schema &&
-    typeof node.format_schema === "object" &&
-    !Array.isArray(node.format_schema) &&
-    "split_config" in node.format_schema
-  ) {
-    return (node.format_schema as {
-      split_config?: {
-        mode?: string;
-        max_concurrency?: number;
-        max_failures?: number;
-      };
-    }).split_config;
-  }
-  return undefined;
-}
-
-function creatableTasks(tasks: SplitTask[]): SplitTask[] {
-  return tasks.filter((task) => task.status !== "discarded");
-}
-
-function buildApproveRequest(tasks: SplitTask[], confirmEmpty = false): ApproveSplitRequest {
-  const approvedTasks = creatableTasks(tasks);
-  return {
-    approved_task_ids: approvedTasks.map((task) => task.id),
-    expected_versions: Object.fromEntries(approvedTasks.map((task) => [task.id, task.version])),
-    ...(confirmEmpty ? { confirm_empty: true } : {}),
-  };
-}
-
-type WorkflowTranslator = ReturnType<typeof useT<"workflows">>["t"];
-
-function verdictTitle(t: WorkflowTranslator, status: string | null | undefined, tasks: SplitTask[]): string {
-  if (status === "failed") return t(($) => $.detail_panel.split_failed);
-  if (status === "split_active") return t(($) => $.detail_panel.split_running_children);
-  if (status === "completed") return t(($) => $.detail_panel.split_completed);
-  if (status === "splitting") return t(($) => $.detail_panel.split_generating_draft);
-  if (creatableTasks(tasks).length > 0) return t(($) => $.detail_panel.split_ready_to_create);
-  return t(($) => $.detail_panel.split_needs_adjustment);
-}
-
-function splitRiskCount(tasks: SplitTask[]): number {
-  return creatableTasks(tasks).filter((task) => !task.assignee_type || !task.assignee_id).length;
-}
-
-function SplitVerdictSummary({
-  nodeRun,
-  tasks,
-  progress,
-  splitConfig,
-  isChatPending,
-	plannerName,
-	elapsedSeconds,
-  t,
-}: {
-  nodeRun: WorkflowNodeRun | null;
-  tasks: SplitTask[];
-  progress: SplitProgress;
-  splitConfig?: ReturnType<typeof splitConfigFromNode>;
-  isChatPending: boolean;
-	plannerName?: string;
-	elapsedSeconds: number;
-  t: WorkflowTranslator;
-}) {
-  const riskCount = splitRiskCount(tasks);
-  const dependencyCount = creatableTasks(tasks).filter((task) => task.depends_on.length > 0).length;
-  const assigneeCount = creatableTasks(tasks).filter((task) => task.assignee_type && task.assignee_id).length;
-  const title = isChatPending ? t(($) => $.detail_panel.split_generating_draft) : verdictTitle(t, nodeRun?.status, tasks);
-  const isGenerating = isChatPending || nodeRun?.status === "splitting";
-	const isCompleted = nodeRun?.status === "completed";
-  const explanation = isGenerating
-    ? t(($) => $.detail_panel.split_generating)
-    : riskCount === 0
-      ? t(($) => $.detail_panel.split_no_blocking_risk)
-      : null;
-
-  return (
-    <div
-      data-testid="split-review-summary"
-      className="overflow-hidden rounded-md border border-border/70 bg-background px-3 py-3 shadow-sm shadow-foreground/[0.03]"
-    >
-      <div className="min-w-0">
-        <p className="text-sm font-semibold text-foreground">{title}</p>
-				{isCompleted ? (
-					<p className="mt-1 text-xs text-muted-foreground">
-						{t(($) => $.detail_panel.split_completed_summary, {
-							total: progress.total,
-							done: progress.done,
-							failed: progress.failed,
-							cancelled: progress.cancelled,
-						})}
-					</p>
-				) : <p className="mt-1 text-xs text-muted-foreground">
-          {t(($) => $.detail_panel.split_assigned_tasks_summary, {
-            tasks: creatableTasks(tasks).length,
-            assigned: assigneeCount,
-            dependencies: dependencyCount,
-          })}
-				</p>}
-      </div>
-			{isGenerating ? (
-				<div className="mt-2 space-y-1 text-xs text-muted-foreground">
-					<p>{t(($) => $.detail_panel.split_planner_label, { planner: plannerName ?? nodeRun?.worker_id ?? "-" })}</p>
-					<p>{t(($) => $.detail_panel.split_elapsed, { elapsed: formatElapsed(elapsedSeconds) })}</p>
-					{elapsedSeconds >= 60 ? <p>{t(($) => $.detail_panel.split_generation_slow)}</p> : null}
-				</div>
-			) : null}
-      {explanation !== null ? (
-        <p className="mt-2 text-xs text-muted-foreground">
-          {explanation}
-        </p>
-      ) : null}
-      <details className="mt-2 text-xs text-muted-foreground">
-        <summary className="cursor-pointer text-primary">{t(($) => $.detail_panel.split_settings_summary)}</summary>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          <Badge variant="outline">{t(($) => $.detail_panel.split_settings_mode_label, { mode: splitConfig?.mode ?? "barrier" })}</Badge>
-          <Badge variant="outline">{t(($) => $.detail_panel.split_settings_concurrency_label, { concurrency: splitConfig?.max_concurrency ?? 5 })}</Badge>
-          <Badge variant="outline">{t(($) => $.detail_panel.split_settings_max_failures_label, { max: splitConfig?.max_failures ?? 0 })}</Badge>
-        </div>
-      </details>
-      <div className="mt-3 grid grid-cols-4 gap-px overflow-hidden rounded-md border bg-border/70 text-xs">
-        {[
-          [t(($) => $.detail_panel.split_stat_total), progress.total],
-          [t(($) => $.detail_panel.split_stat_running), progress.running],
-          [t(($) => $.detail_panel.split_stat_done), progress.done],
-          [t(($) => $.detail_panel.split_stat_failed), progress.failed],
-        ].map(([label, value]) => (
-          <div key={label} className="min-w-0 bg-background px-2 py-1.5">
-            <p className="truncate text-[10px] uppercase text-muted-foreground">{label}</p>
-            <p
-              data-testid={`split-progress-${String(label).toLowerCase()}`}
-              className="text-sm font-medium tabular-nums"
-            >
-              {value}
-            </p>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+function errorDetails(error: unknown): ValidationDetail[] {
+  if (!(error instanceof ApiError) || !error.body || typeof error.body !== "object") return [];
+  const details = (error.body as { details?: unknown }).details;
+  return Array.isArray(details)
+    ? details.filter((item): item is ValidationDetail => !!item && typeof item === "object")
+    : [];
 }
 
 export function SplitReviewPanel({
   node,
   nodeRun,
+  runtimeSummary,
+  previousNodeRun,
   wsId,
   workflowId,
   runId,
-  parentIssueId,
+  issueDescription,
   onClose,
-  plannerName,
-  selectedDraftTaskIds,
-  onSelectedDraftTaskIdsChange,
+  onViewChildren,
 }: SplitReviewPanelProps) {
   const { t } = useT("workflows");
-  const queryClient = useQueryClient();
-  const currentUserId = useAuthStore((state) => state.user?.id ?? null);
-  const nodeRunId = nodeRun?.id ?? null;
-  const generateMutation = useGenerateSplitTasks(wsId);
-  const recoverMutation = useRecoverSplitTasks(wsId);
-  const resetOriginalMutation = useResetSplitTasksToOriginal(wsId);
-  const approveMutation = useApproveSplitTasks(wsId);
-  const patchDraftMutation = usePatchSplitDraftTask(wsId);
-  const patchAssigneeMutation = usePatchSplitTaskAssignee(wsId);
-  const batchPatchAssigneesMutation = useBatchPatchSplitTaskAssignees(wsId);
-  const chatMutation = useSubmitSplitReviewChat(wsId);
-  const cancelMutation = useCancelSplitNode(wsId);
-  const [chatSessionId, setChatSessionId] = useState<string | null>(
-    nodeRun?.split_review_chat_session_id ?? null,
-  );
-  useEffect(() => {
-    if (nodeRun?.split_review_chat_session_id) {
-      setChatSessionId(nodeRun.split_review_chat_session_id);
-    }
-  }, [nodeRun?.split_review_chat_session_id]);
-  const { data: pendingChatTask } = useQuery(pendingChatTaskOptions(chatSessionId ?? ""));
-  const isSplitChatRunning = chatMutation.isPending || !!pendingChatTask?.task_id;
-	const elapsedStartedAt = nodeRun?.started_at || nodeRun?.updated_at || nodeRun?.created_at || null;
-	const elapsedSeconds = useElapsedSeconds(elapsedStartedAt, nodeRun?.status === "splitting" || isSplitChatRunning);
-  const splitTasksQuery = useQuery({
-    ...splitTasksOptions(wsId, nodeRunId),
-    refetchInterval: isSplitChatRunning ? 2000 : false,
+  const { t: ti } = useT("issues");
+  const nodeRunId = nodeRun?.id;
+  const { data } = useQuery(splitTasksOptions(wsId, nodeRunId));
+  const { data: currentDeliverableData, refetch: refetchCurrentDeliverables } = useQuery({
+    ...nodeRunDeliverableSubmissionsOptions(wsId, nodeRunId ?? ""),
+    enabled: !!nodeRunId,
   });
-  const { data, isLoading, refetch: refetchSplitTasks } = splitTasksQuery;
-  const { data: childIssues = [] } = useQuery({
-    ...childIssuesOptions(wsId, parentIssueId ?? ""),
-    enabled: !!parentIssueId,
+  const { data: previousDeliverableData } = useQuery({
+    ...nodeRunDeliverableSubmissionsOptions(wsId, previousNodeRun?.id ?? ""),
+    enabled: !!previousNodeRun?.id,
   });
-  const [approveDialogOpen, setApproveDialogOpen] = useState(false);
-  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
-  const wasSplitChatRunningRef = useRef(false);
+  const approve = useApproveSplitTasks(wsId);
+  const reject = useRejectSplitTasks(wsId);
+  const generate = useGenerateSplitTasks(wsId);
+  const retry = useRetrySplitTask(wsId);
+  const cancel = useCancelSplitNode(wsId);
+  const [reviewComment, setReviewComment] = useState("");
+  const [validation, setValidation] = useState<ValidationDetail[]>([]);
 
+  const generation = data?.split_plan_generation ?? 0;
+  const submissionId = data?.submission_id;
+  const progress = data?.progress;
+  const mutationContext = { nodeRunId: nodeRunId ?? "", workflowId, runId };
+  const busy = approve.isPending || reject.isPending || generate.isPending || retry.isPending || cancel.isPending;
+  const status = nodeRun?.status ?? "splitting";
+  const awaitingReview = status === "awaiting_split_review" && generation > 0 && !!submissionId;
+  const materializing = status === "materializing";
+  const active = status === "split_active";
+
+  // Status can arrive through node-run polling even if the corresponding
+  // lifecycle WebSocket event was missed. Refetch on the review transition so
+  // the just-committed submission and pull-request URL cannot remain hidden in
+  // an older, empty deliverables cache until a hard refresh.
   useEffect(() => {
-    if (isSplitChatRunning) {
-      wasSplitChatRunningRef.current = true;
-      return;
+    if (status === "awaiting_split_review" && nodeRunId) {
+      void refetchCurrentDeliverables();
     }
-    if (!wasSplitChatRunningRef.current) return;
-    wasSplitChatRunningRef.current = false;
-    void refetchSplitTasks();
-  }, [isSplitChatRunning, refetchSplitTasks]);
+  }, [nodeRunId, refetchCurrentDeliverables, status]);
 
-  const tasks = data?.tasks ?? EMPTY_SPLIT_TASKS;
-  const activeTasks = useMemo(() => creatableTasks(tasks), [tasks]);
-  const editableTasks = useMemo(() => tasks.filter((task) => task.status === "draft"), [tasks]);
-  const defaultSelectedTaskIds = useMemo(
-    () => editableTasks
-      .filter((task) => !task.assignee_type || !task.assignee_id)
-      .map((task) => task.id),
-    [editableTasks],
-  );
-  const effectiveSelectedTaskIds = selectedDraftTaskIds ?? defaultSelectedTaskIds;
-  const progress = data?.progress ?? EMPTY_PROGRESS;
-  const splitConfig = splitConfigFromNode(node);
-  const creatableCount = activeTasks.length;
-  const unassignedCount = activeTasks.filter((task) => !task.assignee_type || !task.assignee_id).length;
-  const isReviewer = Boolean(currentUserId && nodeRun?.critic_id === currentUserId);
-  const canEditReview = nodeRun?.status === "awaiting_split_review" && isReviewer;
-  const canApprove = canEditReview && creatableCount > 0 && unassignedCount === 0;
-  const canChat = canEditReview;
-  const canCancel = isReviewer && isNodeRunCancellable(nodeRun?.status);
-  const canRecover = isReviewer && nodeRun?.status === "failed";
-  const canResetOriginal = canEditReview;
-  const canGenerate = isReviewer && !!nodeRunId && isSplitGenerateActionStatus(nodeRun?.status) && activeTasks.length === 0;
-	const affectedTaskCount = tasks.filter((task) => !["done", "failed", "cancelled", "skipped", "discarded"].includes(task.status)).length;
-  const hasDraftCommands = canGenerate || canRecover;
-  const failureMessage = splitFailureMessage(nodeRun);
-  const generateLabel = tasks.length > 0
-    ? t(($) => $.detail_panel.split_regenerate_draft)
-    : t(($) => $.detail_panel.split_generate_draft);
-  const childIssueBySplitTaskId = useMemo(() => {
-    const mapping = new Map<string, (typeof childIssues)[number]>();
-    for (const childIssue of childIssues) {
-      if (childIssue.origin_type === "workflow_split" && childIssue.origin_id) {
-        mapping.set(childIssue.origin_id, childIssue);
-      }
-    }
-    return mapping;
-  }, [childIssues]);
-
-  useEffect(() => {
-    if (!onSelectedDraftTaskIdsChange || tasks.length === 0) return;
-    if (selectedDraftTaskIds === undefined) {
-      onSelectedDraftTaskIdsChange(defaultSelectedTaskIds);
-      return;
-    }
-    const editableTaskIds = new Set(editableTasks.map((task) => task.id));
-    const next = selectedDraftTaskIds.filter((taskId) => editableTaskIds.has(taskId));
-    if (next.length !== selectedDraftTaskIds.length) {
-      onSelectedDraftTaskIdsChange(next);
-    }
-  }, [defaultSelectedTaskIds, editableTasks, onSelectedDraftTaskIdsChange, selectedDraftTaskIds, tasks.length]);
-
-  const handleGenerate = async () => {
-    if (!nodeRunId) return;
-    await generateMutation.mutateAsync({ nodeRunId, workflowId, runId });
+  const displayStatus = nodeRun?.status === "failed"
+    ? "failed"
+    : runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
+  const statusLine = status === "awaiting_split_review"
+    ? t(($) => $.detail_panel.split_drawer_line_review)
+    : materializing
+      ? t(($) => $.detail_panel.split_drawer_line_materializing)
+      : active
+        ? t(($) => $.detail_panel.split_drawer_line_active)
+        : status === "splitting"
+          ? t(($) => $.detail_panel.split_drawer_line_generating)
+          : null;
+  const statusMeta = {
+    tone: runtimeDisplayStatusTone(displayStatus),
+    label: runtimeDisplayStatusText(ti, displayStatus),
+    line: statusLine,
   };
 
-  const handleRecover = async () => {
-    if (!nodeRunId) return;
-    await recoverMutation.mutateAsync({ nodeRunId, workflowId, runId });
+  const currentItems = useMemo<DeliverableDrawerItem[]>(() => {
+    const definitions = [...(currentDeliverableData?.deliverables ?? [])]
+      .sort((left, right) => left.sort_order - right.sort_order);
+    const submissions = new Map(
+      (currentDeliverableData?.submissions ?? []).map((submission) => [submission.deliverable_id, submission]),
+    );
+    return definitions.map((deliverable) => ({ deliverable, submission: submissions.get(deliverable.id) ?? null }));
+  }, [currentDeliverableData]);
+
+  const previousItem = useMemo<DeliverableDrawerItem | null>(() => {
+    const deliverable = [...(previousDeliverableData?.deliverables ?? [])]
+      .sort((left, right) => left.sort_order - right.sort_order)[0];
+    if (!deliverable) return null;
+    const submission = (previousDeliverableData?.submissions ?? [])
+      .find((candidate) => candidate.deliverable_id === deliverable.id) ?? null;
+    return { deliverable, submission };
+  }, [previousDeliverableData]);
+
+  const handleError = (error: unknown) => {
+    setValidation(errorDetails(error));
+    toast.error(error instanceof Error ? error.message : t(($) => $.detail_panel.split_action_failed));
   };
 
-  const handleResetOriginal = async () => {
-    if (!nodeRunId) return;
-    await resetOriginalMutation.mutateAsync({ nodeRunId, workflowId, runId });
+  const regenerate = () => {
+    const hasMaterializedChildren = (progress?.materialized ?? 0) > 0;
+    const confirmed = !hasMaterializedChildren || window.confirm(t(($) => $.detail_panel.split_supersede_confirm));
+    if (!confirmed) return;
+    generate.mutate({
+      ...mutationContext,
+      request: { expected_split_generation: generation, confirm_supersede: hasMaterializedChildren },
+    }, { onError: handleError });
   };
 
-  const handleApprove = async () => {
-    if (!nodeRunId) return;
-    await approveMutation.mutateAsync({
-      nodeRunId,
-      workflowId,
-      runId,
-      request: buildApproveRequest(tasks, creatableCount === 0),
-    });
-    setApproveDialogOpen(false);
+  const cancelSplit = () => {
+    cancel.mutate(
+      { ...mutationContext, expectedSplitGeneration: generation },
+      { onError: handleError },
+    );
   };
 
-  const refetchAssigneeOptions = async () => {
-    await Promise.all([
-      queryClient.refetchQueries({ queryKey: memberListOptions(wsId).queryKey }),
-      queryClient.refetchQueries({ queryKey: agentListOptions(wsId).queryKey }),
-      queryClient.refetchQueries({ queryKey: squadListOptions(wsId).queryKey }),
-      queryClient.refetchQueries({ queryKey: workflowActiveListOptions(wsId).queryKey }),
-    ]);
-  };
-
-  const handleAssigneeChange = async (
-    task: SplitTask,
-    assignee: { assignee_type: SplitTaskAssigneeType; assignee_id: string },
-  ) => {
-    if (!nodeRunId) return;
-    try {
-      await patchAssigneeMutation.mutateAsync({
-        nodeRunId,
-        workflowId,
-        runId,
-        taskId: task.id,
-        request: {
-          assignee_type: assignee.assignee_type,
-          assignee_id: assignee.assignee_id,
-          expected_version: task.version,
-        },
+  const total = progress?.total ?? 0;
+  const done = active ? total : progress?.materialized ?? 0;
+  const progressNote = active
+    ? t(($) => $.detail_panel.split_drawer_children_active)
+    : t(($) => $.detail_panel.split_drawer_materializing_note, {
+        retry: progress?.retry_waiting ?? 0,
+        next: progress?.next_retry_at ? formatDeliverableTime(progress.next_retry_at) : "—",
+        exhausted: progress?.exhausted ?? 0,
       });
-    } catch (error) {
-      if (error instanceof ApiError && (error.status === 409 || error.status === 422)) {
-        await Promise.all([refetchSplitTasks(), refetchAssigneeOptions()]);
-        toast.error(t(($) => $.detail_panel.split_assignment_conflict));
-        return;
-      }
-      throw error;
-    }
-  };
 
-  const handleBatchAssigneeChange = async (
-    assignee: { assignee_type: SplitTaskAssigneeType; assignee_id: string },
-  ) => {
-    if (!nodeRunId || !onSelectedDraftTaskIdsChange) return;
-    const selectedIdSet = new Set(effectiveSelectedTaskIds);
-    const selectedTasks = editableTasks.filter((task) => selectedIdSet.has(task.id));
-    if (selectedTasks.length === 0) return;
-    try {
-      await batchPatchAssigneesMutation.mutateAsync({
-        nodeRunId,
-        workflowId,
-        runId,
-        request: {
-          assignee_type: assignee.assignee_type,
-          assignee_id: assignee.assignee_id,
-          tasks: selectedTasks.map((task) => ({
-            task_id: task.id,
-            expected_version: task.version,
-          })),
-        },
-      });
-      onSelectedDraftTaskIdsChange([]);
-      toast.success(t(($) => $.detail_panel.split_batch_assignment_success, { count: selectedTasks.length }));
-    } catch (error) {
-      if (error instanceof ApiError && (error.status === 409 || error.status === 422)) {
-        await Promise.all([refetchSplitTasks(), refetchAssigneeOptions()]);
-        toast.error(t(($) => $.detail_panel.split_assignment_conflict));
-        return;
-      }
-      toast.error(t(($) => $.detail_panel.split_batch_assignment_failed));
-    }
-  };
-
-  const handleDraftSave = async (task: SplitTask, updates: { title: string; description: string }) => {
-    if (!nodeRunId) return;
-    try {
-      await patchDraftMutation.mutateAsync({
-        nodeRunId,
-        workflowId,
-        runId,
-        taskId: task.id,
-        request: {
-          title: updates.title,
-          description: updates.description,
-          expected_version: task.version,
-        },
-      });
-    } catch (error) {
-      if (error instanceof ApiError && (error.status === 409 || error.status === 422)) {
-        await refetchSplitTasks();
-      }
-      throw error;
-    }
-  };
-
-  const handleDiscardChange = async (task: SplitTask, discarded: boolean) => {
-    if (!nodeRunId) return;
-    try {
-      await patchDraftMutation.mutateAsync({
-        nodeRunId,
-        workflowId,
-        runId,
-        taskId: task.id,
-        request: {
-          discarded,
-          expected_version: task.version,
-        },
-      });
-    } catch (error) {
-      if (error instanceof ApiError && (error.status === 409 || error.status === 422)) {
-        await refetchSplitTasks();
-      }
-      throw error;
-    }
-  };
-
-  const handleChatSubmit = async (content: string, attachmentIds?: string[]) => {
-    if (!nodeRunId) return;
-    const result = await chatMutation.mutateAsync({
-      nodeRunId,
-      workflowId,
-      runId,
-      content,
-      attachmentIds,
-    });
-    // Capture the session id so SplitChatReview can immediately subscribe
-    // to messages + pendingTask without waiting for a nodeRun refetch.
-    if (result?.chat_session_id) {
-      setChatSessionId(result.chat_session_id);
-    }
-  };
-
-  const handleCancel = async () => {
-    if (!nodeRunId) return;
-    await cancelMutation.mutateAsync({ nodeRunId, workflowId, runId });
-    setCancelDialogOpen(false);
-  };
-
-  const dependencySection = (
-    <NodeDetailSection
-      sectionId="connections"
-      icon={<GitBranch className="size-4" />}
-      title={t(($) => $.detail_panel.split_dependencies)}
-      className="min-[1280px]:border-t-0 min-[1280px]:pt-0 min-[1280px]:pl-6"
-    >
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">{t(($) => $.detail_panel.split_loading_dependencies)}</p>
-      ) : (
-        <SplitDependencyNote tasks={tasks} />
-      )}
-    </NodeDetailSection>
-  );
-
-  const showAssignmentRequired = canEditReview && creatableCount > 0 && unassignedCount > 0;
-  const showReviewerReadOnly = nodeRun?.status === "awaiting_split_review" && !canEditReview;
-  const showConfirmEmpty = canEditReview && creatableCount === 0;
-  const hasReviewActions = canCancel || showAssignmentRequired || showReviewerReadOnly || showConfirmEmpty || canApprove;
-  const actionBar = hasReviewActions ? (
-    <div data-testid="split-review-action-bar" className="flex items-center justify-between gap-3">
-      <div>
-        {canCancel ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="destructive"
-            onClick={() => setCancelDialogOpen(true)}
-            disabled={cancelMutation.isPending}
-          >
-            <SquareX className="mr-1.5 size-3.5" />
-            {cancelMutation.isPending ? t(($) => $.detail_panel.split_cancelling) : t(($) => $.detail_panel.split_cancel)}
-          </Button>
-        ) : null}
-      </div>
-      <div className="flex items-center gap-2">
-        {showAssignmentRequired ? (
-          <span className="text-xs text-destructive">
-            {t(($) => $.detail_panel.split_assignment_required)} ({unassignedCount})
-          </span>
-        ) : showReviewerReadOnly ? (
-          <span className="text-xs text-muted-foreground">{t(($) => $.detail_panel.split_reviewer_read_only)}</span>
-        ) : null}
-        {showConfirmEmpty ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => setApproveDialogOpen(true)}
-            disabled={approveMutation.isPending}
-          >
-            {t(($) => $.detail_panel.split_confirm_empty)}
-          </Button>
-        ) : null}
-        {canEditReview && creatableCount > 0 ? (
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => setApproveDialogOpen(true)}
-            disabled={!canApprove || approveMutation.isPending}
-          >
-            <CheckCheck className="mr-1.5 size-3.5" />
-            {approveMutation.isPending
-              ? t(($) => $.detail_panel.split_creating)
-              : t(($) => $.detail_panel.split_confirm_create, { count: creatableCount })}
-          </Button>
-        ) : null}
+  const reviewFooter = awaitingReview ? (
+    <div>
+      <textarea
+        value={reviewComment}
+        onChange={(event) => setReviewComment(event.target.value)}
+        placeholder={t(($) => $.detail_panel.split_drawer_review_placeholder)}
+        className="min-h-16 w-full resize-y rounded-lg border bg-background px-2.5 py-2 text-[12.5px] leading-[1.55] outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/40"
+        disabled={busy}
+      />
+      <div className="mt-[9px] flex justify-end gap-2">
+        <button
+          type="button"
+          className={`${drawerButtonClass} border-border bg-background hover:bg-muted`}
+          disabled={busy || !reviewComment.trim()}
+          onClick={() => reject.mutate({
+            ...mutationContext,
+            request: {
+              expected_split_generation: generation,
+              expected_submission_id: submissionId!,
+              review_comment: reviewComment.trim(),
+            },
+          }, { onSuccess: () => setReviewComment(""), onError: handleError })}
+        >
+          <XCircle className="size-3.5" />
+          {t(($) => $.detail_panel.split_reject)}
+        </button>
+        <button
+          type="button"
+          className={`${drawerButtonClass} border-primary bg-primary text-primary-foreground hover:bg-primary/85`}
+          disabled={busy}
+          onClick={() => approve.mutate({
+            ...mutationContext,
+            request: {
+              expected_split_generation: generation,
+              expected_submission_id: submissionId!,
+              review_comment: reviewComment.trim() || undefined,
+            },
+          }, { onError: handleError })}
+        >
+          <Check className="size-3.5" />
+          {t(($) => $.detail_panel.split_drawer_approve)}
+        </button>
       </div>
     </div>
   ) : null;
+  const canRetryFailed = materializing && (progress?.exhausted ?? 0) > 0;
+  const canManagePlan = !!nodeRunId && generation > 0;
+  const hasFooterActions = canRetryFailed || canManagePlan || (active && !!onViewChildren);
+  const footer = reviewFooter || hasFooterActions ? (
+    <div className="space-y-3">
+      {reviewFooter}
+      {hasFooterActions ? (
+        <div className={`flex flex-wrap justify-end gap-2 ${reviewFooter ? "border-t border-border/60 pt-3" : ""}`}>
+          {canRetryFailed ? (
+            <button
+              type="button"
+              className={`${drawerSmallButtonClass} border-border bg-background hover:bg-muted`}
+              disabled={busy}
+              onClick={() => data?.tasks.filter((task) => !task.issue_id && task.status === "failed").forEach((task) => {
+                retry.mutate({ ...mutationContext, taskId: task.id, request: { expected_split_generation: generation } }, { onError: handleError });
+              })}
+            >
+              <RefreshCcw className="size-3" />
+              {t(($) => $.detail_panel.split_drawer_retry_failed)}
+            </button>
+          ) : null}
+          {canManagePlan ? (
+            <>
+              <button type="button" className={`${drawerSmallButtonClass} border-border bg-background hover:bg-muted`} disabled={busy} onClick={regenerate}>
+                <GitBranch className="size-3" />
+                {t(($) => $.detail_panel.split_drawer_regenerate)}
+              </button>
+              <button type="button" className={`${drawerSmallButtonClass} border-destructive/30 bg-background text-destructive hover:bg-destructive/5`} disabled={busy} onClick={cancelSplit}>
+                <Ban className="size-3" />
+                {t(($) => $.detail_panel.split_drawer_cancel)}
+              </button>
+            </>
+          ) : null}
+          {active && onViewChildren ? (
+            <button type="button" className={`${drawerSmallButtonClass} border-border bg-background hover:bg-muted`} onClick={onViewChildren}>
+              {t(($) => $.detail_panel.split_drawer_view_children)}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  ) : undefined;
 
   return (
     <WorkflowNodeDetailPanelShell
       mode="run"
       variant="overlay"
-      widthClassName="w-[min(800px,calc(100vw-2rem))]"
       title={node.title}
-      eyebrow={nodeRun?.status === "split_active" ? t(($) => $.detail_panel.split_progress_eyebrow) : t(($) => $.detail_panel.split_review_eyebrow)}
-      closeLabel={t(($) => $.detail_panel.close_label)}
+      eyebrow={t(($) => $.detail_panel.split_plan_eyebrow)}
+      closeLabel={t(($) => $.detail_panel.split_plan_close)}
       onClose={onClose}
-      footer={actionBar}
       badges={(
         <>
-          <SplitProgressBadge progress={progress} />
-          <Badge variant="outline">{t(($) => $.detail_panel.split_settings_mode_label, { mode: splitConfig?.mode ?? "barrier" })}</Badge>
+          <DrawerBadge tone={statusMeta.tone}>
+            <RuntimeDisplayStatusIcon status={displayStatus} className="size-[11px]" />
+            {statusMeta.label}
+          </DrawerBadge>
+          {statusMeta.line ? <span className="text-[11px] text-muted-foreground">{statusMeta.line}</span> : null}
         </>
       )}
+      footer={footer}
+      contentClassName="py-3.5"
     >
-      <div
-        data-testid="split-review-overview-grid"
-        className="grid grid-cols-1 gap-6 min-[1280px]:grid-cols-2 min-[1280px]:gap-0 min-[1280px]:divide-x min-[1280px]:divide-border/40"
-      >
-      <NodeDetailSection
-        sectionId="primary"
-        icon={<GitBranch className="size-4" />}
-        title={t(($) => $.detail_panel.split_verdict_title)}
-        className="min-[1280px]:pr-6"
-      >
-        <SplitVerdictSummary
-          nodeRun={nodeRun}
-          tasks={activeTasks}
-          progress={progress}
-          splitConfig={splitConfig}
-          isChatPending={chatMutation.isPending}
-					plannerName={plannerName}
-					elapsedSeconds={elapsedSeconds}
-          t={t}
-        />
-        {failureMessage ? (
-          <p className="rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-            {failureMessage}
-          </p>
-        ) : null}
-      </NodeDetailSection>
-
-      {dependencySection}
-      </div>
-
-      <div data-testid="split-review-main" className="space-y-6">
-
-      <NodeDetailSection
-        sectionId="runtime"
-        icon={<ListTree className="size-4" />}
-        title={t(($) => $.detail_panel.split_draft_plan)}
-        status={canResetOriginal ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            onClick={() => void handleResetOriginal()}
-            disabled={!nodeRunId || resetOriginalMutation.isPending}
-            className="shrink-0 px-2 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <Undo2 className="mr-1.5 size-3.5" />
-            {resetOriginalMutation.isPending
-              ? t(($) => $.detail_panel.split_resetting_original)
-              : t(($) => $.detail_panel.split_reset_original)}
-          </Button>
-        ) : null}
-      >
-        {hasDraftCommands ? (
-          <div
-            data-testid="split-draft-command-bar"
-            className="flex flex-wrap items-center gap-2 rounded-md border border-border/70 bg-muted/20 px-2.5 py-2"
-          >
-            {canGenerate ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => void handleGenerate()}
-                disabled={!nodeRunId || generateMutation.isPending || nodeRun?.status === "splitting"}
-              >
-                <RefreshCcw className="mr-1.5 size-3.5" />
-                {generateMutation.isPending ? t(($) => $.detail_panel.split_generating) : generateLabel}
-              </Button>
-            ) : null}
-            {canRecover ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => void handleRecover()}
-                disabled={!nodeRunId || recoverMutation.isPending}
-              >
-                <ListTree className="mr-1.5 size-3.5" />
-                {recoverMutation.isPending ? t(($) => $.detail_panel.split_recovering) : t(($) => $.detail_panel.split_recover_outputs)}
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-        {isLoading ? (
-          <p className="text-sm text-muted-foreground">{t(($) => $.detail_panel.split_loading_draft)}</p>
-        ) : (
-          <SplitDraftLedger
-            tasks={tasks}
-            taskIssueBySourceId={childIssueBySplitTaskId}
-            readOnly={!canEditReview}
-            selectedTaskIds={effectiveSelectedTaskIds}
-            onSelectedTaskIdsChange={canEditReview ? onSelectedDraftTaskIdsChange : undefined}
-            onBatchAssigneeChange={canEditReview ? (assignee) => void handleBatchAssigneeChange(assignee) : undefined}
-            batchAssigneePending={batchPatchAssigneesMutation.isPending}
-            onAssigneeChange={(task, assignee) => void handleAssigneeChange(task, assignee)}
-            onDraftSave={(task, updates) => handleDraftSave(task, updates)}
-            onDiscardChange={(task, discarded) => void handleDiscardChange(task, discarded)}
+      <div className="space-y-3.5">
+        <DrawerSection icon={<AlignLeft className="size-[13px]" />} title={ti(($) => $.execution.detail_panel.task_drawer_issue_description)}>
+          <IssueDescriptionCard
+            description={issueDescription}
+            emptyText={ti(($) => $.execution.detail_panel.task_drawer_issue_description_empty)}
           />
-        )}
-      </NodeDetailSection>
+        </DrawerSection>
 
-      {canChat ? (
-        <NodeDetailSection
-          sectionId="agent-operations"
-          icon={<Activity className="size-4" />}
-          title={t(($) => $.detail_panel.split_ask_agent)}
+        {previousNodeRun && previousItem ? (
+          <DrawerSection icon={<Inbox className="size-[13px]" />} title={t(($) => $.detail_panel.split_drawer_previous)}>
+            <PreviousDeliverableCard
+              nodeTitle={previousNodeRun.node_title}
+              item={previousItem}
+              emptyText={t(($) => $.detail_panel.split_drawer_previous_empty)}
+              pullRequestLabel={t(($) => $.detail_panel.split_drawer_pull_request)}
+              mergedLabel={t(($) => $.detail_panel.split_drawer_merged)}
+              hint={t(($) => $.detail_panel.split_drawer_previous_hint)}
+            />
+          </DrawerSection>
+        ) : null}
+
+        <DrawerSection
+          icon={<FileText className="size-[13px]" />}
+          title={t(($) => $.detail_panel.split_drawer_current)}
+          subtitle={status === "splitting" || awaitingReview ? t(($) => $.detail_panel.split_drawer_current_subtitle) : undefined}
         >
-          <SplitChatReview
-            issueId={parentIssueId}
-            chatSessionId={chatSessionId}
-            disabled={isSplitChatRunning}
-            onSubmit={handleChatSubmit}
+          <CurrentDeliverablesCard
+            items={currentItems}
+            generating={status === "splitting"}
+            generatedTitle="task.md"
+            generatedMeta={t(($) => $.detail_panel.split_drawer_task_meta)}
+            generatingText={t(($) => $.detail_panel.split_drawer_generating_task)}
+            pendingLabel={t(($) => $.detail_panel.split_drawer_pending)}
+            approvedLabel={t(($) => $.detail_panel.split_drawer_approved)}
+            pullRequestLabel={t(($) => $.detail_panel.split_drawer_pull_request)}
+            pendingHint={t(($) => $.detail_panel.split_drawer_wait_submission)}
+            submittedHint={t(($) => $.detail_panel.split_drawer_review_in_gitea)}
+            approvedHint={t(($) => $.detail_panel.split_drawer_snapshot_hint)}
+            submittedPrefix={t(($) => $.detail_panel.split_drawer_submitted_at)}
+            forceState={materializing || active ? "approved" : awaitingReview ? "submitted" : undefined}
+            progress={materializing || active ? { done, total, active, note: progressNote } : undefined}
+            approvedBadgePlacement="meta"
           />
-        </NodeDetailSection>
-      ) : null}
+        </DrawerSection>
+
+        {validation.length > 0 ? (
+          <DrawerMoreOperations
+            title={t(($) => $.detail_panel.split_drawer_more)}
+            defaultOpen
+            badge={<DrawerBadge tone="red">{validation.length}</DrawerBadge>}
+          >
+            <div className="mb-2.5">
+              <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+                <AlertTriangle className="size-3 text-destructive" />
+                {t(($) => $.detail_panel.split_drawer_validation_count, { count: validation.length })}
+              </div>
+              <ul className="space-y-1 rounded-lg border border-destructive/25 bg-destructive/5 px-[11px] py-[9px] font-mono text-[11.5px] leading-[1.5] text-destructive">
+                {validation.map((detail, index) => (
+                  <li key={`${detail.line ?? 0}-${detail.field ?? "document"}-${index}`}>
+                    {t(($) => $.detail_panel.split_validation_detail, {
+                      line: detail.line ?? 0,
+                      field: detail.field ?? "document",
+                      message: detail.message ?? t(($) => $.detail_panel.split_invalid_value),
+                    })}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1.5 text-xs text-muted-foreground">{t(($) => $.detail_panel.split_drawer_validation_hint)}</p>
+            </div>
+          </DrawerMoreOperations>
+        ) : null}
       </div>
-
-      <AlertDialog
-        open={approveDialogOpen}
-        onOpenChange={(open) => {
-          if (!approveMutation.isPending) {
-            setApproveDialogOpen(open);
-          }
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t(($) => $.detail_panel.split_approve_dialog_title)}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t(($) => $.detail_panel.split_approve_dialog_description, { count: creatableCount })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={approveMutation.isPending}>
-              {t(($) => $.detail_panel.split_approve_dialog_cancel)}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={approveMutation.isPending}
-              onClick={() => void handleApprove()}
-            >
-              {approveMutation.isPending ? t(($) => $.detail_panel.split_creating) : t(($) => $.detail_panel.split_confirm_create_short)}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog
-        open={cancelDialogOpen}
-        onOpenChange={(open) => {
-          if (!cancelMutation.isPending) {
-            setCancelDialogOpen(open);
-          }
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t(($) => $.detail_panel.split_cancel_dialog_title)}</AlertDialogTitle>
-            <AlertDialogDescription>
-						{t(($) => $.detail_panel.split_cancel_affected_count, { count: affectedTaskCount })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={cancelMutation.isPending}>
-              {t(($) => $.detail_panel.split_keep_running)}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              disabled={cancelMutation.isPending}
-              onClick={() => void handleCancel()}
-            >
-              {cancelMutation.isPending ? t(($) => $.detail_panel.split_cancelling) : t(($) => $.detail_panel.split_confirm_cancel)}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </WorkflowNodeDetailPanelShell>
   );
 }

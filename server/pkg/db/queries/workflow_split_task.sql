@@ -1,47 +1,42 @@
--- name: CreateSplitTask :one
+-- name: CreateMaterializationSplitTask :one
 INSERT INTO multica_workflow_split_task (
-    node_run_id, workspace_id, draft_key, title, description,
-    depends_on, sort_order, status, draft_source
-) VALUES (
-    $1, $2, sqlc.narg('draft_key'), $3, $4,
-    $5, $6, $7, sqlc.narg('draft_source')
-) RETURNING *;
-
--- name: UpsertSplitDraftTaskByKey :one
-INSERT INTO multica_workflow_split_task (
-    node_run_id, workspace_id, draft_key, title, description,
-    depends_on, sort_order, status, draft_source
+    node_run_id, workspace_id, split_plan_generation, draft_key, title,
+    description, depends_on, sort_order, status,
+    assignee_type, assignee_id
 ) VALUES (
     $1, $2, $3, $4, $5,
-    $6, $7, 'draft', sqlc.narg('draft_source')
+    $6, '[]'::jsonb, $7, 'created',
+    'member', $8
 )
-ON CONFLICT (node_run_id, draft_key)
-WHERE draft_key IS NOT NULL AND draft_key <> '' AND status <> 'discarded'
-DO UPDATE SET
-    title = EXCLUDED.title,
-    description = EXCLUDED.description,
-    depends_on = EXCLUDED.depends_on,
-    sort_order = EXCLUDED.sort_order,
-    status = 'draft',
-    draft_source = EXCLUDED.draft_source,
-    version = multica_workflow_split_task.version + 1,
-    updated_at = now()
-WHERE multica_workflow_split_task.status = 'draft'
 RETURNING *;
 
--- name: GetSplitTask :one
-SELECT * FROM multica_workflow_split_task
-WHERE id = $1;
+-- name: SetMaterializationSplitTaskDependencies :one
+UPDATE multica_workflow_split_task
+SET depends_on = $2,
+    updated_at = now()
+WHERE id = $1
+  AND status = 'created'
+  AND issue_id IS NULL
+RETURNING *;
 
--- name: ListSplitTasksByNodeRun :many
+-- name: ListSplitTasksByGeneration :many
 SELECT * FROM multica_workflow_split_task
 WHERE node_run_id = $1
-ORDER BY sort_order ASC, created_at ASC;
+  AND split_plan_generation = $2
+ORDER BY sort_order ASC, id ASC;
 
--- name: ListSplitTasksByNodeRunForUpdate :many
+-- name: ListDueSplitTasksForMaterialization :many
 SELECT * FROM multica_workflow_split_task
 WHERE node_run_id = $1
-ORDER BY sort_order ASC, created_at ASC
+  AND split_plan_generation = $2
+  AND issue_id IS NULL
+  AND status = 'created'
+  AND (materialize_next_attempt_at IS NULL OR materialize_next_attempt_at <= now())
+ORDER BY sort_order ASC, id ASC;
+
+-- name: GetSplitTaskForUpdate :one
+SELECT * FROM multica_workflow_split_task
+WHERE id = $1
 FOR UPDATE;
 
 -- name: ListSplitTasksByRunID :many
@@ -50,52 +45,6 @@ FROM multica_workflow_split_task st
 JOIN multica_workflow_run wr ON wr.id = st.run_id
 WHERE wr.id = $1
 ORDER BY st.sort_order ASC, st.created_at ASC;
-
--- name: CountSplitTasksByNodeRun :one
-SELECT count(*)::bigint
-FROM multica_workflow_split_task
-WHERE node_run_id = $1
-  AND status <> 'discarded';
-
--- name: UpdateSplitTaskFields :one
-UPDATE multica_workflow_split_task
-SET title = COALESCE(sqlc.narg('title'), title),
-    description = COALESCE(sqlc.narg('description'), description),
-    depends_on = COALESCE(sqlc.narg('depends_on'), depends_on),
-    sort_order = COALESCE(sqlc.narg('sort_order')::int, sort_order),
-    updated_at = now()
-WHERE id = $1
-RETURNING *;
-
--- name: UpdateSplitTaskDraftFields :one
-UPDATE multica_workflow_split_task
-SET title = COALESCE(sqlc.narg('title'), title),
-    description = COALESCE(sqlc.narg('description'), description),
-    depends_on = COALESCE(sqlc.narg('depends_on'), depends_on),
-    status = CASE
-      WHEN sqlc.narg('discarded')::boolean IS TRUE THEN 'discarded'
-      WHEN sqlc.narg('discarded')::boolean IS FALSE AND status = 'discarded' THEN 'draft'
-      ELSE status
-    END,
-    version = version + 1,
-    updated_at = now()
-WHERE id = $1
-  AND node_run_id = $2
-  AND status IN ('draft', 'discarded')
-  AND version = $3
-RETURNING *;
-
--- name: SetSplitTaskAssignee :one
-UPDATE multica_workflow_split_task
-SET assignee_type = $4,
-    assignee_id = $5,
-    version = version + 1,
-    updated_at = now()
-WHERE id = $1
-  AND node_run_id = $2
-  AND version = $3
-  AND status = 'draft'
-RETURNING *;
 
 -- name: GetSplitTaskByIssueID :one
 SELECT * FROM multica_workflow_split_task
@@ -159,83 +108,39 @@ WHERE st.issue_id = sqlc.arg('issue_id')
   AND i.status NOT IN ('done', 'cancelled')
 RETURNING st.*;
 
--- name: MarkSplitTasksApproved :exec
-UPDATE multica_workflow_split_task
-SET status = 'approved',
-    updated_at = now()
-WHERE node_run_id = $1
-  AND id = ANY($2::uuid[])
-  AND status = 'draft';
-
--- name: MarkSplitTasksDiscardedExcept :exec
-UPDATE multica_workflow_split_task
-SET status = 'discarded',
-    updated_at = now()
-WHERE node_run_id = $1
-  AND NOT (id = ANY($2::uuid[]))
-  AND status = 'draft';
-
--- name: UpdateSplitTaskIssueID :exec
+-- name: SetSplitTaskMaterializedIssue :one
 UPDATE multica_workflow_split_task
 SET issue_id = $2,
     status = 'created',
+    materialize_next_attempt_at = NULL,
+    last_error = NULL,
     updated_at = now()
 WHERE id = $1
-  AND issue_id IS NULL;
+  AND issue_id IS NULL
+RETURNING *;
 
--- name: UpdateSplitTaskRunID :exec
+-- name: SetSplitTaskMaterializationRetry :one
 UPDATE multica_workflow_split_task
-SET run_id = $2,
-    status = 'running',
+SET materialize_retry_count = $2,
+    materialize_next_attempt_at = sqlc.narg('materialize_next_attempt_at'),
+    last_error = sqlc.arg('last_error')::jsonb,
+    status = $3,
     updated_at = now()
 WHERE id = $1
-  AND run_id IS NULL;
+  AND issue_id IS NULL
+RETURNING *;
 
--- name: UpdateSplitTaskRunIDWithDispatchKey :execrows
+-- name: ResetSplitTaskMaterializationRetry :one
 UPDATE multica_workflow_split_task
-SET run_id = $2,
-    status = 'running',
-    updated_at = now()
-WHERE id = $1
-  AND status = 'created'
-  AND dispatch_key = sqlc.arg('dispatch_key')::text
-  AND run_id IS NULL;
-
--- name: ResetSplitTaskForRetry :one
-UPDATE multica_workflow_split_task
-SET workflow_id = COALESCE(sqlc.narg('workflow_id'), workflow_id),
-    run_id = NULL,
-    dispatch_key = NULL,
+SET materialize_retry_count = 0,
+    materialize_next_attempt_at = NULL,
     last_error = NULL,
     status = 'created',
-    version = version + 1,
     updated_at = now()
 WHERE id = $1
-  AND node_run_id = $2
-  AND status IN ('failed', 'cancelled', 'skipped')
-  AND issue_id IS NOT NULL
+  AND issue_id IS NULL
+  AND status = 'failed'
 RETURNING *;
-
--- name: ClaimSplitTaskForRunStart :one
-UPDATE multica_workflow_split_task
-SET dispatch_key = sqlc.arg('dispatch_key')::text,
-    updated_at = now()
-WHERE id = $1
-  AND status = 'created'
-  AND run_id IS NULL
-  AND (dispatch_key IS NULL OR dispatch_key = sqlc.arg('dispatch_key')::text)
-RETURNING *;
-
--- name: CancelOpenSplitTasksByNodeRun :exec
-UPDATE multica_workflow_split_task
-SET status = CASE
-      WHEN issue_id IS NULL THEN 'discarded'
-      WHEN run_id IS NULL THEN 'skipped'
-      ELSE 'cancelled'
-    END,
-    updated_at = now()
-WHERE node_run_id = $1
-  AND status NOT IN ('done', 'failed', 'cancelled', 'skipped', 'discarded');
 
 -- name: CancelOpenSplitTask :execrows
 UPDATE multica_workflow_split_task

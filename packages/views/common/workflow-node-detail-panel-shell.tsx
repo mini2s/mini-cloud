@@ -27,6 +27,7 @@ interface WorkflowNodeDetailPanelShellProps {
   eyebrow?: ReactNode;
   badges?: ReactNode;
   statusIcon?: ReactNode;
+  headerExtra?: ReactNode;
   closeLabel: string;
   onClose: () => void;
   children: ReactNode;
@@ -43,6 +44,7 @@ export function WorkflowNodeDetailPanelShell({
   eyebrow,
   badges,
   statusIcon,
+  headerExtra,
   closeLabel,
   onClose,
   children,
@@ -56,18 +58,18 @@ export function WorkflowNodeDetailPanelShell({
       data-testid="workflow-node-detail-panel-shell"
       data-mode={mode}
       className={cn(
-        "flex h-full flex-col border-l border-border/80 bg-background shadow-[-10px_0_28px_rgba(15,23,42,0.06)]",
+        "flex h-full max-w-[calc(100vw-2rem)] flex-col border-l border-border bg-background shadow-[-10px_0_28px_rgba(15,23,42,0.06)]",
         widthClassName,
         variant === "overlay" &&
-          "fixed right-0 top-0 bottom-0 z-50 h-auto shadow-2xl shadow-foreground/10 ring-1 ring-border/70 backdrop-blur",
+          "fixed right-0 top-0 bottom-0 z-[60] h-auto",
         className,
       )}
     >
       <div className="shrink-0 border-b border-border/60 bg-muted/15 px-4 py-3.5">
-        <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="mb-2 mt-0.5 flex items-center justify-between gap-2">
           <div className="min-w-0">
             {eyebrow ? (
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="text-[10px] font-semibold uppercase leading-4 tracking-[0.08em] text-muted-foreground">
                 {eyebrow}
               </p>
             ) : null}
@@ -86,6 +88,7 @@ export function WorkflowNodeDetailPanelShell({
           </button>
         </div>
         {badges ? <div className="flex flex-wrap items-center gap-1.5">{badges}</div> : null}
+        {headerExtra}
       </div>
 
       <div
@@ -111,7 +114,7 @@ export function WorkflowNodeDetailPanelShell({
     <>
       <div
         data-testid="detail-panel-mask"
-        className="fixed inset-0 z-40 bg-slate-950/18 backdrop-blur-[1px]"
+        className="fixed inset-0 z-50 bg-white/35 backdrop-blur-[0.4px]"
         onClick={onClose}
       />
       {panel}

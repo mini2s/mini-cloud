@@ -1410,6 +1410,47 @@ func (q *Queries) GetAgentTask(ctx context.Context, id pgtype.UUID) (MulticaAgen
 	return i, err
 }
 
+const getAgentTaskForUpdate = `-- name: GetAgentTaskForUpdate :one
+SELECT id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, workflow_node_run_id, workflow_dispatch_job_id FROM multica_agent_task_queue
+WHERE id = $1
+FOR UPDATE
+`
+
+func (q *Queries) GetAgentTaskForUpdate(ctx context.Context, id pgtype.UUID) (MulticaAgentTaskQueue, error) {
+	row := q.db.QueryRow(ctx, getAgentTaskForUpdate, id)
+	var i MulticaAgentTaskQueue
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.IssueID,
+		&i.Status,
+		&i.Priority,
+		&i.DispatchedAt,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Result,
+		&i.Error,
+		&i.CreatedAt,
+		&i.Context,
+		&i.RuntimeID,
+		&i.SessionID,
+		&i.WorkDir,
+		&i.TriggerCommentID,
+		&i.ChatSessionID,
+		&i.AutopilotRunID,
+		&i.Attempt,
+		&i.MaxAttempts,
+		&i.ParentTaskID,
+		&i.FailureReason,
+		&i.TriggerSummary,
+		&i.ForceFreshSession,
+		&i.IsLeaderTask,
+		&i.WorkflowNodeRunID,
+		&i.WorkflowDispatchJobID,
+	)
+	return i, err
+}
+
 const getBuiltinAgent = `-- name: GetBuiltinAgent :one
 SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, plugin_id, is_builtin, plugin_name FROM multica_agent WHERE id = $1 AND is_builtin = TRUE
 `

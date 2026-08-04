@@ -11,31 +11,23 @@ import {
   workflowKeys,
   workflowListOptions,
   workflowRunCanvasDefinition,
-  useBatchPatchSplitTaskAssignees,
-  usePatchSplitTaskAssignee,
   useSkipNodeRun,
   useSubmitNodeRun,
 } from "./queries";
 
 const {
-  batchPatchSplitTaskAssignees,
   listWorkflows,
-  patchSplitTaskAssignee,
   skipNodeRun,
   submitNodeRun,
 } = vi.hoisted(() => ({
-  batchPatchSplitTaskAssignees: vi.fn(),
   listWorkflows: vi.fn(),
-  patchSplitTaskAssignee: vi.fn(),
   skipNodeRun: vi.fn(),
   submitNodeRun: vi.fn(),
 }));
 
 vi.mock("../api", () => ({
   api: {
-    batchPatchSplitTaskAssignees,
     listWorkflows,
-    patchSplitTaskAssignee,
     skipNodeRun,
     submitNodeRun,
   },
@@ -77,57 +69,6 @@ describe("workflow split query keys", () => {
     ]);
   });
 
-  it("patches a split assignee and refreshes the scoped cache", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
-    const response = {
-      tasks: [{ id: "task-1", node_run_id: "node-run-1", version: 2, assignee_type: "agent", assignee_id: "agent-1" }],
-      progress: { total: 1, created: 0, running: 0, done: 0, failed: 0, cancelled: 0, skipped: 0 },
-    };
-    patchSplitTaskAssignee.mockResolvedValue(response);
-    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: queryClient }, children);
-    const { result } = renderHook(() => usePatchSplitTaskAssignee("ws-1"), { wrapper });
-    const request = { assignee_type: "agent" as const, assignee_id: "agent-1", expected_version: 1 };
-
-    await act(async () => {
-      await result.current.mutateAsync({ nodeRunId: "node-run-1", taskId: "task-1", request });
-    });
-
-    expect(patchSplitTaskAssignee).toHaveBeenCalledWith("node-run-1", "task-1", request);
-    expect(queryClient.getQueryData(workflowKeys.splitTasks("ws-1", "node-run-1"))).toEqual(response);
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: workflowKeys.splitTasks("ws-1", "node-run-1") });
-  });
-
-  it("patches selected split assignees in one request and refreshes the scoped cache", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
-    const response = {
-      tasks: [
-        { id: "task-1", node_run_id: "node-run-1", version: 2, assignee_type: "member", assignee_id: "member-1" },
-        { id: "task-2", node_run_id: "node-run-1", version: 4, assignee_type: "member", assignee_id: "member-1" },
-      ],
-      progress: { total: 2, created: 0, running: 0, done: 0, failed: 0, cancelled: 0, skipped: 0 },
-    };
-    batchPatchSplitTaskAssignees.mockResolvedValue(response);
-    const wrapper = ({ children }: PropsWithChildren) => createElement(QueryClientProvider, { client: queryClient }, children);
-    const { result } = renderHook(() => useBatchPatchSplitTaskAssignees("ws-1"), { wrapper });
-    const request = {
-      assignee_type: "member" as const,
-      assignee_id: "member-1",
-      tasks: [
-        { task_id: "task-1", expected_version: 1 },
-        { task_id: "task-2", expected_version: 3 },
-      ],
-    };
-
-    await act(async () => {
-      await result.current.mutateAsync({ nodeRunId: "node-run-1", request });
-    });
-
-    expect(batchPatchSplitTaskAssignees).toHaveBeenCalledWith("node-run-1", request);
-    expect(queryClient.getQueryData(workflowKeys.splitTasks("ws-1", "node-run-1"))).toEqual(response);
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: workflowKeys.splitTasks("ws-1", "node-run-1") });
-  });
 });
 
 describe("node run mutations", () => {

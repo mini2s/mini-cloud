@@ -841,6 +841,7 @@ type MulticaWorkflowNodeRun struct {
 	RuntimeConfig            []byte             `json:"runtime_config"`
 	WorkerNameSnapshot       string             `json:"worker_name_snapshot"`
 	CriticNameSnapshot       string             `json:"critic_name_snapshot"`
+	SplitPlanGeneration      int32              `json:"split_plan_generation"`
 }
 
 type MulticaWorkflowNodeRunDeliverable struct {
@@ -852,23 +853,25 @@ type MulticaWorkflowNodeRunDeliverable struct {
 	Required            bool               `json:"required"`
 	SortOrder           int32              `json:"sort_order"`
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	Purpose             string             `json:"purpose"`
 }
 
 type MulticaWorkflowNodeRunDispatchJob struct {
-	ID                pgtype.UUID        `json:"id"`
-	WorkflowRunID     pgtype.UUID        `json:"workflow_run_id"`
-	WorkflowNodeRunID pgtype.UUID        `json:"workflow_node_run_id"`
-	Phase             string             `json:"phase"`
-	Generation        int32              `json:"generation"`
-	Status            string             `json:"status"`
-	AttemptCount      int32              `json:"attempt_count"`
-	MaxAttempts       int32              `json:"max_attempts"`
-	ScheduledAt       pgtype.Timestamptz `json:"scheduled_at"`
-	LockedBy          pgtype.Text        `json:"locked_by"`
-	LeaseExpiresAt    pgtype.Timestamptz `json:"lease_expires_at"`
-	LastError         string             `json:"last_error"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	ID                  pgtype.UUID        `json:"id"`
+	WorkflowRunID       pgtype.UUID        `json:"workflow_run_id"`
+	WorkflowNodeRunID   pgtype.UUID        `json:"workflow_node_run_id"`
+	Phase               string             `json:"phase"`
+	Generation          int32              `json:"generation"`
+	Status              string             `json:"status"`
+	AttemptCount        int32              `json:"attempt_count"`
+	MaxAttempts         int32              `json:"max_attempts"`
+	ScheduledAt         pgtype.Timestamptz `json:"scheduled_at"`
+	LockedBy            pgtype.Text        `json:"locked_by"`
+	LeaseExpiresAt      pgtype.Timestamptz `json:"lease_expires_at"`
+	LastError           string             `json:"last_error"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	SplitPlanGeneration pgtype.Int4        `json:"split_plan_generation"`
 }
 
 type MulticaWorkflowRole struct {
@@ -1019,27 +1022,62 @@ type MulticaWorkflowRunEdge struct {
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
+type MulticaWorkflowSplitGeneration struct {
+	NodeRunID           pgtype.UUID        `json:"node_run_id"`
+	Generation          int32              `json:"generation"`
+	Status              string             `json:"status"`
+	PlannerTaskID       pgtype.UUID        `json:"planner_task_id"`
+	DeliverableID       pgtype.UUID        `json:"deliverable_id"`
+	SubmissionID        pgtype.UUID        `json:"submission_id"`
+	ReviewComment       string             `json:"review_comment"`
+	PrUrl               string             `json:"pr_url"`
+	ReviewedContent     string             `json:"reviewed_content"`
+	ReviewHeadCommitSha string             `json:"review_head_commit_sha"`
+	ReviewBlobSha       string             `json:"review_blob_sha"`
+	ReviewArchiveStatus string             `json:"review_archive_status"`
+	ReviewArchiveError  string             `json:"review_archive_error"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MulticaWorkflowSplitSnapshot struct {
+	NodeRunID     pgtype.UUID        `json:"node_run_id"`
+	Generation    int32              `json:"generation"`
+	Content       string             `json:"content"`
+	TaskPath      string             `json:"task_path"`
+	SourceBranch  string             `json:"source_branch"`
+	HeadCommitSha string             `json:"head_commit_sha"`
+	BlobSha       string             `json:"blob_sha"`
+	PrUrl         string             `json:"pr_url"`
+	ArchiveStatus string             `json:"archive_status"`
+	ArchiveError  string             `json:"archive_error"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
 type MulticaWorkflowSplitTask struct {
-	ID           pgtype.UUID        `json:"id"`
-	NodeRunID    pgtype.UUID        `json:"node_run_id"`
-	WorkspaceID  pgtype.UUID        `json:"workspace_id"`
-	Title        string             `json:"title"`
-	Description  string             `json:"description"`
-	DependsOn    []byte             `json:"depends_on"`
-	SortOrder    int32              `json:"sort_order"`
-	Status       string             `json:"status"`
-	IssueID      pgtype.UUID        `json:"issue_id"`
-	RunID        pgtype.UUID        `json:"run_id"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
-	DraftKey     pgtype.Text        `json:"draft_key"`
-	DraftSource  string             `json:"draft_source"`
-	WorkflowID   pgtype.UUID        `json:"workflow_id"`
-	Version      int64              `json:"version"`
-	DispatchKey  pgtype.Text        `json:"dispatch_key"`
-	LastError    []byte             `json:"last_error"`
-	AssigneeType pgtype.Text        `json:"assignee_type"`
-	AssigneeID   pgtype.UUID        `json:"assignee_id"`
+	ID                       pgtype.UUID        `json:"id"`
+	NodeRunID                pgtype.UUID        `json:"node_run_id"`
+	WorkspaceID              pgtype.UUID        `json:"workspace_id"`
+	Title                    string             `json:"title"`
+	Description              string             `json:"description"`
+	DependsOn                []byte             `json:"depends_on"`
+	SortOrder                int32              `json:"sort_order"`
+	Status                   string             `json:"status"`
+	IssueID                  pgtype.UUID        `json:"issue_id"`
+	RunID                    pgtype.UUID        `json:"run_id"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                pgtype.Timestamptz `json:"updated_at"`
+	DraftKey                 pgtype.Text        `json:"draft_key"`
+	DraftSource              string             `json:"draft_source"`
+	WorkflowID               pgtype.UUID        `json:"workflow_id"`
+	Version                  int64              `json:"version"`
+	DispatchKey              pgtype.Text        `json:"dispatch_key"`
+	LastError                []byte             `json:"last_error"`
+	AssigneeType             pgtype.Text        `json:"assignee_type"`
+	AssigneeID               pgtype.UUID        `json:"assignee_id"`
+	SplitPlanGeneration      pgtype.Int4        `json:"split_plan_generation"`
+	MaterializeRetryCount    int32              `json:"materialize_retry_count"`
+	MaterializeNextAttemptAt pgtype.Timestamptz `json:"materialize_next_attempt_at"`
 }
 
 type MulticaWorkflowStage struct {

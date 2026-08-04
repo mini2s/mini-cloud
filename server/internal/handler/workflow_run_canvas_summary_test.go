@@ -183,21 +183,48 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 	}
 
 	if _, err := testPool.Exec(ctx, `
+		WITH deliverable AS (
+			INSERT INTO multica_workflow_node_run_deliverable (
+				workflow_node_run_id, source_deliverable_id, title, description, required, sort_order, purpose
+			) VALUES ($1, uuid_generate_v4(), 'task', 'Split task plan', true, -1, 'split_task_plan')
+			RETURNING id
+		), generation AS (
+			INSERT INTO multica_workflow_split_generation (node_run_id, generation, status, deliverable_id)
+			SELECT $1, 1, 'active', id FROM deliverable
+		)
+		UPDATE multica_workflow_node_run SET split_plan_generation = 1 WHERE id = $1
+	`, splitRunID); err != nil {
+		t.Fatalf("create split generation: %v", err)
+	}
+
+	if _, err := testPool.Exec(ctx, `
 		INSERT INTO multica_workflow_split_task (
-			node_run_id, workspace_id, title, description, depends_on, sort_order, status
+			node_run_id, workspace_id, title, description, depends_on, sort_order, status, split_plan_generation
 		)
 		VALUES
-			($1, $2, 'Created task', '', '[]'::jsonb, 0, 'created'),
-			($1, $2, 'Running task', '', '[]'::jsonb, 1, 'running'),
-			($1, $2, 'Done task', '', '[]'::jsonb, 2, 'done'),
-			($1, $2, 'Failed task', '', '[]'::jsonb, 3, 'failed'),
-			($1, $2, 'Cancelled task', '', '[]'::jsonb, 4, 'cancelled'),
-			($1, $2, 'Skipped task', '', '[]'::jsonb, 5, 'skipped'),
-			($1, $2, 'Draft task', '', '[]'::jsonb, 6, 'draft'),
-			($1, $2, 'Approved task', '', '[]'::jsonb, 7, 'approved'),
-			($1, $2, 'Discarded task', '', '[]'::jsonb, 8, 'discarded')
+			($1, $2, 'Created task', '', '[]'::jsonb, 0, 'created', 1),
+			($1, $2, 'Running task', '', '[]'::jsonb, 1, 'running', 1),
+			($1, $2, 'Done task', '', '[]'::jsonb, 2, 'done', 1),
+			($1, $2, 'Failed task', '', '[]'::jsonb, 3, 'failed', 1),
+			($1, $2, 'Cancelled task', '', '[]'::jsonb, 4, 'cancelled', 1),
+			($1, $2, 'Skipped task', '', '[]'::jsonb, 5, 'skipped', 1)
 	`, splitRunID, testWorkspaceID); err != nil {
 		t.Fatalf("create split tasks: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO multica_workflow_split_generation (node_run_id, generation, status, deliverable_id)
+		SELECT $1, 2, 'superseded', deliverable_id
+		FROM multica_workflow_split_generation
+		WHERE node_run_id = $1 AND generation = 1
+	`, splitRunID); err != nil {
+		t.Fatalf("create non-current split generation: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO multica_workflow_split_task (
+			node_run_id, workspace_id, title, description, depends_on, sort_order, status, split_plan_generation
+		) VALUES ($1, $2, 'Old audit task', '', '[]'::jsonb, 0, 'done', 2)
+	`, splitRunID, testWorkspaceID); err != nil {
+		t.Fatalf("create non-current split audit task: %v", err)
 	}
 
 	w := httptest.NewRecorder()

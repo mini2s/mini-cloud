@@ -71,6 +71,7 @@ import type {
   ChatMessage,
   ChatPendingTask,
   InvitationCreatedPayload,
+  SplitReviewReadyPayload,
 } from "../types";
 
 const chatWsLogger = createLogger("chat.ws");
@@ -371,6 +372,7 @@ export function useRealtimeSync(
       "issue_reaction:added", "issue_reaction:removed",
       "subscriber:added", "subscriber:removed",
       "workflow:node_run_updated",
+      "split_review_ready",
       "daemon:heartbeat",
       // Chat events are handled explicitly below; do not double-invalidate.
       "chat:message", "chat:done", "chat:session_read", "chat:session_deleted",
@@ -597,6 +599,25 @@ export function useRealtimeSync(
             const key = query.queryKey;
             return Array.isArray(key) && key.includes("node-runs");
           },
+        });
+      }
+    });
+    // The split-plan submission and its pull-request URL are committed in the
+    // same transaction that moves the node into review. This lifecycle event
+    // is the authoritative signal that both review queries can be refetched.
+    // In particular, node-run deliverables use a flat key outside
+    // workflowKeys.all(wsId), so the generic workflow invalidation cannot
+    // reach them.
+    const unsubSplitReviewReady = ws.on("split_review_ready", (p) => {
+      const { workflow_node_run_id } = p as SplitReviewReadyPayload;
+      if (!workflow_node_run_id) return;
+      qc.invalidateQueries({
+        queryKey: workflowKeys.nodeRunDeliverables(workflow_node_run_id),
+      });
+      const wsId = getCurrentWsId();
+      if (wsId) {
+        qc.invalidateQueries({
+          queryKey: workflowKeys.splitTasks(wsId, workflow_node_run_id),
         });
       }
     });
@@ -959,6 +980,7 @@ export function useRealtimeSync(
       unsubSubscriberAdded();
       unsubSubscriberRemoved();
       unsubNodeRunUpdated();
+      unsubSplitReviewReady();
       unsubRoleResolutionUpdated();
       unsubWorkflowRunUpdated();
       unsubWsUpdated();

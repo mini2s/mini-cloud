@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   membersData: undefined as unknown as unknown[],
   squadsData: undefined as unknown as unknown[],
   workflowOptionsData: undefined as unknown,
+  issueData: undefined as unknown,
   childIssuesData: [] as unknown[],
   splitTasksByNodeRunId: {} as Record<string, unknown>,
   deliverableDefinitionsByNodeId: {} as Record<string, unknown>,
@@ -140,6 +141,8 @@ vi.mock("@tanstack/react-query", async () => {
           return { data: mocks.chatSessionsData, isLoading: false };
         if (key.includes("split-issue-workflow-options"))
           return { data: mocks.workflowOptionsData, isLoading: false };
+        if (key[0] === "issues" && key.includes("detail"))
+          return { data: mocks.issueData, isLoading: false };
         if (key.includes("children"))
           return { data: mocks.childIssuesData, isLoading: false };
         return { data: mocks.workflowData, isLoading: mocks.isLoading };
@@ -269,6 +272,10 @@ vi.mock("@multica/core/workspace/queries", () => ({
 }));
 
 vi.mock("@multica/core/issues/queries", () => ({
+  issueDetailOptions: (wsId: string, issueId: string) => ({
+    queryKey: ["issues", wsId, "detail", issueId],
+    enabled: !!issueId,
+  }),
   childIssuesOptions: (wsId: string, issueId: string) => ({
     queryKey: ["issues", wsId, issueId, "children"],
     enabled: !!issueId,
@@ -444,30 +451,70 @@ vi.mock("./execution-detail-panel", () => ({
   ),
 }));
 
+vi.mock("./task-node-detail-panel", () => ({
+  TaskNodeDetailPanel: ({
+    node,
+    nodeRun,
+    onClose,
+    onOpenIssue,
+    onRetry,
+    mayReview,
+    isChildIssue,
+    parentSplitTitle,
+    issueDescription,
+    workerName,
+    currentUserId,
+    currentMember,
+  }: {
+    node: { title: string };
+    nodeRun: { status: string } | null;
+    onClose: () => void;
+    onOpenIssue?: () => void;
+    onRetry?: () => void;
+    mayReview?: boolean;
+    isChildIssue?: boolean;
+    parentSplitTitle?: string | null;
+    issueDescription?: string | null;
+    workerName?: string | null;
+    currentUserId?: string | null;
+    currentMember?: { role: string; status: string } | null;
+  }) => (
+    <div
+      data-testid="execution-detail-panel"
+      ref={() => {
+        mocks.executionDetailProps = { currentUserId, currentMember, mayReview };
+      }}
+    >
+      <span data-testid="detail-panel-title">{node.title}</span>
+      <span data-testid="detail-panel-status">{nodeRun?.status ?? "no-run"}</span>
+      <span data-testid="detail-panel-is-child">{String(isChildIssue === true)}</span>
+      <span data-testid="detail-panel-parent-split">{parentSplitTitle ?? "no-parent"}</span>
+      <span data-testid="detail-panel-issue-description">{issueDescription ?? ""}</span>
+      <span data-testid="detail-panel-worker-name">{workerName ?? "no-worker"}</span>
+      <span data-testid="detail-panel-may-review">{String(mayReview === true)}</span>
+      {onOpenIssue ? <button type="button" onClick={onOpenIssue}>Open issue</button> : null}
+      {onRetry ? <button type="button" onClick={onRetry}>Retry from panel</button> : null}
+      <button onClick={onClose}>Close</button>
+    </div>
+  ),
+}));
+
 vi.mock("../../../workflows/components/split/split-review-panel", () => ({
   SplitReviewPanel: ({
     nodeRun,
     parentIssueId,
+    issueDescription,
     onClose,
-    selectedDraftTaskIds,
-    onSelectedDraftTaskIdsChange,
   }: {
     nodeRun: { status: string } | null;
     parentIssueId?: string;
+    issueDescription?: string | null;
     onClose: () => void;
-    selectedDraftTaskIds?: string[];
-    onSelectedDraftTaskIdsChange?: (taskIds: string[]) => void;
   }) => (
     <div data-testid="execution-split-review-panel">
       <span data-testid="split-panel-status">{nodeRun?.status ?? "no-run"}</span>
       <span data-testid="split-panel-parent-issue-id">{parentIssueId ?? "no-parent-issue"}</span>
-      <span data-testid="split-panel-selection">{selectedDraftTaskIds?.join(",") ?? "uninitialized"}</span>
-      <button type="button" onClick={() => onSelectedDraftTaskIdsChange?.(["draft-2"])}>
-        Select draft 2
-      </button>
-      <button type="button" onClick={() => onSelectedDraftTaskIdsChange?.([])}>
-        Clear draft selection
-      </button>
+      <span data-testid="split-panel-issue-description">{issueDescription ?? ""}</span>
       <button onClick={onClose}>Close split panel</button>
     </div>
   ),
@@ -761,6 +808,7 @@ describe("ExecutionPanoramaPage", () => {
     mocks.membersData = [];
     mocks.squadsData = [];
     mocks.workflowOptionsData = [];
+    mocks.issueData = undefined;
     mocks.childIssuesData = [];
     mocks.chatSessionsData = [];
     mocks.workflowRolesData = [];
@@ -874,10 +922,11 @@ describe("ExecutionPanoramaPage", () => {
       role: "owner",
       status: "active",
     }];
+    mocks.issueData = { id: "issue-1", description: "Parent issue description" };
 
     render(
       <Wrapper>
-        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" />
+        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
       </Wrapper>,
     );
 
@@ -891,6 +940,7 @@ describe("ExecutionPanoramaPage", () => {
       currentUserId: "user-1",
       currentMember: { role: "owner", status: "active" },
     });
+    expect(screen.getByTestId("detail-panel-issue-description")).toHaveTextContent("Parent issue description");
   });
 
   it("gives the shared canvas an explicit height in the regular issue detail flow", () => {
@@ -1739,6 +1789,7 @@ describe("ExecutionPanoramaPage", () => {
 
   it("opens the split review panel instead of the generic execution panel for split nodes", () => {
     mocks.isLoading = false;
+    mocks.issueData = { id: "issue-1", description: "Split issue description" };
     mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
     mocks.stagesData = [STAGE];
     mocks.nodesData = [
@@ -1799,66 +1850,8 @@ describe("ExecutionPanoramaPage", () => {
     expect(screen.getByTestId("execution-split-review-panel")).toBeInTheDocument();
     expect(screen.getByTestId("split-panel-status")).toHaveTextContent("awaiting_split_review");
     expect(screen.getByTestId("split-panel-parent-issue-id")).toHaveTextContent("issue-1");
+    expect(screen.getByTestId("split-panel-issue-description")).toHaveTextContent("Split issue description");
     expect(screen.queryByTestId("execution-detail-panel")).not.toBeInTheDocument();
-  });
-
-  it("restores split draft selection after closing and reopening the panel", () => {
-    mocks.isLoading = false;
-    mocks.workflowData = { id: "wf-1", title: "Test Workflow" };
-    mocks.stagesData = [STAGE];
-    mocks.nodesData = [{
-      ...NODE,
-      format_schema: {
-        type: "split",
-        split_config: { default_issue_workflow_id: "child-wf-1", mode: "barrier", max_concurrency: 3, max_failures: 0 },
-      },
-    }];
-    mocks.nodeRunsData = [{
-      id: "nr-1",
-      workflow_run_id: "run-1",
-      workflow_node_id: "n1",
-      node_title: "brainstorming",
-      status: "awaiting_split_review",
-      retry_count: 0,
-      worker_type: "agent",
-      worker_id: "agent-1",
-      worker_output: null,
-      worker_agent_task_id: null,
-      critic_type: "human",
-      critic_id: null,
-      critic_output: null,
-      critic_comment: "",
-      critic_agent_task_id: null,
-      agent_task_id: null,
-      session_id: null,
-      runtime_id: null,
-      device_id: null,
-      started_at: null,
-      completed_at: null,
-      created_at: "",
-      updated_at: "",
-    }];
-    mocks.canvasSummaryData = { node_runs: mocks.nodeRunsData, node_runtime_summaries: [] };
-    mocks.agentsData = [AGENT];
-
-    render(
-      <Wrapper>
-        <ExecutionPanoramaPage workflowId="wf-1" runId="run-1" wsId="ws-1" issueId="issue-1" />
-      </Wrapper>,
-    );
-
-    fireEvent.click(screen.getByTestId("notification-item-test"));
-    expect(screen.getByTestId("split-panel-selection")).toHaveTextContent("uninitialized");
-    fireEvent.click(screen.getByRole("button", { name: "Select draft 2" }));
-    fireEvent.click(screen.getByRole("button", { name: "Close split panel" }));
-    fireEvent.click(screen.getByTestId("notification-item-test"));
-
-    expect(screen.getByTestId("split-panel-selection")).toHaveTextContent("draft-2");
-    fireEvent.click(screen.getByRole("button", { name: "Clear draft selection" }));
-    fireEvent.click(screen.getByRole("button", { name: "Close split panel" }));
-    fireEvent.click(screen.getByTestId("notification-item-test"));
-
-    expect(screen.getByTestId("split-panel-selection")).toBeEmptyDOMElement();
   });
 
   it("expands split child issues into a subflow container from the runtime split expansion button", async () => {
@@ -2457,6 +2450,7 @@ describe("ExecutionPanoramaPage", () => {
       {
         id: "child-issue-1",
         identifier: "MUL-580",
+        description: "Child issue description",
         assignee_type: "member",
         assignee_id: "user-1",
       },
@@ -2502,6 +2496,7 @@ describe("ExecutionPanoramaPage", () => {
     });
 
     expect(screen.getByTestId("detail-panel-worker-name")).toHaveTextContent("Alice Reviewer");
+    expect(screen.getByTestId("detail-panel-issue-description")).toHaveTextContent("Child issue description");
   });
 
   it("toggles split child issue nodes when a runtime split node is double clicked", async () => {

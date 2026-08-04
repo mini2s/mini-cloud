@@ -51,20 +51,20 @@ type AgentResponse struct {
 	// ThinkingLevel is the runtime-native reasoning/effort token persisted
 	// for this agent (empty = use runtime default). The picker is per-runtime
 	// per-model; the API never normalizes across providers. See MUL-2339.
-	ThinkingLevel string              `json:"thinking_level"`
-	PluginID      *string             `json:"plugin_id"`
+	ThinkingLevel string  `json:"thinking_level"`
+	PluginID      *string `json:"plugin_id"`
 	// PluginName is the stable install identifier (slug) of the bound plugin,
 	// e.g. "cospowers-integration-verification". cs-cloud installs by this name
 	// (csc plugin install <name>@<marketplace>), so it is carried alongside
 	// plugin_id to avoid a fragile id->catalog lookup at download time.
-	PluginName    *string             `json:"plugin_name"`
-	IsBuiltin     bool                `json:"is_builtin"`
-	OwnerID       *string             `json:"owner_id"`
-	Skills        []AgentSkillSummary `json:"skills"`
-	CreatedAt     string              `json:"created_at"`
-	UpdatedAt     string              `json:"updated_at"`
-	ArchivedAt    *string             `json:"archived_at"`
-	ArchivedBy    *string             `json:"archived_by"`
+	PluginName *string             `json:"plugin_name"`
+	IsBuiltin  bool                `json:"is_builtin"`
+	OwnerID    *string             `json:"owner_id"`
+	Skills     []AgentSkillSummary `json:"skills"`
+	CreatedAt  string              `json:"created_at"`
+	UpdatedAt  string              `json:"updated_at"`
+	ArchivedAt *string             `json:"archived_at"`
+	ArchivedBy *string             `json:"archived_by"`
 }
 
 func agentToResponse(a db.MulticaAgent) AgentResponse {
@@ -152,61 +152,53 @@ type ProjectResourceData struct {
 }
 
 type AgentTaskResponse struct {
-	ID                                  string                   `json:"id"`
-	AgentID                             string                   `json:"agent_id"`
-	RuntimeID                           string                   `json:"runtime_id"`
-	IssueID                             string                   `json:"issue_id"`
-	WorkspaceID                         string                   `json:"workspace_id"`
-	Status                              string                   `json:"status"`
-	Priority                            int32                    `json:"priority"`
-	DispatchedAt                        *string                  `json:"dispatched_at"`
-	StartedAt                           *string                  `json:"started_at"`
-	CompletedAt                         *string                  `json:"completed_at"`
-	Result                              any                      `json:"result"`
-	Error                               *string                  `json:"error"`
-	FailureReason                       string                   `json:"failure_reason,omitempty"` // see TaskService.MaybeRetryFailedTask
-	Attempt                             int32                    `json:"attempt"`
-	MaxAttempts                         int32                    `json:"max_attempts"`
-	ParentTaskID                        *string                  `json:"parent_task_id,omitempty"`
-	Agent                               *TaskAgentData           `json:"agent,omitempty"`
-	Repos                               []RepoData               `json:"repos,omitempty"`
-	ProjectID                           string                   `json:"project_id,omitempty"`        // issue's project, when present
-	ProjectTitle                        string                   `json:"project_title,omitempty"`     // for surfacing in agent context
-	ProjectResources                    []ProjectResourceData    `json:"project_resources,omitempty"` // resources attached to the project
-	CreatedAt                           string                   `json:"created_at"`
-	PriorSessionID                      string                   `json:"prior_session_id,omitempty"`        // session ID from a previous task on same issue
-	PriorWorkDir                        string                   `json:"prior_work_dir,omitempty"`          // work_dir from a previous task on same issue
-	WorkDir                             string                   `json:"work_dir,omitempty"`                // local working directory pinned for this task; populated once the daemon reports it
-	SessionID                           string                   `json:"session_id,omitempty"`              // csc/Claude session id for this run; populated once the daemon reports it. Used to deep-link into CoStrict when embedded.
-	TriggerCommentID                    *string                  `json:"trigger_comment_id,omitempty"`      // comment that triggered this task
-	TriggerCommentContent               string                   `json:"trigger_comment_content,omitempty"` // content of the triggering comment
-	TriggerSummary                      *string                  `json:"trigger_summary,omitempty"`         // canonical short description snapshot — comment text / autopilot title — taken at task creation; survives source edits/deletes
-	TriggerAuthorType                   string                   `json:"trigger_author_type,omitempty"`     // "agent" or "member" — author kind of the triggering comment
-	TriggerAuthorName                   string                   `json:"trigger_author_name,omitempty"`     // display name of the triggering comment author
-	ChatSessionID                       string                   `json:"chat_session_id,omitempty"`         // non-empty for chat tasks
-	WorkflowNodeRunID                   string                   `json:"workflow_node_run_id,omitempty"`    // non-empty when this task executes a workflow node-run; daemon uses it to write back the session binding
-	WorkflowPhase                       string                   `json:"workflow_phase,omitempty"`          // workflow context phase: worker, split, or critic
-	WorkflowSplitRepair                 bool                     `json:"workflow_split_repair,omitempty"`
-	WorkflowSplitRepairSourceTaskID     string                   `json:"workflow_split_repair_source_task_id,omitempty"`
-	WorkflowSplitRepairSourceOutput     string                   `json:"workflow_split_repair_source_output,omitempty"`
-	WorkflowSplitParentIssueID          string                   `json:"workflow_split_parent_issue_id,omitempty"`
-	WorkflowSplitParentIssueTitle       string                   `json:"workflow_split_parent_issue_title,omitempty"`
-	WorkflowSplitParentIssueDescription string                   `json:"workflow_split_parent_issue_description,omitempty"`
-	WorkflowSplitCurrentDrafts          json.RawMessage          `json:"workflow_split_current_drafts,omitempty"`
-	WorkflowSplitConfig                 json.RawMessage          `json:"workflow_split_config,omitempty"`
-	ChatMessage                         string                   `json:"chat_message,omitempty"`              // user message for chat tasks
-	ChatMessageAttachments              []ChatAttachmentMeta     `json:"chat_message_attachments,omitempty"`  // attachments on the user message — agent calls `cs-workflow attachment download <id>` per entry
-	UpstreamStageContext                []UpstreamStageNode      `json:"upstream_stage_context,omitempty"`    // completed upstream-stage node runs the agent should read
-	GiteaDeliverables                   *GiteaDeliverableContext `json:"gitea_deliverables,omitempty"`        // M3: document deliverable git context (nil when dormant)
-	AutopilotRunID                      string                   `json:"autopilot_run_id,omitempty"`          // non-empty for autopilot-spawned tasks
-	AutopilotID                         string                   `json:"autopilot_id,omitempty"`              // autopilot that spawned this task
-	AutopilotTitle                      string                   `json:"autopilot_title,omitempty"`           // autopilot title used as task context
-	AutopilotDescription                string                   `json:"autopilot_description,omitempty"`     // autopilot description used as task prompt
-	AutopilotSource                     string                   `json:"autopilot_source,omitempty"`          // manual, schedule, webhook, or api
-	AutopilotTriggerPayload             json.RawMessage          `json:"autopilot_trigger_payload,omitempty"` // optional trigger payload for webhook/api runs
-	QuickCreatePrompt                   string                   `json:"quick_create_prompt,omitempty"`       // user's natural-language input for quick-create tasks
-	SquadID                             string                   `json:"squad_id,omitempty"`                  // for quick-create tasks where the picker was a squad; Agent is still the resolved leader
-	SquadName                           string                   `json:"squad_name,omitempty"`                // display name for the picker squad
+	ID                      string                   `json:"id"`
+	AgentID                 string                   `json:"agent_id"`
+	RuntimeID               string                   `json:"runtime_id"`
+	IssueID                 string                   `json:"issue_id"`
+	WorkspaceID             string                   `json:"workspace_id"`
+	Status                  string                   `json:"status"`
+	Priority                int32                    `json:"priority"`
+	DispatchedAt            *string                  `json:"dispatched_at"`
+	StartedAt               *string                  `json:"started_at"`
+	CompletedAt             *string                  `json:"completed_at"`
+	Result                  any                      `json:"result"`
+	Error                   *string                  `json:"error"`
+	FailureReason           string                   `json:"failure_reason,omitempty"` // see TaskService.MaybeRetryFailedTask
+	Attempt                 int32                    `json:"attempt"`
+	MaxAttempts             int32                    `json:"max_attempts"`
+	ParentTaskID            *string                  `json:"parent_task_id,omitempty"`
+	Agent                   *TaskAgentData           `json:"agent,omitempty"`
+	Repos                   []RepoData               `json:"repos,omitempty"`
+	ProjectID               string                   `json:"project_id,omitempty"`        // issue's project, when present
+	ProjectTitle            string                   `json:"project_title,omitempty"`     // for surfacing in agent context
+	ProjectResources        []ProjectResourceData    `json:"project_resources,omitempty"` // resources attached to the project
+	CreatedAt               string                   `json:"created_at"`
+	PriorSessionID          string                   `json:"prior_session_id,omitempty"`          // session ID from a previous task on same issue
+	PriorWorkDir            string                   `json:"prior_work_dir,omitempty"`            // work_dir from a previous task on same issue
+	WorkDir                 string                   `json:"work_dir,omitempty"`                  // local working directory pinned for this task; populated once the daemon reports it
+	SessionID               string                   `json:"session_id,omitempty"`                // csc/Claude session id for this run; populated once the daemon reports it. Used to deep-link into CoStrict when embedded.
+	TriggerCommentID        *string                  `json:"trigger_comment_id,omitempty"`        // comment that triggered this task
+	TriggerCommentContent   string                   `json:"trigger_comment_content,omitempty"`   // content of the triggering comment
+	TriggerSummary          *string                  `json:"trigger_summary,omitempty"`           // canonical short description snapshot — comment text / autopilot title — taken at task creation; survives source edits/deletes
+	TriggerAuthorType       string                   `json:"trigger_author_type,omitempty"`       // "agent" or "member" — author kind of the triggering comment
+	TriggerAuthorName       string                   `json:"trigger_author_name,omitempty"`       // display name of the triggering comment author
+	ChatSessionID           string                   `json:"chat_session_id,omitempty"`           // non-empty for chat tasks
+	WorkflowNodeRunID       string                   `json:"workflow_node_run_id,omitempty"`      // non-empty when this task executes a workflow node-run; daemon uses it to write back the session binding
+	WorkflowPhase           string                   `json:"workflow_phase,omitempty"`            // local daemon workflow context phase: worker or critic
+	ChatMessage             string                   `json:"chat_message,omitempty"`              // user message for chat tasks
+	ChatMessageAttachments  []ChatAttachmentMeta     `json:"chat_message_attachments,omitempty"`  // attachments on the user message — agent calls `cs-workflow attachment download <id>` per entry
+	UpstreamStageContext    []UpstreamStageNode      `json:"upstream_stage_context,omitempty"`    // completed upstream-stage node runs the agent should read
+	GiteaDeliverables       *GiteaDeliverableContext `json:"gitea_deliverables,omitempty"`        // M3: document deliverable git context (nil when dormant)
+	AutopilotRunID          string                   `json:"autopilot_run_id,omitempty"`          // non-empty for autopilot-spawned tasks
+	AutopilotID             string                   `json:"autopilot_id,omitempty"`              // autopilot that spawned this task
+	AutopilotTitle          string                   `json:"autopilot_title,omitempty"`           // autopilot title used as task context
+	AutopilotDescription    string                   `json:"autopilot_description,omitempty"`     // autopilot description used as task prompt
+	AutopilotSource         string                   `json:"autopilot_source,omitempty"`          // manual, schedule, webhook, or api
+	AutopilotTriggerPayload json.RawMessage          `json:"autopilot_trigger_payload,omitempty"` // optional trigger payload for webhook/api runs
+	QuickCreatePrompt       string                   `json:"quick_create_prompt,omitempty"`       // user's natural-language input for quick-create tasks
+	SquadID                 string                   `json:"squad_id,omitempty"`                  // for quick-create tasks where the picker was a squad; Agent is still the resolved leader
+	SquadName               string                   `json:"squad_name,omitempty"`                // display name for the picker squad
 	// RequestingUserName + RequestingUserProfileDescription mirror the user
 	// the agent is acting on behalf of (see daemon/types.go). v1 sources them
 	// from the runtime owner so they're populated for daemon runtimes and
@@ -264,16 +256,16 @@ type GiteaDeliverableRef struct {
 // TaskAgentData holds agent info included in claim responses so the daemon
 // can set up the execution environment (branch naming, skill files, instructions).
 type TaskAgentData struct {
-	ID            string                   `json:"id"`
-	Name          string                   `json:"name"`
-	Instructions  string                   `json:"instructions"`
-	Skills        []service.AgentSkillData `json:"skills,omitempty"`
-	CloudSkills   []AgentCloudSkillData    `json:"cloud_skills,omitempty"`
-	CustomEnv     map[string]string        `json:"custom_env,omitempty"`
-	CustomArgs    []string                 `json:"custom_args,omitempty"`
-	McpConfig     json.RawMessage          `json:"mcp_config,omitempty"`
-	Model         string                   `json:"model,omitempty"`
-	ThinkingLevel string                   `json:"thinking_level,omitempty"`
+	ID            string                    `json:"id"`
+	Name          string                    `json:"name"`
+	Instructions  string                    `json:"instructions"`
+	Skills        []service.AgentSkillData  `json:"skills,omitempty"`
+	CloudSkills   []AgentCloudSkillData     `json:"cloud_skills,omitempty"`
+	CustomEnv     map[string]string         `json:"custom_env,omitempty"`
+	CustomArgs    []string                  `json:"custom_args,omitempty"`
+	McpConfig     json.RawMessage           `json:"mcp_config,omitempty"`
+	Model         string                    `json:"model,omitempty"`
+	ThinkingLevel string                    `json:"thinking_level,omitempty"`
 	Plugin        *plugincatalog.PluginInfo `json:"plugin,omitempty"`
 }
 
@@ -324,17 +316,9 @@ func taskToResponse(t db.MulticaAgentTaskQueue) AgentTaskResponse {
 		// Surface the workflow node-run this task executes so the daemon can
 		// write back the {runtime, device, session} binding (Design Two): the
 		// daemon needs the node_run_id to call POST /api/daemon/node-runs/{id}/session.
-		WorkflowNodeRunID:                   uuidToString(t.WorkflowNodeRunID),
-		WorkflowPhase:                       workflowCtx.Phase,
-		WorkflowSplitRepair:                 workflowCtx.Repair,
-		WorkflowSplitRepairSourceTaskID:     workflowCtx.RepairSourceTaskID,
-		WorkflowSplitRepairSourceOutput:     workflowCtx.RepairSourceOutput,
-		WorkflowSplitParentIssueID:          workflowCtx.ParentIssueID,
-		WorkflowSplitParentIssueTitle:       workflowCtx.ParentIssueTitle,
-		WorkflowSplitParentIssueDescription: workflowCtx.ParentIssueDescription,
-		WorkflowSplitCurrentDrafts:          workflowCtx.CurrentDrafts,
-		WorkflowSplitConfig:                 workflowCtx.SplitConfig,
-		Kind:                                computeTaskKind(t),
+		WorkflowNodeRunID: uuidToString(t.WorkflowNodeRunID),
+		WorkflowPhase:     workflowCtx.Phase,
+		Kind:              computeTaskKind(t),
 	}
 	if resp.ChatSessionID == "" && workflowCtx.ChatSessionID != "" {
 		resp.ChatSessionID = workflowCtx.ChatSessionID
@@ -343,27 +327,12 @@ func taskToResponse(t db.MulticaAgentTaskQueue) AgentTaskResponse {
 }
 
 type workflowTaskContext struct {
-	Phase                  string
-	Repair                 bool
-	RepairSourceTaskID     string
-	RepairSourceOutput     string
-	ChatSessionID          string
-	ParentIssueID          string
-	ParentIssueTitle       string
-	ParentIssueDescription string
-	CurrentDrafts          json.RawMessage
-	SplitConfig            json.RawMessage
-}
-
-func workflowPhaseFromTaskContext(raw []byte) string {
-	return workflowContextFromTaskContext(raw).Phase
+	Phase         string
+	ChatSessionID string
 }
 
 func shouldSkipPriorTaskState(t db.MulticaAgentTaskQueue) bool {
-	if t.ForceFreshSession {
-		return true
-	}
-	return workflowPhaseFromTaskContext(t.Context) == "split_chat"
+	return t.ForceFreshSession
 }
 
 func workflowContextFromTaskContext(raw []byte) workflowTaskContext {
@@ -371,17 +340,9 @@ func workflowContextFromTaskContext(raw []byte) workflowTaskContext {
 		return workflowTaskContext{}
 	}
 	var payload struct {
-		Type                   string          `json:"type"`
-		Phase                  string          `json:"phase"`
-		Repair                 bool            `json:"repair"`
-		RepairSourceTaskID     string          `json:"repair_source_task_id"`
-		RepairSourceOutput     string          `json:"repair_source_output"`
-		ChatSessionID          string          `json:"chat_session_id"`
-		ParentIssueID          string          `json:"parent_issue_id"`
-		ParentIssueTitle       string          `json:"parent_issue_title"`
-		ParentIssueDescription string          `json:"parent_issue_description"`
-		CurrentDrafts          json.RawMessage `json:"current_drafts"`
-		SplitConfig            json.RawMessage `json:"split_config"`
+		Type          string `json:"type"`
+		Phase         string `json:"phase"`
+		ChatSessionID string `json:"chat_session_id"`
 	}
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return workflowTaskContext{}
@@ -389,25 +350,9 @@ func workflowContextFromTaskContext(raw []byte) workflowTaskContext {
 	if payload.Type != "workflow" {
 		return workflowTaskContext{}
 	}
-	phase := payload.Phase
 	switch payload.Phase {
-	case "split_generate", "split_repair":
-		phase = "split"
-	}
-	switch payload.Phase {
-	case "worker", "split", "split_generate", "split_repair", "split_chat", "critic":
-		return workflowTaskContext{
-			Phase:                  phase,
-			Repair:                 payload.Phase == "split_repair" || payload.Phase == "split" && payload.Repair,
-			RepairSourceTaskID:     payload.RepairSourceTaskID,
-			RepairSourceOutput:     payload.RepairSourceOutput,
-			ChatSessionID:          payload.ChatSessionID,
-			ParentIssueID:          payload.ParentIssueID,
-			ParentIssueTitle:       payload.ParentIssueTitle,
-			ParentIssueDescription: payload.ParentIssueDescription,
-			CurrentDrafts:          payload.CurrentDrafts,
-			SplitConfig:            payload.SplitConfig,
-		}
+	case "worker", "critic":
+		return workflowTaskContext{Phase: payload.Phase, ChatSessionID: payload.ChatSessionID}
 	default:
 		return workflowTaskContext{}
 	}
@@ -616,7 +561,7 @@ type CreateAgentRequest struct {
 	// PluginName is the install slug of the bound plugin, sent by the picker
 	// alongside plugin_id so the download chain can install by name without a
 	// catalog lookup. Empty/omitted = no plugin name.
-	PluginName         *string           `json:"plugin_name"`
+	PluginName *string `json:"plugin_name"`
 	// Template records which template slug was used to seed this agent
 	// (e.g. "coding" / "planning" / "writing" / "assistant"). Empty when
 	// the caller didn't come from a template picker — the `agent_created`

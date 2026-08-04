@@ -321,7 +321,7 @@ describe("checkWorkerMissing", () => {
   });
 
   it("flags split node without worker", () => {
-    const nodes = [makeNode({ id: "split", worker_type: "agent", worker_id: null, format_schema: { type: "split", split_config: { default_issue_workflow_id: "tpl-1" } } })];
+    const nodes = [makeNode({ id: "split", worker_type: "agent", worker_id: null, format_schema: { type: "split", split_config: {} } })];
     const issues = checkWorkerMissing(nodes);
     expect(issues).toHaveLength(1);
     expect(issues[0]!.blocking).toBe(true);
@@ -330,7 +330,7 @@ describe("checkWorkerMissing", () => {
   });
 
   it("passes split node with agent worker", () => {
-    const nodes = [makeNode({ id: "split", worker_type: "agent", worker_id: "agent-1", format_schema: { type: "split", split_config: { default_issue_workflow_id: "tpl-1" } } })];
+    const nodes = [makeNode({ id: "split", worker_type: "agent", worker_id: "agent-1", format_schema: { type: "split", split_config: {} } })];
     expect(checkWorkerMissing(nodes)).toEqual([]);
   });
 });
@@ -402,7 +402,7 @@ describe("checkInvalidCriticRef", () => {
   });
 
   it("flags split node with invalid agent critic", () => {
-    const nodes = [makeNode({ id: "split", critic_id: "nonexistent", critic_type: "agent", format_schema: { type: "split", split_config: { default_issue_workflow_id: "tpl-1" } } })];
+    const nodes = [makeNode({ id: "split", critic_id: "nonexistent", critic_type: "agent", format_schema: { type: "split", split_config: {} } })];
     const issues = checkInvalidCriticRef(nodes, agentIds);
     expect(issues).toHaveLength(1);
     expect(issues[0]!.blocking).toBe(true);
@@ -446,14 +446,14 @@ describe("checkStageMissing", () => {
   });
 
   it("flags split node without stage_id", () => {
-    const nodes = [makeNode({ id: "split", stage_id: null, format_schema: { type: "split", split_config: { default_issue_workflow_id: "tpl-1" } } })];
+    const nodes = [makeNode({ id: "split", stage_id: null, format_schema: { type: "split", split_config: {} } })];
     const issues = checkStageMissing(nodes);
     expect(issues).toHaveLength(1);
     expect(issues[0]!.blocking).toBe(false);
   });
 
   it("passes split node with stage", () => {
-    const nodes = [makeNode({ id: "split", stage_id: "stage-1", format_schema: { type: "split", split_config: { default_issue_workflow_id: "tpl-1" } } })];
+    const nodes = [makeNode({ id: "split", stage_id: "stage-1", format_schema: { type: "split", split_config: {} } })];
     expect(checkStageMissing(nodes)).toEqual([]);
   });
 
@@ -469,7 +469,7 @@ describe("checkSplitMaxConcurrency", () => {
 			id: "split",
 			format_schema: {
 				type: "split",
-				split_config: { default_issue_workflow_id: "wf-2", max_concurrency: value },
+				split_config: { max_concurrency: value },
 			},
 		});
 		expect(checkSplitMaxConcurrency([node])[0]?.checkId).toBe("split-max-concurrency-invalid");
@@ -480,7 +480,7 @@ describe("checkSplitMaxConcurrency", () => {
 			id: "split",
 			format_schema: {
 				type: "split",
-				split_config: { default_issue_workflow_id: "wf-2", max_concurrency: value },
+				split_config: { max_concurrency: value },
 			},
 		});
 		expect(checkSplitMaxConcurrency([node])).toEqual([]);

@@ -19,7 +19,7 @@ SET status = $1,
     updated_at = now()
 WHERE id = $2
   AND status = 'pending'
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version, source_workflow_node_id, node_description, format_schema, critic_api_url, stage_snapshot, worker_role_snapshot, critic_role_snapshot, runtime_config, worker_name_snapshot, critic_name_snapshot
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version, source_workflow_node_id, node_description, format_schema, critic_api_url, stage_snapshot, worker_role_snapshot, critic_role_snapshot, runtime_config, worker_name_snapshot, critic_name_snapshot, split_plan_generation
 `
 
 type AdvancePendingWorkflowNodeRunParams struct {
@@ -68,6 +68,7 @@ func (q *Queries) AdvancePendingWorkflowNodeRun(ctx context.Context, arg Advance
 		&i.RuntimeConfig,
 		&i.WorkerNameSnapshot,
 		&i.CriticNameSnapshot,
+		&i.SplitPlanGeneration,
 	)
 	return i, err
 }
@@ -90,7 +91,7 @@ SET status = 'running',
     updated_at = now()
 FROM candidate
 WHERE job.id = candidate.id
-RETURNING job.id, job.workflow_run_id, job.workflow_node_run_id, job.phase, job.generation, job.status, job.attempt_count, job.max_attempts, job.scheduled_at, job.locked_by, job.lease_expires_at, job.last_error, job.created_at, job.updated_at
+RETURNING job.id, job.workflow_run_id, job.workflow_node_run_id, job.phase, job.generation, job.status, job.attempt_count, job.max_attempts, job.scheduled_at, job.locked_by, job.lease_expires_at, job.last_error, job.created_at, job.updated_at, job.split_plan_generation
 `
 
 type ClaimWorkflowDispatchJobParams struct {
@@ -116,6 +117,7 @@ func (q *Queries) ClaimWorkflowDispatchJob(ctx context.Context, arg ClaimWorkflo
 		&i.LastError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SplitPlanGeneration,
 	)
 	return i, err
 }
@@ -131,7 +133,7 @@ WHERE id = $1
   AND generation = $2
   AND status = 'running'
   AND locked_by = $3
-RETURNING id, workflow_run_id, workflow_node_run_id, phase, generation, status, attempt_count, max_attempts, scheduled_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+RETURNING id, workflow_run_id, workflow_node_run_id, phase, generation, status, attempt_count, max_attempts, scheduled_at, locked_by, lease_expires_at, last_error, created_at, updated_at, split_plan_generation
 `
 
 type CompleteWorkflowDispatchJobParams struct {
@@ -158,6 +160,7 @@ func (q *Queries) CompleteWorkflowDispatchJob(ctx context.Context, arg CompleteW
 		&i.LastError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SplitPlanGeneration,
 	)
 	return i, err
 }
@@ -171,23 +174,26 @@ INSERT INTO multica_workflow_node_run_dispatch_job (
     generation,
     status,
     max_attempts,
-    scheduled_at
+    scheduled_at,
+    split_plan_generation
 ) VALUES (
     $1, $2, $3, $4, 'pending', $5,
-    COALESCE($6::timestamptz, now())
+    COALESCE($6::timestamptz, now()),
+    $7
 )
 ON CONFLICT (workflow_node_run_id, phase, generation)
 DO UPDATE SET workflow_node_run_id = EXCLUDED.workflow_node_run_id
-RETURNING id, workflow_run_id, workflow_node_run_id, phase, generation, status, attempt_count, max_attempts, scheduled_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+RETURNING id, workflow_run_id, workflow_node_run_id, phase, generation, status, attempt_count, max_attempts, scheduled_at, locked_by, lease_expires_at, last_error, created_at, updated_at, split_plan_generation
 `
 
 type CreateWorkflowDispatchJobParams struct {
-	WorkflowRunID     pgtype.UUID        `json:"workflow_run_id"`
-	WorkflowNodeRunID pgtype.UUID        `json:"workflow_node_run_id"`
-	Phase             string             `json:"phase"`
-	Generation        int32              `json:"generation"`
-	MaxAttempts       int32              `json:"max_attempts"`
-	ScheduledAt       pgtype.Timestamptz `json:"scheduled_at"`
+	WorkflowRunID       pgtype.UUID        `json:"workflow_run_id"`
+	WorkflowNodeRunID   pgtype.UUID        `json:"workflow_node_run_id"`
+	Phase               string             `json:"phase"`
+	Generation          int32              `json:"generation"`
+	MaxAttempts         int32              `json:"max_attempts"`
+	ScheduledAt         pgtype.Timestamptz `json:"scheduled_at"`
+	SplitPlanGeneration pgtype.Int4        `json:"split_plan_generation"`
 }
 
 // =====================
@@ -201,6 +207,7 @@ func (q *Queries) CreateWorkflowDispatchJob(ctx context.Context, arg CreateWorkf
 		arg.Generation,
 		arg.MaxAttempts,
 		arg.ScheduledAt,
+		arg.SplitPlanGeneration,
 	)
 	var i MulticaWorkflowNodeRunDispatchJob
 	err := row.Scan(
@@ -218,6 +225,90 @@ func (q *Queries) CreateWorkflowDispatchJob(ctx context.Context, arg CreateWorkf
 		&i.LastError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SplitPlanGeneration,
+	)
+	return i, err
+}
+
+const deferWorkflowDispatchJob = `-- name: DeferWorkflowDispatchJob :one
+UPDATE multica_workflow_node_run_dispatch_job
+SET status = 'pending',
+    attempt_count = 0,
+    locked_by = NULL,
+    lease_expires_at = NULL,
+    scheduled_at = $1,
+    last_error = '',
+    updated_at = now()
+WHERE id = $2
+  AND generation = $3
+  AND status = 'running'
+  AND locked_by = $4
+RETURNING id, workflow_run_id, workflow_node_run_id, phase, generation, status, attempt_count, max_attempts, scheduled_at, locked_by, lease_expires_at, last_error, created_at, updated_at, split_plan_generation
+`
+
+type DeferWorkflowDispatchJobParams struct {
+	ScheduledAt pgtype.Timestamptz `json:"scheduled_at"`
+	ID          pgtype.UUID        `json:"id"`
+	Generation  int32              `json:"generation"`
+	LockedBy    pgtype.Text        `json:"locked_by"`
+}
+
+func (q *Queries) DeferWorkflowDispatchJob(ctx context.Context, arg DeferWorkflowDispatchJobParams) (MulticaWorkflowNodeRunDispatchJob, error) {
+	row := q.db.QueryRow(ctx, deferWorkflowDispatchJob,
+		arg.ScheduledAt,
+		arg.ID,
+		arg.Generation,
+		arg.LockedBy,
+	)
+	var i MulticaWorkflowNodeRunDispatchJob
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowRunID,
+		&i.WorkflowNodeRunID,
+		&i.Phase,
+		&i.Generation,
+		&i.Status,
+		&i.AttemptCount,
+		&i.MaxAttempts,
+		&i.ScheduledAt,
+		&i.LockedBy,
+		&i.LeaseExpiresAt,
+		&i.LastError,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SplitPlanGeneration,
+	)
+	return i, err
+}
+
+const expediteWorkflowDispatchJob = `-- name: ExpediteWorkflowDispatchJob :one
+UPDATE multica_workflow_node_run_dispatch_job
+SET scheduled_at = LEAST(scheduled_at, now()),
+    updated_at = now()
+WHERE id = $1
+  AND status = 'pending'
+RETURNING id, workflow_run_id, workflow_node_run_id, phase, generation, status, attempt_count, max_attempts, scheduled_at, locked_by, lease_expires_at, last_error, created_at, updated_at, split_plan_generation
+`
+
+func (q *Queries) ExpediteWorkflowDispatchJob(ctx context.Context, id pgtype.UUID) (MulticaWorkflowNodeRunDispatchJob, error) {
+	row := q.db.QueryRow(ctx, expediteWorkflowDispatchJob, id)
+	var i MulticaWorkflowNodeRunDispatchJob
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowRunID,
+		&i.WorkflowNodeRunID,
+		&i.Phase,
+		&i.Generation,
+		&i.Status,
+		&i.AttemptCount,
+		&i.MaxAttempts,
+		&i.ScheduledAt,
+		&i.LockedBy,
+		&i.LeaseExpiresAt,
+		&i.LastError,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SplitPlanGeneration,
 	)
 	return i, err
 }
@@ -249,7 +340,7 @@ WHERE id = $2
   AND generation = $3
   AND status = 'running'
   AND locked_by = $4
-RETURNING id, workflow_run_id, workflow_node_run_id, phase, generation, status, attempt_count, max_attempts, scheduled_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+RETURNING id, workflow_run_id, workflow_node_run_id, phase, generation, status, attempt_count, max_attempts, scheduled_at, locked_by, lease_expires_at, last_error, created_at, updated_at, split_plan_generation
 `
 
 type FailWorkflowDispatchJobParams struct {
@@ -282,6 +373,7 @@ func (q *Queries) FailWorkflowDispatchJob(ctx context.Context, arg FailWorkflowD
 		&i.LastError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SplitPlanGeneration,
 	)
 	return i, err
 }
@@ -293,7 +385,7 @@ SET status = 'failed',
     completed_at = now(),
     updated_at = now()
 WHERE id = $1
-RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version, source_workflow_node_id, node_description, format_schema, critic_api_url, stage_snapshot, worker_role_snapshot, critic_role_snapshot, runtime_config, worker_name_snapshot, critic_name_snapshot
+RETURNING id, workflow_run_id, workflow_node_id, node_title, status, retry_count, worker_type, worker_id, worker_output, critic_type, critic_id, critic_output, critic_comment, agent_task_id, started_at, completed_at, created_at, updated_at, worker_agent_task_id, critic_agent_task_id, runtime_id, device_id, session_id, split_review_chat_session_id, runtime_selection_reason, failure_reason, split_config_version, source_workflow_node_id, node_description, format_schema, critic_api_url, stage_snapshot, worker_role_snapshot, critic_role_snapshot, runtime_config, worker_name_snapshot, critic_name_snapshot, split_plan_generation
 `
 
 func (q *Queries) FailWorkflowNodeRunForDispatch(ctx context.Context, id pgtype.UUID) (MulticaWorkflowNodeRun, error) {
@@ -337,6 +429,7 @@ func (q *Queries) FailWorkflowNodeRunForDispatch(ctx context.Context, id pgtype.
 		&i.RuntimeConfig,
 		&i.WorkerNameSnapshot,
 		&i.CriticNameSnapshot,
+		&i.SplitPlanGeneration,
 	)
 	return i, err
 }
@@ -378,6 +471,46 @@ func (q *Queries) FailWorkflowRunForDispatch(ctx context.Context, id pgtype.UUID
 		&i.MaxRetries,
 		&i.FailureReason,
 		&i.ValidationErrors,
+	)
+	return i, err
+}
+
+const findActiveWorkflowDispatchJob = `-- name: FindActiveWorkflowDispatchJob :one
+SELECT id, workflow_run_id, workflow_node_run_id, phase, generation, status, attempt_count, max_attempts, scheduled_at, locked_by, lease_expires_at, last_error, created_at, updated_at, split_plan_generation FROM multica_workflow_node_run_dispatch_job
+WHERE workflow_node_run_id = $1
+  AND phase = $2
+  AND split_plan_generation = $3
+  AND status IN ('pending', 'running')
+ORDER BY generation DESC
+LIMIT 1
+FOR UPDATE
+`
+
+type FindActiveWorkflowDispatchJobParams struct {
+	WorkflowNodeRunID   pgtype.UUID `json:"workflow_node_run_id"`
+	Phase               string      `json:"phase"`
+	SplitPlanGeneration pgtype.Int4 `json:"split_plan_generation"`
+}
+
+func (q *Queries) FindActiveWorkflowDispatchJob(ctx context.Context, arg FindActiveWorkflowDispatchJobParams) (MulticaWorkflowNodeRunDispatchJob, error) {
+	row := q.db.QueryRow(ctx, findActiveWorkflowDispatchJob, arg.WorkflowNodeRunID, arg.Phase, arg.SplitPlanGeneration)
+	var i MulticaWorkflowNodeRunDispatchJob
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowRunID,
+		&i.WorkflowNodeRunID,
+		&i.Phase,
+		&i.Generation,
+		&i.Status,
+		&i.AttemptCount,
+		&i.MaxAttempts,
+		&i.ScheduledAt,
+		&i.LockedBy,
+		&i.LeaseExpiresAt,
+		&i.LastError,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SplitPlanGeneration,
 	)
 	return i, err
 }
@@ -424,6 +557,56 @@ func (q *Queries) GetAgentTaskByWorkflowDispatchJob(ctx context.Context, workflo
 	return i, err
 }
 
+const getWorkflowDispatchJob = `-- name: GetWorkflowDispatchJob :one
+SELECT id, workflow_run_id, workflow_node_run_id, phase, generation, status, attempt_count, max_attempts, scheduled_at, locked_by, lease_expires_at, last_error, created_at, updated_at, split_plan_generation FROM multica_workflow_node_run_dispatch_job
+WHERE id = $1
+`
+
+func (q *Queries) GetWorkflowDispatchJob(ctx context.Context, id pgtype.UUID) (MulticaWorkflowNodeRunDispatchJob, error) {
+	row := q.db.QueryRow(ctx, getWorkflowDispatchJob, id)
+	var i MulticaWorkflowNodeRunDispatchJob
+	err := row.Scan(
+		&i.ID,
+		&i.WorkflowRunID,
+		&i.WorkflowNodeRunID,
+		&i.Phase,
+		&i.Generation,
+		&i.Status,
+		&i.AttemptCount,
+		&i.MaxAttempts,
+		&i.ScheduledAt,
+		&i.LockedBy,
+		&i.LeaseExpiresAt,
+		&i.LastError,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SplitPlanGeneration,
+	)
+	return i, err
+}
+
+const invalidateSplitGenerationDispatchJobs = `-- name: InvalidateSplitGenerationDispatchJobs :exec
+UPDATE multica_workflow_node_run_dispatch_job
+SET status = 'failed',
+    last_error = 'stale_split_generation',
+    locked_by = NULL,
+    lease_expires_at = NULL,
+    updated_at = now()
+WHERE workflow_node_run_id = $1
+  AND split_plan_generation = $2
+  AND status IN ('pending', 'running')
+`
+
+type InvalidateSplitGenerationDispatchJobsParams struct {
+	WorkflowNodeRunID   pgtype.UUID `json:"workflow_node_run_id"`
+	SplitPlanGeneration pgtype.Int4 `json:"split_plan_generation"`
+}
+
+func (q *Queries) InvalidateSplitGenerationDispatchJobs(ctx context.Context, arg InvalidateSplitGenerationDispatchJobsParams) error {
+	_, err := q.db.Exec(ctx, invalidateSplitGenerationDispatchJobs, arg.WorkflowNodeRunID, arg.SplitPlanGeneration)
+	return err
+}
+
 const nextWorkflowDispatchGeneration = `-- name: NextWorkflowDispatchGeneration :one
 SELECT COALESCE(max(generation), 0)::int + 1
 FROM multica_workflow_node_run_dispatch_job
@@ -451,7 +634,7 @@ WHERE id = $2
   AND generation = $3
   AND status = 'running'
   AND locked_by = $4
-RETURNING id, workflow_run_id, workflow_node_run_id, phase, generation, status, attempt_count, max_attempts, scheduled_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+RETURNING id, workflow_run_id, workflow_node_run_id, phase, generation, status, attempt_count, max_attempts, scheduled_at, locked_by, lease_expires_at, last_error, created_at, updated_at, split_plan_generation
 `
 
 type RenewWorkflowDispatchJobLeaseParams struct {
@@ -484,6 +667,7 @@ func (q *Queries) RenewWorkflowDispatchJobLease(ctx context.Context, arg RenewWo
 		&i.LastError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SplitPlanGeneration,
 	)
 	return i, err
 }
@@ -497,7 +681,7 @@ SET status = 'pending',
     updated_at = now()
 WHERE status = 'running'
   AND lease_expires_at < now()
-RETURNING id, workflow_run_id, workflow_node_run_id, phase, generation, status, attempt_count, max_attempts, scheduled_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+RETURNING id, workflow_run_id, workflow_node_run_id, phase, generation, status, attempt_count, max_attempts, scheduled_at, locked_by, lease_expires_at, last_error, created_at, updated_at, split_plan_generation
 `
 
 func (q *Queries) RequeueExpiredWorkflowDispatchJobs(ctx context.Context) ([]MulticaWorkflowNodeRunDispatchJob, error) {
@@ -524,6 +708,7 @@ func (q *Queries) RequeueExpiredWorkflowDispatchJobs(ctx context.Context) ([]Mul
 			&i.LastError,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SplitPlanGeneration,
 		); err != nil {
 			return nil, err
 		}
@@ -547,7 +732,7 @@ WHERE id = $3
   AND generation = $4
   AND status = 'running'
   AND locked_by = $5
-RETURNING id, workflow_run_id, workflow_node_run_id, phase, generation, status, attempt_count, max_attempts, scheduled_at, locked_by, lease_expires_at, last_error, created_at, updated_at
+RETURNING id, workflow_run_id, workflow_node_run_id, phase, generation, status, attempt_count, max_attempts, scheduled_at, locked_by, lease_expires_at, last_error, created_at, updated_at, split_plan_generation
 `
 
 type RequeueWorkflowDispatchJobParams struct {
@@ -582,6 +767,7 @@ func (q *Queries) RequeueWorkflowDispatchJob(ctx context.Context, arg RequeueWor
 		&i.LastError,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SplitPlanGeneration,
 	)
 	return i, err
 }

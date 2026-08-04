@@ -37,7 +37,7 @@ import {
 } from "@multica/core/platform";
 import { agentListOptions, memberListOptions, squadListOptions } from "@multica/core/workspace/queries";
 import { isActiveWorkspaceMember } from "@multica/core/workspace/members";
-import { childIssuesOptions } from "@multica/core/issues/queries";
+import { childIssuesOptions, issueDetailOptions } from "@multica/core/issues/queries";
 import { useWorkspacePresenceMap, type AgentAvailability } from "@multica/core/agents";
 import type {
   WorkflowNode,
@@ -70,6 +70,7 @@ import {
   sortStagesForDisplay,
 } from "../../../workflows/components/overview/constants";
 import { ExecutionDetailPanel } from "./execution-detail-panel";
+import { TaskNodeDetailPanel } from "./task-node-detail-panel";
 import { GlobalNotificationBar } from "./global-notification-bar";
 import {
   RUNTIME_SPLIT_SUBFLOW_CARD_WIDTH,
@@ -146,6 +147,7 @@ interface SplitChildClusterBounds {
 
 interface SplitChildIssueDetail {
   issueId: string;
+  issueDescription: string;
   node: WorkflowNode;
   runtimeSummary: WorkflowNodeRuntimeSummary;
   workerName: string | null;
@@ -175,9 +177,7 @@ function splitTaskDisplayStatus(status: SplitTask["status"]): WorkflowRuntimeDis
     case "discarded":
       return "cancelled";
     case "created":
-    case "approved":
       return "todo";
-    case "draft":
     default:
       return "pending";
   }
@@ -202,8 +202,7 @@ function splitTaskProgressLabel(
       return task.last_error?.message || t(($) => $.execution.card.child_failed);
     case "skipped":
       return t(($) => $.execution.card.child_skipped);
-    case "created":
-    case "approved": {
+    case "created": {
       const hasUnfinishedDependency = task.depends_on.some(
         (dependencyId) => taskById.get(dependencyId)?.status !== "done",
       );
@@ -211,7 +210,6 @@ function splitTaskProgressLabel(
         ? t(($) => $.execution.card.child_waiting_dependencies)
         : t(($) => $.execution.card.child_waiting_start);
     }
-    case "draft":
     default:
       return t(($) => $.execution.card.child_waiting_start);
   }
@@ -291,6 +289,7 @@ function runtimeToneForEdge(
     targetRun?.status === "awaiting_critic" ||
     targetRun?.status === "awaiting_input" ||
     targetRun?.status === "splitting" ||
+    targetRun?.status === "materializing" ||
     targetRun?.status === "split_active"
   ) {
     return "running";
@@ -318,6 +317,7 @@ function runtimeFocusPriority(status: WorkflowNodeRun["status"]): number {
     case "critic_reviewing":
     case "format_checking":
     case "splitting":
+    case "materializing":
     case "split_active":
       return 30;
     default:
@@ -730,11 +730,14 @@ export function ExecutionPanoramaPage({
     ...childIssuesOptions(wsId, issueId ?? ""),
     enabled: !!issueId,
   });
+  const { data: currentIssue } = useQuery({
+    ...issueDetailOptions(wsId, issueId ?? ""),
+    enabled: !!issueId,
+  });
   // ---- Local state ----
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 24, zoom: 0.95 });
   const [retryingNodeRunId, setRetryingNodeRunId] = useState<string | null>(null);
-  const [splitDraftSelectionsByNodeRunId, setSplitDraftSelectionsByNodeRunId] = useState<Record<string, string[]>>({});
   const [expandedSplitNodeIds, setExpandedSplitNodeIds] = useState<Set<string>>(() => new Set());
   const [focusSplitNodeId, setFocusSplitNodeId] = useState<string | null>(null);
   const splitViewportByNodeIdRef = useRef<Map<string, Viewport>>(new Map());
@@ -1394,6 +1397,7 @@ export function ExecutionPanoramaPage({
 
         splitChildDetailByNodeId.set(childNodeId, {
           issueId,
+          issueDescription: linkedIssue?.description ?? "",
           node: childWorkflowNode,
           runtimeSummary: childRuntimeSummary,
           workerName: childWorkerName,
@@ -1493,6 +1497,9 @@ export function ExecutionPanoramaPage({
   const selectedRuntimeSummary = selectedNodeId
     ? runtimeSummaryMap.get(selectedNodeId) ?? selectedChildDetail?.runtimeSummary ?? null
     : null;
+  const selectedIssueDescription = selectedChildDetail?.issueDescription
+    ?? currentIssue?.description
+    ?? "";
   const selectedWorkerName =
     selectedChildDetail?.workerName ??
     (selectedNode ? resolveWorkerName(selectedNode) : null);
@@ -1508,6 +1515,14 @@ export function ExecutionPanoramaPage({
   const selectedChildParentTitle = selectedChildParentNodeId
     ? allNodes.find((node) => node.id === selectedChildParentNodeId)?.title ?? null
     : null;
+  const selectedPreviousRun = selectedChildParentNodeId
+    ? nodeRunMap.get(selectedChildParentNodeId) ?? null
+    : selectedNodeId
+      ? (() => {
+          const incoming = allEdges.find((edge) => edge.target_node_id === selectedNodeId);
+          return incoming ? nodeRunMap.get(incoming.source_node_id) ?? null : null;
+        })()
+      : null;
   const selectedNodeFormat = selectedNode ? parseNodeFormat(selectedNode.format_schema) : null;
   const isSplitSelectedNode = selectedNodeFormat?.kind === "split";
   const currentMemberRole =
@@ -1611,21 +1626,21 @@ export function ExecutionPanoramaPage({
           <SplitReviewPanel
             node={selectedNode}
             nodeRun={selectedRun}
+            runtimeSummary={selectedRuntimeSummary}
+            issueDescription={selectedIssueDescription}
+            previousNodeRun={selectedPreviousRun}
             wsId={wsId}
             workflowId={workflowId}
             runId={runId ?? undefined}
             plannerName={selectedWorkerName ?? undefined}
             parentIssueId={issueId}
-            selectedDraftTaskIds={selectedRun ? splitDraftSelectionsByNodeRunId[selectedRun.id] : undefined}
-            onSelectedDraftTaskIdsChange={selectedRun ? (taskIds) => {
-              setSplitDraftSelectionsByNodeRunId((current) => ({
-                ...current,
-                [selectedRun.id]: taskIds,
-              }));
-            } : undefined}
+            onViewChildren={() => {
+              if (!expandedSplitNodeIds.has(selectedNode.id)) handleToggleSplitNode(selectedNode.id);
+              setSelectedNodeId(null);
+            }}
             onClose={() => setSelectedNodeId(null)}
           />
-        ) : (
+        ) : selectedNodeFormat?.kind === "gateway" ? (
           <ExecutionDetailPanel
             node={selectedNode}
             nodeRun={selectedRun}
@@ -1648,6 +1663,46 @@ export function ExecutionPanoramaPage({
                     const childIssuePath = paths.issueDetail(selectedChildDetail.issueId);
                     if (navigation.openInNewTab) {
                       navigation.openInNewTab(childIssuePath, selectedNode?.title ?? undefined, { activate: true });
+                      return;
+                    }
+                    window.open(navigation.getShareableUrl(childIssuePath), "_blank", "noopener,noreferrer");
+                  }
+                : undefined
+            }
+            isChildIssue={Boolean(selectedChildDetail)}
+            parentSplitTitle={selectedChildParentTitle}
+            childAssigneeName={selectedChildDetail?.workerName ?? null}
+            onRetry={
+              selectedRun && isRetryableSelectedRun && retryingNodeRunId !== selectedRun.id
+                ? () => void handleRetryNodeRun(selectedRun)
+                : undefined
+            }
+          />
+        ) : (
+          <TaskNodeDetailPanel
+            node={selectedNode}
+            nodeRun={selectedRun}
+            previousNodeRun={selectedPreviousRun}
+            issueDescription={selectedIssueDescription}
+            workerName={selectedWorkerName}
+            criticName={selectedCriticName}
+            onClose={() => setSelectedNodeId(null)}
+            wsId={wsId}
+            issueId={issueId}
+            workflowId={workflowId}
+            runId={runId}
+            currentUserId={currentUserId}
+            currentMember={currentMember
+              ? { role: currentMember.role, status: currentMember.status }
+              : null}
+            mayReview={mayReviewSelectedRun}
+            runtimeSummary={selectedRuntimeSummary}
+            onOpenIssue={
+              selectedChildDetail
+                ? () => {
+                    const childIssuePath = paths.issueDetail(selectedChildDetail.issueId);
+                    if (navigation.openInNewTab) {
+                      navigation.openInNewTab(childIssuePath, selectedNode.title, { activate: true });
                       return;
                     }
                     window.open(navigation.getShareableUrl(childIssuePath), "_blank", "noopener,noreferrer");

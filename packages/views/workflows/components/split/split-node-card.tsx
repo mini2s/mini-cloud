@@ -11,7 +11,7 @@ export interface SplitNodeCardProps {
   title: string;
   config?: SplitConfig | null;
   progress?: SplitProgress | null;
-  status?: "editing" | "generating" | "awaiting_review" | "active" | "completed" | "idle";
+  status?: "editing" | "generating" | "awaiting_review" | "materializing" | "active" | "completed" | "idle";
   taskCount?: number;
   className?: string;
   headerAction?: ReactNode;
@@ -34,7 +34,7 @@ export function SplitNodeCard({
   const mode = config?.mode ?? "barrier";
   const maxConcurrency = config?.max_concurrency ?? 5;
   const maxFailures = config?.max_failures ?? 0;
-  const showProgress = (status === "active" || status === "completed") && (progress || progressAction);
+  const showProgress = (status === "materializing" || status === "active" || status === "completed") && (progress || progressAction);
   const label =
     status === "generating"
       ? t(($) => $.detail_panel.split_node_generating_draft_tasks)

@@ -180,7 +180,7 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 	autopilotSvc := service.NewAutopilotService(queries, txStarter, bus, taskSvc)
 	workflowSvc := service.NewWorkflowService(queries, txStarter, bus, taskSvc)
 	assignmentSvc := &service.IssueAssignmentService{Queries: queries, Tasks: taskSvc, Workflows: workflowSvc}
-	splitOrchestrator := service.NewSplitOrchestrator(queries, txStarter, workflowSvc, assignmentSvc, bus, store)
+	splitOrchestrator := service.NewSplitOrchestrator(queries, txStarter, workflowSvc, assignmentSvc, bus)
 
 	taskSvc.OnTaskCompleting = func(ctx context.Context, task db.MulticaAgentTaskQueue) error {
 		if splitOrchestrator != nil {
@@ -466,7 +466,7 @@ func (h *Handler) runningSplitPhaseTask(r *http.Request) (db.MulticaAgentTaskQue
 		return db.MulticaAgentTaskQueue{}, false
 	}
 	switch payload.Phase {
-	case "split_generate", "split_repair", "split_chat", "split":
+	case "split_generate", "split":
 		return task, true
 	default:
 		return db.MulticaAgentTaskQueue{}, false
