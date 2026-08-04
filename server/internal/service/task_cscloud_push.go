@@ -310,10 +310,12 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 
 	env := map[string]string{}
 	var agentPluginName pgtype.Text
+	var agentInstructions string
 	if task.AgentID.Valid {
 		agent, err := s.Queries.GetAgent(ctx, task.AgentID)
 		if err == nil {
 			agentPluginName = agent.PluginName
+			agentInstructions = agent.Instructions
 			if len(agent.CustomEnv) > 0 {
 				_ = json.Unmarshal(agent.CustomEnv, &env)
 			}
@@ -337,6 +339,11 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	} else {
 		if phase == "worker" {
 			prompt = appendWorkerTaskPrompt(prompt)
+		} else {
+			// Non-workflow task (chat / autopilot / quick-create / a bare issue
+			// with no workflow node): these share the same completion gate, so
+			// the agent must also be told to signal completion explicitly.
+			prompt = appendTaskCompletePrompt(prompt)
 		}
 		if raw, ok := repoEnv["CS_CLOUD_GITEA_DELIVERABLES"]; ok {
 			var refs []repositoryDeliverableRefJSON
@@ -380,6 +387,11 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 			// First code repo's provider drives cs-cloud's submit routing.
 			env["CS_CLOUD_CODE_PROVIDER"] = repos[0].Provider
 			prompt = appendCodeRepoPrompt(prompt, repos)
+		} else if phase != "critic" {
+			// No code repo configured and this is not a review-only task —
+			// work in the current working directory unless the task explicitly
+			// requires a specific repository.
+			prompt = appendWorkingDirectoryPrompt(prompt)
 		}
 		// Append the Gitea wf delivery repo (inst base branch + bot PAT) when
 		// the workspace has been provisioned. The agent checks it out via
@@ -403,6 +415,11 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 	if task.AgentID.Valid {
 		plugin, cloudSkills = s.resolveCSCloudAddons(ctx, task.AgentID, agentPluginName)
 	}
+
+	// Front-load the agent's role/tools and workflow-node context before the
+	// issue body so it knows what it is doing and what it can use.
+	nodeTitle, workflowTitle := workflowNodeContextTitles(task)
+	prompt = prependTaskContextPrompt(prompt, nodeTitle, workflowTitle, agentInstructions, plugin, cloudSkills)
 
 	// Diagnostic: plugin resolution now keys on the agent's stored plugin_name
 	// (the install slug). A nil plugin reaches cs-cloud silently when the agent
@@ -738,9 +755,25 @@ func appendCodeRepoPrompt(prompt string, _ []csCloudRepoSpec) string {
 		b.WriteByte('\n')
 	}
 	b.WriteString("\n---\n## Code Repositories\n\n")
+	b.WriteString("Code repositories are available for this task. You are encouraged (but not required) to use them when your work involves source-code changes; skip them if the task does not need code edits.\n")
 	b.WriteString("Repository names, URLs, branches, and purposes are in `.cs-cloud.repos` in your task root. Authentication is in `.cs-cloud.env` and is read by commands automatically. Do not copy tokens into replies, documents, commits, or prompts.\n")
 	b.WriteString("Clone code repositories on demand. Only clone a repository when the current task needs you to inspect or modify it. Do not clone every repository by default.\n")
-	b.WriteString("Use the code repositories listed there for source changes. After committing in the repository, run `cs-cloud workflow deliverable submit --repo <url> --deliverable <id> --title \"<PR title>\"` from the repository directory to open the MR/PR with your chosen title and report it.\n")
+	b.WriteString("Use the code repositories listed there for source-code changes. When a deliverable should be delivered as a code MR/PR (rather than a document), after committing in the repository run `cs-cloud workflow deliverable submit --repo <url> --deliverable <id> --title \"<PR title>\"` from the repository directory to open the MR/PR with your chosen title and report it. Use this `--repo` form for code changes; use the `--file` form described under Document Deliverables for document files.\n")
+	b.WriteString("\n---\n\n")
+	return b.String()
+}
+
+// appendWorkingDirectoryPrompt tells the agent where to work when the task has
+// no configured code repository: unless the task explicitly requires a specific
+// repository, develop directly in the current working directory.
+func appendWorkingDirectoryPrompt(prompt string) string {
+	var b strings.Builder
+	b.WriteString(prompt)
+	if prompt != "" && !strings.HasSuffix(prompt, "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n---\n## Working Directory\n\n")
+	b.WriteString("No code repository is configured for this task. Unless the task explicitly asks you to work in a specific repository, develop directly in your current working directory.\n")
 	b.WriteString("\n---\n\n")
 	return b.String()
 }
@@ -752,7 +785,7 @@ func appendWorkerTaskPrompt(prompt string) string {
 		b.WriteByte('\n')
 	}
 	b.WriteString("\n---\n## Workflow Worker Task\n\n")
-	b.WriteString("You are the worker for this workflow node. Complete the assigned work and submit every required deliverable before finishing.\n")
+	b.WriteString("You are the worker for this workflow node. Complete the assigned work. If code repositories or document deliverables are configured for this task, you are encouraged to develop in the repositories and submit your output as deliverables — this is recommended, but not required to finish.\n")
 	b.WriteString("Do NOT perform critic review. Do NOT approve or reject the work. If the issue text mentions a critic/reviewer, treat that as context for the later review phase, not your current task.\n")
 	b.WriteString("Repository instructions are in `.cs-cloud.repos`. Task context and credentials are in `.cs-cloud.env`; commands read them automatically. Do not copy tokens into replies, documents, commits, or prompts.\n")
 	b.WriteString("\n### Finishing\n\n")
@@ -761,24 +794,39 @@ func appendWorkerTaskPrompt(prompt string) string {
 	return b.String()
 }
 
-// appendDeliverablePrompt adds a "Document Deliverables" section to the prompt.
-// The delivery repository is accessed via a managed worktree created by
-// `cs-cloud repo checkout` (NOT a plain git clone): cs-cloud matches the
-// passed URL against payload.Repos[] to pick the role, injects the auth token
-// from $CS_CLOUD_GITEA_TOKEN, and places the worktree on this node's branch.
-// The agent then writes each document into the worktree and finalizes via
+// appendDeliverablePrompt adds a "Document Deliverables" section that lists each
+// required deliverable (id / title / target path) inline, so the agent knows
+// exactly what to produce and where. The delivery repository and its node/inst
+// branch live in `.cs-cloud.repos`; the per-deliverable targets are listed here
+// (they are NOT in `.cs-cloud.repos`). The agent finalizes each via
 // `cs-cloud workflow deliverable submit`, which pushes the node branch, opens
 // the node->inst review PR, and registers the review URL back here.
-func appendDeliverablePrompt(prompt string, _ []repositoryDeliverableRefJSON) string {
+func appendDeliverablePrompt(prompt string, refs []repositoryDeliverableRefJSON) string {
 	var b strings.Builder
 	b.WriteString(prompt)
 	if prompt != "" && !strings.HasSuffix(prompt, "\n") {
 		b.WriteByte('\n')
 	}
 	b.WriteString("\n---\n## Document Deliverables\n\n")
-	b.WriteString("Delivery repository, node/inst branches, deliverable IDs, and target paths are in `.cs-cloud.repos`. Authentication is in `.cs-cloud.env` and is read by commands automatically. Do not copy tokens into replies, documents, commits, or prompts.\n")
-	b.WriteString("Before submitting, clone the delivery repository listed in `.cs-cloud.repos` into the task root using the credential source in `.cs-cloud.env`, check out the listed node branch, and `cd` into that repository. Do not print or copy credentialed URLs.\n")
-	b.WriteString("For each deliverable listed in `.cs-cloud.repos`, write the document to a local file, then run `cs-cloud workflow deliverable submit --deliverable <id> --file <path> --title \"<PR title>\"` from inside the delivery repository, choosing a meaningful PR title yourself. A deliverable is not considered submitted until its PR is registered.\n")
+	b.WriteString("The delivery repository and its node/inst branch are in `.cs-cloud.repos`; authentication is in `.cs-cloud.env` and is read by commands automatically. Do not copy tokens into replies, documents, commits, or prompts.\n")
+	b.WriteString("Before submitting, check out the delivery repository listed in `.cs-cloud.repos` (use whichever method you prefer — credentials are read automatically from `.cs-cloud.env`) and `cd` into it. Develop on the node/inst branch listed for that repository in `.cs-cloud.repos`; that is the branch your submission must land on. Do not print or copy credentialed URLs.\n")
+	b.WriteString("\nYou are encouraged (but not required) to produce and submit each deliverable below — writing it to a local file at the given target path, then running `cs-cloud workflow deliverable submit --deliverable <id> --file <path> --title \"<PR title>\"` from inside the delivery repository, choosing a meaningful PR title yourself. This is the recommended way to deliver, but it is not mandatory to finish the task:\n\n")
+	if len(refs) == 0 {
+		b.WriteString("- (no deliverables were resolved — if you believe this is wrong, stop and report it rather than guessing)\n")
+	} else {
+		for _, r := range refs {
+			title := strings.TrimSpace(r.Title)
+			if title == "" {
+				title = "(untitled)"
+			}
+			path := strings.TrimSpace(r.Path)
+			if path == "" {
+				path = "(unspecified — place it in the delivery repository root)"
+			}
+			fmt.Fprintf(&b, "- `%s` — %s — target path: `%s`\n", r.ID, title, path)
+		}
+	}
+	b.WriteString("\nUse `--file` for these document deliverables; use `--repo` for code MR/PR deliverables described under Code Repositories. A deliverable is not considered submitted until its PR is registered.\n")
 	b.WriteString("\n---\n\n")
 	return b.String()
 }
@@ -797,6 +845,101 @@ func appendCriticReviewPrompt(prompt string) string {
 	b.WriteString("The review does NOT complete when you stop working — until you call one of these commands, the task stays open, idle is treated as incomplete, and it will eventually time out and fail.\n")
 	b.WriteString("---\n\n")
 	return b.String()
+}
+
+// appendTaskCompletePrompt tells a non-workflow cs-cloud task (chat, autopilot,
+// quick-create, or a bare issue task with no workflow node) how to signal
+// completion. These tasks share the same completion gate as workflow node
+// tasks — idle is not completion — so the agent must call task complete when
+// the assigned work is genuinely done.
+func appendTaskCompletePrompt(prompt string) string {
+	var b strings.Builder
+	b.WriteString(prompt)
+	if prompt != "" && !strings.HasSuffix(prompt, "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n---\n## Completing the Task\n\n")
+	b.WriteString("When you have fully completed the assigned work, you MUST signal it explicitly by running `cs-cloud workflow task complete --summary \"<one-line summary of what you did>\"` as your LAST action. The task does NOT complete when you stop working — until you call this command, the task stays open, idle is treated as incomplete, and it will eventually time out and fail.\n")
+	b.WriteString("\n---\n\n")
+	return b.String()
+}
+
+// workflowNodeContextTitles reads the node/workflow titles carried on a workflow
+// task's Context payload (set by buildWorkflowTaskContext and the dispatch
+// path). Returns empty strings for non-workflow tasks.
+func workflowNodeContextTitles(task db.MulticaAgentTaskQueue) (nodeTitle, workflowTitle string) {
+	if len(task.Context) == 0 {
+		return "", ""
+	}
+	var p struct {
+		NodeTitle     string `json:"node_title"`
+		WorkflowTitle string `json:"workflow_title"`
+	}
+	if err := json.Unmarshal(task.Context, &p); err == nil {
+		return strings.TrimSpace(p.NodeTitle), strings.TrimSpace(p.WorkflowTitle)
+	}
+	return "", ""
+}
+
+// prependTaskContextPrompt front-loads a short context preamble before the issue
+// body so the agent knows its role and tools up front: which workflow node it is
+// on (and what completing that node entails), the agent's own instructions, and
+// the plugin/skills available to it. All fields optional; returns prompt
+// unchanged when there is nothing to add.
+func prependTaskContextPrompt(prompt, nodeTitle, workflowTitle, instructions string, plugin *csCloudAgentPlugin, skills []csCloudCloudSkillInstall) string {
+	inst := strings.TrimSpace(instructions)
+	pluginName := ""
+	if plugin != nil {
+		pluginName = strings.TrimSpace(plugin.Name)
+	}
+	skillNames := make([]string, 0, len(skills))
+	for _, sk := range skills {
+		if name := strings.TrimSpace(sk.Name); name != "" {
+			skillNames = append(skillNames, name)
+		}
+	}
+	hasContext := nodeTitle != "" || workflowTitle != ""
+	hasSetup := inst != "" || pluginName != "" || len(skillNames) > 0
+	if !hasContext && !hasSetup {
+		return prompt
+	}
+
+	var b strings.Builder
+	b.WriteString("---\n")
+	if hasContext {
+		b.WriteString("\n## Workflow Context\n\n")
+		switch {
+		case workflowTitle != "" && nodeTitle != "":
+			fmt.Fprintf(&b, "You are working on node %q in workflow %q.\n", nodeTitle, workflowTitle)
+		case nodeTitle != "":
+			fmt.Fprintf(&b, "You are working on node %q.\n", nodeTitle)
+		default:
+			fmt.Fprintf(&b, "You are working in workflow %q.\n", workflowTitle)
+		}
+		b.WriteString("Complete this node's assigned work, then signal completion as described later in this prompt. Deliverables (if any) are encouraged but not required.\n")
+	}
+	if hasSetup {
+		b.WriteString("\n## Your Setup\n\n")
+		if inst != "" {
+			b.WriteString("**Your instructions:**\n\n")
+			b.WriteString(inst)
+			if !strings.HasSuffix(inst, "\n") {
+				b.WriteByte('\n')
+			}
+		}
+		tools := make([]string, 0, 2)
+		if pluginName != "" {
+			tools = append(tools, fmt.Sprintf("plugin %q", pluginName))
+		}
+		if len(skillNames) > 0 {
+			tools = append(tools, "skills: "+strings.Join(skillNames, ", "))
+		}
+		if len(tools) > 0 {
+			fmt.Fprintf(&b, "**Available tools (installed automatically):** %s\n", strings.Join(tools, "; "))
+		}
+	}
+	b.WriteString("\n---\n\n")
+	return b.String() + prompt
 }
 
 func workflowPhaseFromTask(task db.MulticaAgentTaskQueue) string {

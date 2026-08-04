@@ -584,10 +584,16 @@ func TestAppendDeliverablePrompt_CheckoutAndSubmit(t *testing.T) {
 	for _, want := range []string{
 		".cs-cloud.repos",
 		".cs-cloud.env",
-		"Before submitting, clone the delivery repository listed in `.cs-cloud.repos`",
-		"check out the listed node branch",
+		"Before submitting, check out the delivery repository listed in `.cs-cloud.repos`",
+		"Develop on the node/inst branch listed for that repository",
 		"cs-cloud workflow deliverable submit --deliverable <id> --file <path> --title \"<PR title>\"",
 		"Document Deliverables",
+		// Deliverable id/title/target-path are inlined so the agent knows what to
+		// produce and where (they are NOT in .cs-cloud.repos).
+		"encouraged (but not required) to produce and submit each deliverable below",
+		"`d1`",
+		"Doc1",
+		"target path: `nodes/01-x/d1.md`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("prompt missing %q:\n%s", want, got)
@@ -598,11 +604,79 @@ func TestAppendDeliverablePrompt_CheckoutAndSubmit(t *testing.T) {
 		"CS_CLOUD_REPO_TOKEN",
 		"CS_CLOUD_GITEA_TOKEN",
 		"git clone",
-		"nodes/01-x/d1.md",
 	} {
 		if strings.Contains(got, forbidden) {
 			t.Errorf("prompt must not embed repository credentials or clone details %q:\n%s", forbidden, got)
 		}
+	}
+}
+
+func TestAppendDeliverablePrompt_EmptyRefsAdvisesReport(t *testing.T) {
+	// When no deliverables resolved, the agent must not guess — it should stop
+	// and report, rather than fabricate a deliverable.
+	got := appendDeliverablePrompt("base prompt", nil)
+	if !strings.Contains(got, "no deliverables were resolved") {
+		t.Fatalf("empty refs should tell the agent to report, got:\n%s", got)
+	}
+}
+
+func TestAppendTaskCompletePrompt(t *testing.T) {
+	got := appendTaskCompletePrompt("base prompt")
+	for _, want := range []string{
+		"## Completing the Task",
+		"cs-cloud workflow task complete --summary",
+		"as your LAST action",
+		"idle is treated as incomplete",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("prompt missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestAppendWorkingDirectoryPrompt(t *testing.T) {
+	got := appendWorkingDirectoryPrompt("base prompt")
+	for _, want := range []string{
+		"## Working Directory",
+		"No code repository is configured for this task",
+		"develop directly in your current working directory",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("prompt missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestPrependTaskContextPrompt(t *testing.T) {
+	plugin := &csCloudAgentPlugin{Name: "coder-plugin"}
+	skills := []csCloudCloudSkillInstall{{Name: "Code Review"}, {Name: "Test Gen"}}
+	got := prependTaskContextPrompt("Issue: do work", "开发", "交付工作流",
+		"Always write tests.", plugin, skills)
+
+	if !strings.HasPrefix(got, "---\n") {
+		t.Fatalf("preamble should be prepended before the issue body:\n%s", got)
+	}
+	for _, want := range []string{
+		"## Workflow Context",
+		`node "开发"`,
+		`workflow "交付工作流"`,
+		"## Your Setup",
+		"Always write tests.",
+		`plugin "coder-plugin"`,
+		"Code Review",
+		"Test Gen",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("prompt missing %q:\n%s", want, got)
+		}
+	}
+	if !strings.HasSuffix(got, "Issue: do work") {
+		t.Fatalf("issue body must remain at the tail:\n%s", got)
+	}
+
+	// No-op when there is nothing to add.
+	if got := prependTaskContextPrompt("base", "", "", "", nil, nil); got != "base" {
+		t.Fatalf("empty context should be a no-op, got:\n%s", got)
 	}
 }
 
