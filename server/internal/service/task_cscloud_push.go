@@ -361,13 +361,16 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		}
 	}
 
-	// Repos: code repos (workspace/project, role=code) + the Gitea delivery
-	// repo (role=delivery). All workflow node runtime tasks get this context so
-	// cs-cloud writes the same .cs-cloud.repos guide for agents, squads, critics,
-	// and checking phases; only worker emits Deliverables above.
+	// Repos: code repos (workspace/project, role=code) for worker nodes + the
+	// Gitea delivery repo (role=delivery) for any phase that submits document
+	// deliverables.
 	repos := []csCloudRepoSpec{}
 	projectID := ""
-	if requiresGiteaEnv {
+	if requiresGiteaEnv && phase == "worker" {
+		// Code repos + the Code Repositories prompt are worker-only: critic /
+		// split / recovery don't edit code, and surfacing code-repo context to
+		// them contradicts their own rules (e.g. split: "do not modify repo
+		// files") and is just noise.
 		var codeTokens codeRepoTokens
 		repos, codeTokens, projectID = s.resolveCodeRepoAndProject(ctx, task, runtime.WorkspaceID)
 		if len(repos) > 0 {
@@ -386,18 +389,16 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 			// First code repo's provider drives cs-cloud's submit routing.
 			env["CS_CLOUD_CODE_PROVIDER"] = repos[0].Provider
 			prompt = appendCodeRepoPrompt(prompt, repos)
-		} else if phase != "critic" {
-			// No code repo configured and this is not a review-only task —
-			// work in the current working directory unless the task explicitly
-			// requires a specific repository.
+		} else {
+			// No code repo configured — work in the current working directory
+			// unless the task explicitly requires a specific repository.
 			prompt = appendWorkingDirectoryPrompt(prompt)
 		}
-		// Append the Gitea wf delivery repo (inst base branch + bot PAT) when
-		// the workspace has been provisioned. The agent checks it out via
-		// `cs-cloud repo checkout <url>` (Task 7's prompt) and uses it for
-		// document deliverables. Separate from code repos — has its own alias
-		// ("delivery") so appendCodeRepoPrompt's listing is unaffected.
 	}
+	// Append the Gitea wf delivery repo (inst base branch + bot PAT) when the
+	// workspace has been provisioned. Applies to any phase that submits document
+	// deliverables (worker, split); separate from code repos — has its own alias
+	// ("delivery") so it never implies code-edit access.
 	if requiresGiteaEnv {
 		if dr, ok := s.resolveDeliveryRepo(ctx, runtime.WorkspaceID); ok {
 			repos = append(repos, dr)

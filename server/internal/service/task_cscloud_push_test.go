@@ -2788,7 +2788,7 @@ func TestBuildCSCloudPayload_AddsDeliveryRepoAfterSafetyNet(t *testing.T) {
 // TestBuildCSCloudPayload_NonWorkerPhaseHasRepoContextButNoDeliverables is a regression guard
 // for runtime node tasks: critic/checking phases do not submit deliverables, but
 // they still need the same code and delivery repository context in cs-cloud.
-func TestBuildCSCloudPayload_NonWorkerPhaseHasRepoContextButNoDeliverables(t *testing.T) {
+func TestBuildCSCloudPayload_NonWorkerPhaseHasDeliveryRepoButNoCodeRepo(t *testing.T) {
 	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
 	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://gitea.test")
 
@@ -2836,6 +2836,7 @@ func TestBuildCSCloudPayload_NonWorkerPhaseHasRepoContextButNoDeliverables(t *te
 	if len(payload.Deliverables) != 0 {
 		t.Errorf("critic phase must not emit deliverables; got %+v", payload.Deliverables)
 	}
+	// Delivery (Gitea) context stays — a critic may review deliverables.
 	for _, key := range []string{
 		"CS_CLOUD_GITEA_OWNER",
 		"CS_CLOUD_GITEA_TOKEN",
@@ -2845,27 +2846,31 @@ func TestBuildCSCloudPayload_NonWorkerPhaseHasRepoContextButNoDeliverables(t *te
 			t.Errorf("critic phase missing %s in env: %+v", key, payload.Env)
 		}
 	}
-	if got := payload.Env["CS_CLOUD_GITLAB_TOKEN"]; got != "gitlab-pat" {
-		t.Fatalf("CS_CLOUD_GITLAB_TOKEN = %q, want gitlab-pat", got)
+	// Code-repo context is worker-only — a non-worker phase must not carry it.
+	for _, key := range []string{
+		"CS_CLOUD_GITLAB_TOKEN",
+		"CS_CLOUD_GITLAB_BASE_URL",
+		"CS_CLOUD_CODE_PROVIDER",
+	} {
+		if _, ok := payload.Env[key]; ok {
+			t.Errorf("critic phase must not carry code-repo env %s: %+v", key, payload.Env)
+		}
 	}
-	if got := payload.Env["CS_CLOUD_GITLAB_BASE_URL"]; got != "https://gitlab.local" {
-		t.Fatalf("CS_CLOUD_GITLAB_BASE_URL = %q, want https://gitlab.local", got)
-	}
-	if got := payload.Env["CS_CLOUD_CODE_PROVIDER"]; got != "gitlab" {
-		t.Fatalf("CS_CLOUD_CODE_PROVIDER = %q, want gitlab", got)
+	if strings.Contains(payload.Prompt, "## Code Repositories") {
+		t.Errorf("critic prompt must not include the Code Repositories section")
 	}
 	foundCode := false
 	foundDelivery := false
 	for _, r := range payload.Repos {
-		if r.Role == "code" && r.Provider == "gitlab" && r.URL == "https://gitlab.local/root/demo.git" {
+		if r.Role == "code" {
 			foundCode = true
 		}
 		if r.Role == "delivery" {
 			foundDelivery = true
 		}
 	}
-	if !foundCode {
-		t.Fatalf("critic phase missing code repo context: %+v", payload.Repos)
+	if foundCode {
+		t.Fatalf("critic phase must not carry a code repo: %+v", payload.Repos)
 	}
 	if !foundDelivery {
 		t.Fatalf("critic phase missing delivery repo context: %+v", payload.Repos)
