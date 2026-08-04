@@ -2594,7 +2594,7 @@ func TestBuildCSCloudPayload_GitlabCodeRepoIncludesBaseURL(t *testing.T) {
 	}
 }
 
-func TestBuildCSCloudPayload_FailsWhenCodeProviderTokenMissing(t *testing.T) {
+func TestBuildCSCloudPayload_GitlabTokenOptional(t *testing.T) {
 	t.Setenv("GITEA_BASE_URL", "https://gitea.test")
 	t.Setenv("GITEA_PUBLIC_BASE_URL", "https://gitea.test")
 
@@ -2624,12 +2624,15 @@ func TestBuildCSCloudPayload_FailsWhenCodeProviderTokenMissing(t *testing.T) {
 		Context:           []byte(`{"phase":"worker"}`),
 	}
 
-	_, err := svc.buildCSCloudPayload(context.Background(), task, mdb.runtime)
-	if err == nil {
-		t.Fatal("expected buildCSCloudPayload to fail when a GitLab code repo has no GitLab token")
+	// A GitLab code repo without a configured GitLab token must no longer fail
+	// dispatch — the token is optional (public repos, or the agent authenticates
+	// another way). The env is simply not injected.
+	payload, err := svc.buildCSCloudPayload(context.Background(), task, mdb.runtime)
+	if err != nil {
+		t.Fatalf("buildCSCloudPayload: %v (GitLab token should be optional)", err)
 	}
-	if !strings.Contains(err.Error(), "missing GitLab token") {
-		t.Fatalf("error = %v, want missing GitLab token", err)
+	if got, ok := payload.Env["CS_CLOUD_GITLAB_TOKEN"]; ok {
+		t.Fatalf("CS_CLOUD_GITLAB_TOKEN = %q, want unset when no token configured", got)
 	}
 }
 

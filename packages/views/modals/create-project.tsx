@@ -332,13 +332,12 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
           />
         </div>
 
-        {/* Code repository — required. Pinned to the bottom. Combobox: type to
+        {/* Code repository — optional. Pinned to the bottom. Combobox: type to
             search workspace repos or paste a URL; selections show as chips. */}
         <div className="px-5 py-3 space-y-2 border-t shrink-0">
           <div className="flex items-center gap-1 text-xs font-medium">
             <RepoIcon className="size-3.5" />
             <span>{t(($) => $.create_project.repos_section_title)}</span>
-            <span className="text-destructive">*</span>
           </div>
 
           {selectedRepos.length > 0 && (
@@ -564,17 +563,15 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {(!title.trim() || selectedRepos.length === 0) && (
+            {!title.trim() && (
               <span className="text-xs text-muted-foreground">
-                {selectedRepos.length === 0
-                  ? t(($) => $.create_project.repos_required_hint)
-                  : t(($) => $.create_project.title_placeholder)}
+                {t(($) => $.create_project.title_placeholder)}
               </span>
             )}
             <Button
               size="sm"
               onClick={handleSubmit}
-              disabled={!title.trim() || selectedRepos.length === 0 || submitting}
+              disabled={!title.trim() || submitting}
             >
               {submitting ? t(($) => $.create_project.submitting) : t(($) => $.create_project.submit)}
             </Button>
