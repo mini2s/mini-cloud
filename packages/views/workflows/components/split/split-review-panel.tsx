@@ -9,6 +9,7 @@ import type {
 } from "@multica/core/types";
 import { toWorkflowRuntimeDisplayStatus } from "@multica/core/types";
 import { ApiError } from "@multica/core/api";
+import { useAuthStore } from "@multica/core/auth";
 import {
   nodeRunDeliverableSubmissionsOptions,
   splitTasksOptions,
@@ -92,6 +93,7 @@ export function SplitReviewPanel({
 }: SplitReviewPanelProps) {
   const { t } = useT("workflows");
   const { t: ti } = useT("issues");
+  const currentUserId = useAuthStore((state) => state.user?.id ?? null);
   const nodeRunId = nodeRun?.id;
   const { data } = useQuery(splitTasksOptions(wsId, nodeRunId));
   const { data: currentDeliverableData, refetch: refetchCurrentDeliverables } = useQuery({
@@ -116,6 +118,11 @@ export function SplitReviewPanel({
   const mutationContext = { nodeRunId: nodeRunId ?? "", workflowId, runId };
   const busy = approve.isPending || reject.isPending || generate.isPending || retry.isPending || cancel.isPending;
   const status = nodeRun?.status ?? "splitting";
+  const isReviewer = Boolean(
+    currentUserId
+    && nodeRun?.critic_type === "human"
+    && nodeRun.critic_id === currentUserId,
+  );
   const awaitingReview = status === "awaiting_split_review" && generation > 0 && !!submissionId;
   const materializing = status === "materializing";
   const blocked = status === "blocked";
@@ -208,7 +215,7 @@ export function SplitReviewPanel({
         exhausted: progress?.exhausted ?? 0,
       });
 
-  const reviewFooter = awaitingReview ? (
+  const reviewFooter = isReviewer && awaitingReview ? (
     <div>
       <textarea
         value={reviewComment}
@@ -253,8 +260,8 @@ export function SplitReviewPanel({
       </div>
     </div>
   ) : null;
-  const canRetryFailed = (materializing || blocked) && (progress?.exhausted ?? 0) > 0;
-  const canManagePlan = !!nodeRunId && generation > 0;
+  const canRetryFailed = isReviewer && (materializing || blocked) && (progress?.exhausted ?? 0) > 0;
+  const canManagePlan = isReviewer && !!nodeRunId && generation > 0;
   const hasFooterActions = canOpenSession || canRetryFailed || canManagePlan || (active && !!onViewChildren);
   const footer = reviewFooter || hasFooterActions ? (
     <div className="space-y-3">

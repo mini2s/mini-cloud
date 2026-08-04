@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   navigateToSession: vi.fn(),
   sessionPermission: { can_observe: false },
   embedded: false,
+  currentUserId: "reviewer-1" as string | null,
   deliverableData: {
     deliverables: [] as WorkflowNodeDeliverable[],
     submissions: [] as WorkflowNodeDeliverableSubmission[],
@@ -53,6 +54,15 @@ vi.mock("@multica/core/platform", () => ({
   isEmbeddedInCostrict: () => mocks.embedded,
   postCostrictNavigateToSession: mocks.navigateToSession,
 }));
+
+vi.mock("@multica/core/auth", () => {
+  const getState = () => ({ user: mocks.currentUserId ? { id: mocks.currentUserId } : null });
+  const useAuthStore = Object.assign(
+    (selector: (state: ReturnType<typeof getState>) => unknown) => selector(getState()),
+    { getState },
+  );
+  return { useAuthStore };
+});
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
@@ -149,6 +159,8 @@ const node = { id: "node-1", title: "Plan work" } as WorkflowNode;
 const baseRun = {
   id: "run-node-1",
   status: "awaiting_split_review",
+  critic_type: "human",
+  critic_id: "reviewer-1",
 } as WorkflowNodeRun;
 
 function response(overrides: Partial<SplitTasksResponse> = {}): SplitTasksResponse {
@@ -167,6 +179,22 @@ function response(overrides: Partial<SplitTasksResponse> = {}): SplitTasksRespon
   };
 }
 
+function exhaustedResponse(): SplitTasksResponse {
+  return response({
+    tasks: [{
+      id: "task-1", node_run_id: "run-node-1", title: "Build API", description: "",
+      workflow_id: "child-wf", assignee_type: "member", assignee_id: "member-1",
+      depends_on: [], sort_order: 0, status: "failed", issue_id: null, run_id: null,
+      last_error: { code: "split_assignee_invalidated", message: "Assignee inactive", child_issue_id: null, workflow_run_id: null, node_run_id: null, occurred_at: "" },
+      created_at: "", updated_at: "", materialize_retry_count: 4, materialize_next_attempt_at: null,
+    }],
+    progress: {
+      total: 1, created: 0, running: 0, done: 0, failed: 1,
+      cancelled: 0, skipped: 0, materialized: 0, retry_waiting: 0, exhausted: 1,
+    },
+  });
+}
+
 describe("SplitReviewPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -174,6 +202,7 @@ describe("SplitReviewPanel", () => {
     mocks.deliverableData = { deliverables: [], submissions: [] };
     mocks.sessionPermission = { can_observe: false };
     mocks.embedded = false;
+    mocks.currentUserId = "reviewer-1";
   });
 
   it("shows the task-plan pull request number", () => {
@@ -262,12 +291,38 @@ describe("SplitReviewPanel", () => {
   it("approves the exact generation and submission", () => {
     render(<SplitReviewPanel node={node} nodeRun={baseRun} wsId="ws-1" workflowId="wf-1" runId="run-1" onClose={vi.fn()} />);
 
+    expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Approve snapshot" }));
 
     expect(mocks.approve).toHaveBeenCalledWith(expect.objectContaining({
       nodeRunId: "run-node-1",
       request: { expected_split_generation: 2, expected_submission_id: "submission-2", review_comment: undefined },
     }), expect.any(Object));
+  });
+
+  it("hides review and plan-management actions from a non-reviewer", () => {
+    mocks.currentUserId = "member-2";
+
+    render(<SplitReviewPanel node={node} nodeRun={baseRun} wsId="ws-1" onClose={vi.fn()} />);
+
+    expect(screen.queryByRole("button", { name: "Approve snapshot" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Regenerate plan" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel split" })).not.toBeInTheDocument();
+  });
+
+  it("hides reviewer actions when the configured critic is not human", () => {
+    render(
+      <SplitReviewPanel
+        node={node}
+        nodeRun={{ ...baseRun, critic_type: "agent" }}
+        wsId="ws-1"
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Approve snapshot" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Regenerate plan" })).not.toBeInTheDocument();
   });
 
   it.each([
@@ -308,19 +363,7 @@ describe("SplitReviewPanel", () => {
   });
 
   it.each(["materializing", "blocked"] as const)("retries an exhausted materialization row while %s", (status) => {
-    mocks.data = response({
-      tasks: [{
-        id: "task-1", node_run_id: "run-node-1", title: "Build API", description: "",
-        workflow_id: "child-wf", assignee_type: "member", assignee_id: "member-1",
-        depends_on: [], sort_order: 0, status: "failed", issue_id: null, run_id: null,
-        last_error: { code: "split_assignee_invalidated", message: "Assignee inactive", child_issue_id: null, workflow_run_id: null, node_run_id: null, occurred_at: "" },
-        created_at: "", updated_at: "", materialize_retry_count: 4, materialize_next_attempt_at: null,
-      }],
-      progress: {
-        total: 1, created: 0, running: 0, done: 0, failed: 1,
-        cancelled: 0, skipped: 0, materialized: 0, retry_waiting: 0, exhausted: 1,
-      },
-    });
+    mocks.data = exhaustedResponse();
     render(<SplitReviewPanel node={node} nodeRun={{ ...baseRun, status }} wsId="ws-1" onClose={vi.fn()} />);
 
     const footer = screen.getByTestId("node-detail-panel-footer");
@@ -331,6 +374,15 @@ describe("SplitReviewPanel", () => {
       taskId: "task-1",
       request: { expected_split_generation: 2 },
     }), expect.any(Object));
+  });
+
+  it.each(["materializing", "blocked"] as const)("hides failed-task retry from a non-reviewer while %s", (status) => {
+    mocks.currentUserId = "member-2";
+    mocks.data = exhaustedResponse();
+
+    render(<SplitReviewPanel node={node} nodeRun={{ ...baseRun, status }} wsId="ws-1" onClose={vi.fn()} />);
+
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
   });
 
   it("shows View child issues directly in the footer", () => {
