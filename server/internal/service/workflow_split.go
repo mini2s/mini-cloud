@@ -689,6 +689,29 @@ func (s *SplitOrchestrator) GenerateSplitTasksForDispatch(
 	return s.dispatchSplitPlanGeneration(ctx, nodeRun, generation, dispatchJobID)
 }
 
+const maxSplitPromptMembers = 200
+
+func buildSplitPromptMemberContext(members []db.ListActiveWorkflowRoleCandidateMembersRow) ([]map[string]string, bool) {
+	workspaceMembers := make([]map[string]string, 0, min(len(members), maxSplitPromptMembers))
+	for index, member := range members {
+		if index == maxSplitPromptMembers {
+			break
+		}
+		position := ""
+		if member.Position.Valid {
+			position = strings.TrimSpace(member.Position.String)
+		}
+		workspaceMembers = append(workspaceMembers, map[string]string{
+			"member_id":    util.UUIDToString(member.MemberID),
+			"display_name": strings.TrimSpace(member.DisplayName),
+			"email":        strings.TrimSpace(member.Email),
+			"description":  strings.TrimSpace(member.ProfileDescription),
+			"position":     position,
+		})
+	}
+	return workspaceMembers, len(members) > len(workspaceMembers)
+}
+
 func (s *SplitOrchestrator) dispatchSplitPlanGeneration(
 	ctx context.Context,
 	nodeRun db.MulticaWorkflowNodeRun,
@@ -714,17 +737,7 @@ func (s *SplitOrchestrator) dispatchSplitPlanGeneration(
 	if err != nil {
 		return fmt.Errorf("list split assignee candidates: %w", err)
 	}
-	workspaceMembers := make([]map[string]string, 0, min(len(members), 200))
-	for index, member := range members {
-		if index == 200 {
-			break
-		}
-		workspaceMembers = append(workspaceMembers, map[string]string{
-			"member_id":    util.UUIDToString(member.MemberID),
-			"display_name": strings.TrimSpace(member.DisplayName),
-			"email":        strings.TrimSpace(member.Email),
-		})
-	}
+	workspaceMembers, workspaceMembersTruncated := buildSplitPromptMemberContext(members)
 	contextExtras := map[string]any{
 		"phase":                       splitPhaseGenerate,
 		"parent_issue_id":             util.UUIDToString(parentIssue.ID),
@@ -734,7 +747,7 @@ func (s *SplitOrchestrator) dispatchSplitPlanGeneration(
 		"split_plan_generation":       generation.Generation,
 		"split_deliverable_id":        util.UUIDToString(generation.DeliverableID),
 		"workspace_members":           workspaceMembers,
-		"workspace_members_truncated": len(members) > len(workspaceMembers),
+		"workspace_members_truncated": workspaceMembersTruncated,
 	}
 	if generation.ReviewComment != "" {
 		topo, err := RunNodeTopoOrder(ctx, s.Queries, run.ID)

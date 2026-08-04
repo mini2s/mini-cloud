@@ -49,7 +49,9 @@ SELECT
     m.user_id,
     m.subject_id,
     COALESCE(NULLIF(m.org_display_name, ''), u.name) AS display_name,
-    u.email
+    u.email,
+    u.profile_description,
+    m.position
 FROM multica_member m
 JOIN multica_user u ON u.id = m.user_id
 WHERE m.workspace_id = $1
