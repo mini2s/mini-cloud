@@ -109,10 +109,15 @@ function StepIcon({ state }: { state: StepState }) {
 }
 
 // Lifecycle progression shown per node: dispatch → claim → execute.
-// Derived from the backend-computed lifecycle_stage so the stage machine
-// lives in exactly one place.
-function nodeStepStates(diagnostics: WorkflowNodeDiagnostics | null): [StepState, StepState, StepState] {
+// Derived from the backend-computed lifecycle_stage plus the current task's
+// real state. A terminal node WITHOUT a task was cancelled before dispatch
+// (fail-fast sibling) — showing all steps done would contradict "no task
+// dispatched yet", so every step stays untouched.
+export function nodeStepStates(
+  diagnostics: WorkflowNodeDiagnostics | null,
+): [StepState, StepState, StepState] {
   const stage = diagnostics?.lifecycle_stage;
+  const task = diagnostics?.current_task ?? null;
   switch (stage) {
     case "dispatching":
       return ["active", "todo", "todo"];
@@ -121,8 +126,23 @@ function nodeStepStates(diagnostics: WorkflowNodeDiagnostics | null): [StepState
     case "running":
     case "awaiting_review":
       return ["done", "done", "active"];
-    case "terminal":
-      return ["done", "done", "done"];
+    case "terminal": {
+      if (!task) return ["todo", "todo", "todo"];
+      if (task.status === "completed") return ["done", "done", "done"];
+      // A cancelled task's status alone can't tell how far it got — key off
+      // the timestamps: no dispatched_at means it never left the queue.
+      const dispatched =
+        Boolean(task.dispatched_at) ||
+        task.status === "dispatched" ||
+        task.status === "running" ||
+        task.status === "failed";
+      const claimed =
+        Boolean(task.started_at) ||
+        task.status === "running" ||
+        task.status === "failed";
+      const execute: StepState = task.status === "failed" ? "failed" : "todo";
+      return [dispatched ? "done" : "todo", claimed ? "done" : "todo", execute];
+    }
     case "pending":
     default:
       return ["todo", "todo", "todo"];
@@ -162,7 +182,7 @@ function NodeDiagnosticsRow({ nodeRun, summary, t }: NodeDiagnosticsRowProps) {
           <span className="flex shrink-0 items-center gap-3">
             {stepLabels.map((label, i) => (
               <span key={label} className="flex items-center gap-1 text-xs text-muted-foreground">
-                <StepIcon state={failed && i === 2 ? "failed" : steps[i]!} />
+                <StepIcon state={steps[i]!} />
                 {label}
               </span>
             ))}

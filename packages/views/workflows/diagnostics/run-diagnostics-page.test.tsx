@@ -3,7 +3,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactNode } from "react";
-import { WorkflowRunDiagnosticsPage } from "./run-diagnostics-page";
+import { WorkflowRunDiagnosticsPage, nodeStepStates } from "./run-diagnostics-page";
 
 const mocks = vi.hoisted(() => ({
   data: null as unknown,
@@ -259,5 +259,81 @@ describe("WorkflowRunDiagnosticsPage", () => {
     render(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
     fireEvent.click(screen.getByText("Release workflow"));
     expect(mocks.pushed).toEqual(["/ws/workflows/wf-1/runs/run-1"]);
+  });
+});
+
+describe("nodeStepStates", () => {
+  const task = (overrides: Record<string, unknown>) => ({
+    task_id: "task-1",
+    status: "running",
+    phase: "worker",
+    attempt: 1,
+    max_attempts: 3,
+    dispatched_at: null,
+    started_at: null,
+    completed_at: null,
+    failure_reason: "",
+    error: "",
+    ...overrides,
+  });
+
+  it("marks every step untouched for a terminal node cancelled before dispatch", () => {
+    // Fail-fast sibling: node was cancelled without ever receiving a task.
+    // Showing dispatch/claim/execute as done would contradict "no task yet".
+    expect(
+      nodeStepStates({ lifecycle_stage: "terminal", current_task: null, hint: "hint.stage.terminal" }),
+    ).toEqual(["todo", "todo", "todo"]);
+  });
+
+  it("marks all steps done for a completed task", () => {
+    expect(
+      nodeStepStates({
+        lifecycle_stage: "terminal",
+        current_task: task({ status: "completed" }),
+        hint: "hint.stage.terminal",
+      }),
+    ).toEqual(["done", "done", "done"]);
+  });
+
+  it("marks execute failed for a failed task that was claimed", () => {
+    expect(
+      nodeStepStates({
+        lifecycle_stage: "terminal",
+        current_task: task({ status: "failed", started_at: "2026-08-04T09:00:00Z" }),
+        hint: "hint.failure.agent_error",
+      }),
+    ).toEqual(["done", "done", "failed"]);
+  });
+
+  it("marks only dispatch done for a task cancelled while dispatched", () => {
+    expect(
+      nodeStepStates({
+        lifecycle_stage: "terminal",
+        current_task: task({ status: "cancelled", dispatched_at: "2026-08-04T09:00:00Z" }),
+        hint: "hint.stage.terminal",
+      }),
+    ).toEqual(["done", "todo", "todo"]);
+  });
+
+  it("marks every step untouched for a task cancelled while still queued", () => {
+    expect(
+      nodeStepStates({
+        lifecycle_stage: "terminal",
+        current_task: task({ status: "cancelled" }),
+        hint: "hint.stage.terminal",
+      }),
+    ).toEqual(["todo", "todo", "todo"]);
+  });
+
+  it("keeps in-flight stages unchanged", () => {
+    expect(nodeStepStates({ lifecycle_stage: "dispatching", current_task: null, hint: "" }))
+      .toEqual(["active", "todo", "todo"]);
+    expect(nodeStepStates({ lifecycle_stage: "dispatched", current_task: null, hint: "" }))
+      .toEqual(["done", "active", "todo"]);
+    expect(nodeStepStates({ lifecycle_stage: "running", current_task: null, hint: "" }))
+      .toEqual(["done", "done", "active"]);
+    expect(nodeStepStates({ lifecycle_stage: "pending", current_task: null, hint: "" }))
+      .toEqual(["todo", "todo", "todo"]);
+    expect(nodeStepStates(null)).toEqual(["todo", "todo", "todo"]);
   });
 });
