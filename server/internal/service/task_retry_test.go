@@ -185,3 +185,94 @@ func TestMaybeRetryFailedTask_WorkflowTaskWithoutIssueID(t *testing.T) {
 		t.Fatalf("expected a new dispatch job after retry, baseline=%d after=%d", baselineJobs, afterJobs)
 	}
 }
+
+func TestCreateRetryTask_ResumeUnsafeFailuresStartFreshSession(t *testing.T) {
+	pool := openTestPool(t)
+	defer pool.Close()
+
+	ctx := context.Background()
+	q := db.New(pool)
+	suffix := fmt.Sprintf("retry-fresh-%d", os.Getpid())
+
+	var workspaceID, runtimeID, agentID, issueID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_workspace (name, slug, description, issue_prefix)
+		VALUES ($1, $2, 'retry fresh-session test workspace', 'RF')
+		RETURNING id
+	`, "Retry Fresh Workspace "+suffix, "retry-fresh-"+suffix).Scan(&workspaceID); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM multica_workspace WHERE id = $1`, workspaceID)
+	})
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_agent_runtime (
+			workspace_id, daemon_id, name, runtime_mode, provider, status, device_info, metadata
+		)
+		VALUES ($1, 'retry-fresh-runtime', 'retry-fresh-runtime', 'local', 'test', 'online', '', '{}')
+		RETURNING id
+	`, workspaceID).Scan(&runtimeID); err != nil {
+		t.Fatalf("create runtime: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_agent (
+			workspace_id, name, runtime_mode, visibility, status, runtime_id
+		)
+		VALUES ($1, 'retry-fresh-agent', 'local', 'private', 'idle', $2)
+		RETURNING id
+	`, workspaceID, runtimeID).Scan(&agentID); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO multica_issue (
+			workspace_id, title, status, priority, creator_type, creator_id, number
+		)
+		VALUES ($1, 'Retry fresh issue', 'todo', 'none', 'member', gen_random_uuid(), 50001)
+		RETURNING id
+	`, workspaceID).Scan(&issueID); err != nil {
+		t.Fatalf("create issue: %v", err)
+	}
+
+	cases := []struct {
+		reason        string
+		wantFresh     bool
+		wantSessionID bool
+		wantWorkDir   bool
+	}{
+		{reason: "missing_required_deliverable", wantFresh: true},
+		{reason: "completion_rejected", wantFresh: true},
+		{reason: "timeout", wantFresh: false, wantSessionID: true, wantWorkDir: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.reason, func(t *testing.T) {
+			var parentID string
+			if err := pool.QueryRow(ctx, `
+				INSERT INTO multica_agent_task_queue (
+					agent_id, runtime_id, issue_id, status, priority,
+					session_id, work_dir, error, failure_reason, attempt, max_attempts
+				)
+				VALUES ($1, $2, $3, 'failed', 1, 'sess-parent', 'C:\work\parent', 'failed', $4, 1, 3)
+				RETURNING id
+			`, agentID, runtimeID, issueID, tc.reason).Scan(&parentID); err != nil {
+				t.Fatalf("seed parent task: %v", err)
+			}
+
+			child, err := q.CreateRetryTask(ctx, db.CreateRetryTaskParams{ParentTaskID: util.MustParseUUID(parentID)})
+			if err != nil {
+				t.Fatalf("CreateRetryTask: %v", err)
+			}
+			t.Cleanup(func() {
+				_, _ = pool.Exec(context.Background(), `DELETE FROM multica_agent_task_queue WHERE id = $1 OR parent_task_id = $1`, parentID)
+			})
+			if child.ForceFreshSession != tc.wantFresh {
+				t.Fatalf("ForceFreshSession = %v, want %v", child.ForceFreshSession, tc.wantFresh)
+			}
+			if child.SessionID.Valid != tc.wantSessionID {
+				t.Fatalf("SessionID.Valid = %v, want %v", child.SessionID.Valid, tc.wantSessionID)
+			}
+			if child.WorkDir.Valid != tc.wantWorkDir {
+				t.Fatalf("WorkDir.Valid = %v, want %v", child.WorkDir.Valid, tc.wantWorkDir)
+			}
+		})
+	}
+}

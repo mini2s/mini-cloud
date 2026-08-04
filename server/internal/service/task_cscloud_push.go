@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -52,6 +53,47 @@ func codeRepoProvider(rawURL string) string {
 		return "github"
 	}
 	return "gitlab"
+}
+
+// sshSCPRe matches the scp-like SSH syntax `git@host:path` that Git hosting
+// platforms ship as the default "Clone with SSH" URL.
+var sshSCPRe = regexp.MustCompile(`^git@([^:]+):(.+)$`)
+
+// normalizeCodeRepoURL rewrites an SSH or git:// code-repo URL into the HTTPS
+// form every downstream stage assumes. Both multica's codeRepoBaseURL and
+// cs-cloud's repoAuthURLTemplate parse with net/url and reject URLs whose
+// scheme is empty, so an SSH URL (`git@host:path`, `ssh://...`, `git://...`)
+// would otherwise fail dispatch with "missing GitLab base URL" and produce an
+// empty clone command for the agent. Normalizing once at the collection
+// boundary keeps every downstream stage HTTPS-only.
+//
+// The SSH service port (ssh://git@host:22/...) is dropped: it belongs to the
+// SSH listener, not HTTPS, and cannot be inferred. http(s) URLs are returned
+// untouched; unrecognised input is returned as-is so the existing validation
+// surfaces a clear error instead of a silent, wrong rewrite.
+func normalizeCodeRepoURL(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return ""
+	}
+	if strings.HasPrefix(rawURL, "http://") || strings.HasPrefix(rawURL, "https://") {
+		return rawURL
+	}
+	// scp-like: git@host:path -> https://host/path
+	if m := sshSCPRe.FindStringSubmatch(rawURL); m != nil {
+		return "https://" + m[1] + "/" + m[2]
+	}
+	// ssh:// and git://: keep host (drop the SSH/git-only port) + path.
+	if strings.HasPrefix(rawURL, "ssh://") || strings.HasPrefix(rawURL, "git://") {
+		if u, err := url.Parse(rawURL); err == nil && u.Hostname() != "" {
+			path := u.EscapedPath()
+			if u.RawQuery != "" {
+				path += "?" + u.RawQuery
+			}
+			return "https://" + u.Hostname() + path
+		}
+	}
+	return rawURL
 }
 
 // codeRepoTokens holds the workspace PATs for each code-repo platform.
@@ -332,6 +374,11 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		env[k] = v
 	}
 	if phase == "critic" {
+		if task.WorkflowNodeRunID.Valid {
+			if subs, err := s.Queries.ListNodeRunDeliverableSubmissions(ctx, task.WorkflowNodeRunID); err == nil {
+				prompt = appendSubmittedDeliverablesPrompt(prompt, subs)
+			}
+		}
 		prompt = appendCriticReviewPrompt(prompt)
 	} else {
 		if phase == "worker" {
@@ -361,13 +408,16 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 		}
 	}
 
-	// Repos: code repos (workspace/project, role=code) + the Gitea delivery
-	// repo (role=delivery). All workflow node runtime tasks get this context so
-	// cs-cloud writes the same .cs-cloud.repos guide for agents, squads, critics,
-	// and checking phases; only worker emits Deliverables above.
+	// Repos: code repos (workspace/project, role=code) for worker and critic
+	// nodes + the Gitea delivery repo (role=delivery) for any phase that submits
+	// document deliverables.
 	repos := []csCloudRepoSpec{}
 	projectID := ""
-	if requiresGiteaEnv {
+	// Code repos apply to worker and critic. The worker edits code and submits
+	// MR/PR deliverables; the critic reviews them read-only (it clones/fetches
+	// to inspect the worker's code MRs but must not modify or submit). split and
+	// other phases don't touch code — recovery reaches here as phase "worker".
+	if requiresGiteaEnv && (phase == "worker" || phase == "critic") {
 		var codeTokens codeRepoTokens
 		repos, codeTokens, projectID = s.resolveCodeRepoAndProject(ctx, task, runtime.WorkspaceID)
 		if len(repos) > 0 {
@@ -383,21 +433,27 @@ func (s *TaskService) buildCSCloudPayload(ctx context.Context, task db.MulticaAg
 			if codeTokens.GithubToken != "" {
 				env["CS_CLOUD_GITHUB_TOKEN"] = codeTokens.GithubToken
 			}
-			// First code repo's provider drives cs-cloud's submit routing.
-			env["CS_CLOUD_CODE_PROVIDER"] = repos[0].Provider
-			prompt = appendCodeRepoPrompt(prompt, repos)
-		} else if phase != "critic" {
-			// No code repo configured and this is not a review-only task —
-			// work in the current working directory unless the task explicitly
-			// requires a specific repository.
+			if phase == "worker" {
+				// Worker submits code MRs — first repo's provider drives
+				// cs-cloud's submit routing, and the Code Repositories prompt
+				// advertises the edit + submit path.
+				env["CS_CLOUD_CODE_PROVIDER"] = repos[0].Provider
+				prompt = appendCodeRepoPrompt(prompt, repos)
+			} else {
+				// Critic: read-only review. No CS_CLOUD_CODE_PROVIDER (a critic
+				// must not submit) and a review prompt that forbids edits.
+				prompt = appendCriticCodeRepoPrompt(prompt, repos)
+			}
+		} else if phase == "worker" {
+			// No code repo configured — work in the current working directory
+			// unless the task explicitly requires a specific repository.
 			prompt = appendWorkingDirectoryPrompt(prompt)
 		}
-		// Append the Gitea wf delivery repo (inst base branch + bot PAT) when
-		// the workspace has been provisioned. The agent checks it out via
-		// `cs-cloud repo checkout <url>` (Task 7's prompt) and uses it for
-		// document deliverables. Separate from code repos — has its own alias
-		// ("delivery") so appendCodeRepoPrompt's listing is unaffected.
 	}
+	// Append the Gitea wf delivery repo (inst base branch + bot PAT) when the
+	// workspace has been provisioned. Applies to any phase that submits document
+	// deliverables (worker, split); separate from code repos — has its own alias
+	// ("delivery") so it never implies code-edit access.
 	if requiresGiteaEnv {
 		if dr, ok := s.resolveDeliveryRepo(ctx, runtime.WorkspaceID); ok {
 			repos = append(repos, dr)
@@ -515,9 +571,10 @@ func (s *TaskService) resolveCodeRepoAndProject(ctx context.Context, task db.Mul
 						URL string `json:"url"`
 					}
 					if json.Unmarshal(row.ResourceRef, &ref) == nil && strings.TrimSpace(ref.URL) != "" {
+						normalized := normalizeCodeRepoURL(ref.URL)
 						repos = append(repos, csCloudRepoSpec{
-							URL:      strings.TrimSpace(ref.URL),
-							Provider: codeRepoProvider(ref.URL),
+							URL:      normalized,
+							Provider: codeRepoProvider(normalized),
 							Role:     "code",
 						})
 					}
@@ -545,9 +602,10 @@ func (s *TaskService) resolveCodeRepoAndProject(ctx context.Context, task db.Mul
 			if json.Unmarshal(ws.Repos, &wsRepos) == nil {
 				for _, r := range wsRepos {
 					if u := strings.TrimSpace(r.URL); u != "" {
+						normalized := normalizeCodeRepoURL(u)
 						repos = append(repos, csCloudRepoSpec{
-							URL:      u,
-							Provider: codeRepoProvider(u),
+							URL:      normalized,
+							Provider: codeRepoProvider(normalized),
 							Role:     "code",
 						})
 					}
@@ -750,9 +808,9 @@ func (s *TaskService) deliverableSpecsForTask(ctx context.Context, task db.Multi
 }
 
 // appendCodeRepoPrompt tells the worker agent where repo instructions live
-// and instructs it to open MRs/PRs via CLI. The submit command does NOT pass
-// --mr; cs-cloud reads CS_CLOUD_CODE_PROVIDER env to route to the correct
-// platform API.
+// and instructs it to open MRs/PRs via CLI. Code deliverables use the
+// explicit --mr --repo form; cs-cloud reads CS_CLOUD_CODE_PROVIDER env to route
+// to the correct platform API.
 func appendCodeRepoPrompt(prompt string, _ []csCloudRepoSpec) string {
 	var b strings.Builder
 	b.WriteString(prompt)
@@ -763,7 +821,29 @@ func appendCodeRepoPrompt(prompt string, _ []csCloudRepoSpec) string {
 	b.WriteString("Code repositories are available for this task. You are encouraged (but not required) to use them when your work involves source-code changes; skip them if the task does not need code edits.\n")
 	b.WriteString("Repository names, URLs, branches, and purposes are in `.cs-cloud.repos` in your task root. Authentication is in `.cs-cloud.env` and is read by commands automatically. Do not copy tokens into replies, documents, commits, or prompts.\n")
 	b.WriteString("Clone code repositories on demand. Only clone a repository when the current task needs you to inspect or modify it. Do not clone every repository by default.\n")
-	b.WriteString("Use the code repositories listed there for source-code changes. When a deliverable should be delivered as a code MR/PR (rather than a document), after committing in the repository run `cs-cloud workflow deliverable submit --repo <url> --deliverable <id> --title \"<PR title>\"` from the repository directory to open the MR/PR with your chosen title and report it. Use this `--repo` form for code changes; use the `--file` form described under Document Deliverables for document files.\n")
+	b.WriteString("Use the code repositories listed there for source-code changes. When a deliverable should be delivered as a code MR/PR (rather than a document), after committing in the repository run `cs-cloud workflow deliverable submit --deliverable <id> --mr --repo <url> --title \"<PR title>\"` from the repository directory to open the MR/PR with your chosen title and report it. Use this `--mr --repo` form for code changes; use the `--file` form described under Deliverables for document files.\n")
+	b.WriteString("\n---\n\n")
+	return b.String()
+}
+
+// appendCriticCodeRepoPrompt surfaces code repositories to a critic phase as
+// read-only review material. The critic may clone or fetch these repos to
+// inspect the worker's code-MR/PR deliverables, but must not modify, commit,
+// push, or submit anything. Unlike the worker's Code Repositories section this
+// never advertises the submit path, and the caller must NOT set
+// CS_CLOUD_CODE_PROVIDER for a critic (that env drives cs-cloud's submit
+// routing). Repos are listed in `.cs-cloud.repos`, so the prompt does not
+// repeat them.
+func appendCriticCodeRepoPrompt(prompt string, _ []csCloudRepoSpec) string {
+	var b strings.Builder
+	b.WriteString(prompt)
+	if prompt != "" && !strings.HasSuffix(prompt, "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n---\n## Code Repositories (Read-Only Review)\n\n")
+	b.WriteString("These code repositories are available for review only. The worker may have opened MR/PR deliverables against them; clone or fetch a repository on demand to inspect the diff when a deliverable you are reviewing is a code MR/PR.\n")
+	b.WriteString("Repository names, URLs, branches, and purposes are in `.cs-cloud.repos` in your task root. Authentication is in `.cs-cloud.env` and is read by commands automatically. Do not copy tokens into replies, documents, commits, or prompts.\n")
+	b.WriteString("You are reviewing, not implementing. Do NOT modify, commit, push, or open MR/PRs against these repositories. Do NOT run `cs-cloud workflow deliverable submit`. Record your decision with `cs-cloud workflow task approve` or `cs-cloud workflow task reject`.\n")
 	b.WriteString("\n---\n\n")
 	return b.String()
 }
@@ -790,32 +870,29 @@ func appendWorkerTaskPrompt(prompt string) string {
 		b.WriteByte('\n')
 	}
 	b.WriteString("\n---\n## Workflow Worker Task\n\n")
-	b.WriteString("You are the worker for this workflow node. Complete the assigned work. If code repositories or document deliverables are configured for this task, you are encouraged to develop in the repositories and submit your output as deliverables — this is recommended, but not required to finish.\n")
+	b.WriteString("You are the worker for this workflow node. Complete the assigned work. If code repositories are configured, use them when the task needs source-code changes. Required deliverables must be submitted before finishing; optional deliverables may be submitted when they are useful for the task.\n")
 	b.WriteString("Do NOT perform critic review. Do NOT approve or reject the work. If the issue text mentions a critic/reviewer, treat that as context for the later review phase, not your current task.\n")
 	b.WriteString("Repository instructions are in `.cs-cloud.repos`. Task context and credentials are in `.cs-cloud.env`; commands read them automatically. Do not copy tokens into replies, documents, commits, or prompts.\n")
 	b.WriteString("\n### Finishing\n\n")
-	b.WriteString("When your work is complete, you MUST signal it explicitly by running `cs-cloud workflow task complete --summary \"<one-line summary of what you delivered>\"` as your LAST action. The task does NOT complete when you stop working — until you call this command, the task stays open, idle is treated as incomplete, and it will eventually time out and fail.\n")
+	b.WriteString("Submit every deliverable you produced BEFORE finishing — `cs-cloud workflow task complete` must come AFTER your deliverable submissions, as your final action. Then run `cs-cloud workflow task complete --summary \"<one-line summary of what you delivered>\"` to signal completion. The task does NOT complete when you stop working — until you call this command, the task stays open, idle is treated as incomplete, and it will eventually time out and fail.\n")
 	b.WriteString("\n---\n\n")
 	return b.String()
 }
 
-// appendDeliverablePrompt adds a "Document Deliverables" section that lists each
-// required deliverable (id / title / target path) inline, so the agent knows
-// exactly what to produce and where. The delivery repository and its node/inst
-// branch live in `.cs-cloud.repos`; the per-deliverable targets are listed here
-// (they are NOT in `.cs-cloud.repos`). The agent finalizes each via
-// `cs-cloud workflow deliverable submit`, which pushes the node branch, opens
-// the node->inst review PR, and registers the review URL back here.
+// appendDeliverablePrompt adds a "Deliverables" section that lists each
+// deliverable (id / title / document target path) inline. The path is only for
+// --file submissions; code MR/PR deliverables use the --mr --repo form
+// described in the code repository section.
 func appendDeliverablePrompt(prompt string, refs []repositoryDeliverableRefJSON) string {
 	var b strings.Builder
 	b.WriteString(prompt)
 	if prompt != "" && !strings.HasSuffix(prompt, "\n") {
 		b.WriteByte('\n')
 	}
-	b.WriteString("\n---\n## Document Deliverables\n\n")
+	b.WriteString("\n---\n## Deliverables\n\n")
 	b.WriteString("The delivery repository and its node/inst branch are in `.cs-cloud.repos`; authentication is in `.cs-cloud.env` and is read by commands automatically. Do not copy tokens into replies, documents, commits, or prompts.\n")
-	b.WriteString("Before submitting, check out the delivery repository listed in `.cs-cloud.repos` (use whichever method you prefer — credentials are read automatically from `.cs-cloud.env`) and `cd` into it. Develop on the node/inst branch listed for that repository in `.cs-cloud.repos`; that is the branch your submission must land on. Do not print or copy credentialed URLs.\n")
-	b.WriteString("\nYou are encouraged (but not required) to produce and submit each deliverable below — writing it to a local file at the given target path, then running `cs-cloud workflow deliverable submit --deliverable <id> --file <path> --title \"<PR title>\"` from inside the delivery repository, choosing a meaningful PR title yourself. This is the recommended way to deliver, but it is not mandatory to finish the task:\n\n")
+	b.WriteString("Before submitting, check out the delivery repository listed in `.cs-cloud.repos` and `cd` into it. Use the clone/update instructions in `.cs-cloud.repos`; if `.cs-cloud.repos` does not contain executable clone/update instructions for the delivery repository, stop and report the missing instructions instead of guessing. Develop on the node branch listed for that repository in `.cs-cloud.repos`; that is the branch your submission must land on. Do not print or copy credentialed URLs.\n")
+	b.WriteString("\nRequired deliverables must be produced and submitted before `cs-cloud workflow task complete`. Optional deliverables may be skipped only when they are not needed for this task. For document/file deliverables, write the file at the document target path, then run `cs-cloud workflow deliverable submit --deliverable <id> --file <path> --title \"<PR title>\"` from inside the delivery repository. For code MR/PR deliverables, use the `--mr --repo` form described under Code Repositories. Choose a meaningful PR title yourself:\n\n")
 	if len(refs) == 0 {
 		b.WriteString("- (no deliverables were resolved — if you believe this is wrong, stop and report it rather than guessing)\n")
 	} else {
@@ -828,10 +905,49 @@ func appendDeliverablePrompt(prompt string, refs []repositoryDeliverableRefJSON)
 			if path == "" {
 				path = "(unspecified — place it in the delivery repository root)"
 			}
-			fmt.Fprintf(&b, "- `%s` — %s — target path: `%s`\n", r.ID, title, path)
+			requirement := "optional"
+			if r.Required {
+				requirement = "required"
+			}
+			fmt.Fprintf(&b, "- [%s] `%s` — %s — document target path: `%s`\n", requirement, r.ID, title, path)
 		}
 	}
-	b.WriteString("\nUse `--file` for these document deliverables; use `--repo` for code MR/PR deliverables described under Code Repositories. A deliverable is not considered submitted until its PR is registered.\n")
+	b.WriteString("\nA deliverable is not considered submitted until its PR/MR is registered back to Multica.\n")
+	b.WriteString("\n---\n\n")
+	return b.String()
+}
+
+// appendSubmittedDeliverablesPrompt lists the worker's submitted deliverable
+// PR URLs so the critic can find and review them without guessing.
+func appendSubmittedDeliverablesPrompt(prompt string, subs []db.MulticaWorkflowNodeDeliverableSubmission) string {
+	anyURL := false
+	for _, s := range subs {
+		if strings.TrimSpace(s.PullRequestUrl) != "" {
+			anyURL = true
+			break
+		}
+	}
+	if !anyURL {
+		return prompt
+	}
+	var b strings.Builder
+	b.WriteString(prompt)
+	if prompt != "" && !strings.HasSuffix(prompt, "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n---\n## Submitted Deliverables\n\n")
+	b.WriteString("The worker submitted these deliverables. Inspect each before approving or rejecting:\n\n")
+	for _, s := range subs {
+		url := strings.TrimSpace(s.PullRequestUrl)
+		if url == "" {
+			continue
+		}
+		title := strings.TrimSpace(s.PullRequestTitle)
+		if title == "" {
+			title = "deliverable"
+		}
+		fmt.Fprintf(&b, "- %s — %s\n", title, url)
+	}
 	b.WriteString("\n---\n\n")
 	return b.String()
 }
@@ -921,7 +1037,7 @@ func prependTaskContextPrompt(prompt, nodeTitle, workflowTitle, instructions str
 		default:
 			fmt.Fprintf(&b, "You are working in workflow %q.\n", workflowTitle)
 		}
-		b.WriteString("Complete this node's assigned work, then signal completion as described later in this prompt. Deliverables (if any) are encouraged but not required.\n")
+		b.WriteString("Complete this node's assigned work, then signal completion as described later in this prompt. Required deliverables (if any) must be submitted before completion; optional deliverables may be skipped only when they are not needed for this task.\n")
 	}
 	if hasSetup {
 		b.WriteString("\n## Your Setup\n\n")
@@ -971,9 +1087,10 @@ func isDeliverableProducerPhase(phase string) bool {
 // repositoryDeliverableRefJSON is the per-deliverable shape cs-cloud's
 // `repo submit` reads from CS_CLOUD_GITEA_DELIVERABLES.
 type repositoryDeliverableRefJSON struct {
-	ID    string `json:"deliverable_id"`
-	Title string `json:"title"`
-	Path  string `json:"path"`
+	ID       string `json:"deliverable_id"`
+	Title    string `json:"title"`
+	Path     string `json:"path"`
+	Required bool   `json:"required"`
 }
 
 type giteaDeliverableRefJSON = repositoryDeliverableRefJSON
@@ -1010,9 +1127,10 @@ func (s *TaskService) repositoryDeliverableEnv(ctx context.Context, task db.Mult
 	refs := []repositoryDeliverableRefJSON{}
 	for _, d := range deliverables {
 		refs = append(refs, giteaDeliverableRefJSON{
-			ID:    util.UUIDToString(d.ID),
-			Title: d.Title,
-			Path:  gitea.DeliverablePath(nodeSeq, nr.NodeTitle, nodeRunIDStr, d.Title),
+			ID:       util.UUIDToString(d.ID),
+			Title:    d.Title,
+			Path:     gitea.DeliverablePath(nodeSeq, nr.NodeTitle, nodeRunIDStr, d.Title),
+			Required: d.Required,
 		})
 	}
 	refsJSON, _ := json.Marshal(refs)

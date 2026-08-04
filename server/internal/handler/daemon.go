@@ -2016,6 +2016,25 @@ func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 	result, _ := json.Marshal(req)
 	task, err := h.TaskService.CompleteTask(r.Context(), parseUUID(taskID), result, req.SessionID, req.WorkDir)
 	if err != nil {
+		if currentTask.WorkflowNodeRunID.Valid && errors.Is(err, service.ErrRequiredDeliverablesMissing) {
+			failedTask, failErr := h.TaskService.FailTask(
+				r.Context(),
+				parseUUID(taskID),
+				err.Error(),
+				req.SessionID,
+				req.WorkDir,
+				"missing_required_deliverable",
+			)
+			if failErr != nil {
+				slog.Warn("fail missing-deliverable workflow task", "task_id", taskID, "error", failErr)
+			} else {
+				slog.Warn("workflow task completed without required deliverables",
+					"task_id", taskID,
+					"agent_id", uuidToString(failedTask.AgentID),
+					"failure_reason", "missing_required_deliverable",
+				)
+			}
+		}
 		slog.Warn("complete task failed", "task_id", taskID, "error", err)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -298,6 +299,99 @@ func TestCompleteTask_EmptyWorkflowOutputFailsTaskAndNodeRun(t *testing.T) {
 	}
 	if runStatus != "failed" {
 		t.Fatalf("workflow run status = %q, want failed", runStatus)
+	}
+}
+
+func TestCompleteTask_MissingRequiredDeliverableFailsTaskAndNodeRun(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+	f := createWorkflowRerunFixture(t, ctx, "missing-required-deliverable")
+
+	var deliverableID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_workflow_node_deliverable (
+			workflow_node_id, title, description, required, sort_order
+		)
+		VALUES ($1, 'Code MR', 'open a pull request', TRUE, 0)
+		RETURNING id
+	`, f.nodeID).Scan(&deliverableID); err != nil {
+		t.Fatalf("create deliverable definition: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO multica_workflow_node_run_deliverable (
+			workflow_node_run_id, source_deliverable_id, title, description, required, sort_order
+		)
+		VALUES ($1, $2, 'Code MR', 'open a pull request', TRUE, 0)
+	`, f.nodeRunID, deliverableID); err != nil {
+		t.Fatalf("create deliverable requirement: %v", err)
+	}
+
+	taskContext, err := json.Marshal(map[string]any{
+		"type":             "workflow",
+		"workflow_id":      f.workflowID,
+		"workflow_run_id":  f.runID,
+		"workflow_node_id": f.nodeID,
+		"node_run_id":      f.nodeRunID,
+		"phase":            "worker",
+	})
+	if err != nil {
+		t.Fatalf("marshal task context: %v", err)
+	}
+
+	var taskID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO multica_agent_task_queue (
+			agent_id, runtime_id, issue_id, status, priority,
+			workflow_node_run_id, context, started_at, attempt, max_attempts
+		)
+		VALUES ($1, $2, $3, 'running', 0, $4, $5, now(), 1, 1)
+		RETURNING id
+	`, f.agentID, f.runtimeID, f.issueID, f.nodeRunID, taskContext).Scan(&taskID); err != nil {
+		t.Fatalf("create running workflow task: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	req := newDaemonTokenRequest(
+		http.MethodPost,
+		"/api/daemon/tasks/"+taskID+"/complete",
+		TaskCompleteRequest{Output: "opened an MR but did not submit it", SessionID: "missing-deliverable-session"},
+		testWorkspaceID,
+		"device-missing-deliverable",
+	)
+	req = withURLParam(req, "taskId", taskID)
+	testHandler.CompleteTask(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("CompleteTask: expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var taskStatus, failureReason, taskError string
+	if err := testPool.QueryRow(ctx, `
+		SELECT status, COALESCE(failure_reason, ''), COALESCE(error, '')
+		FROM multica_agent_task_queue
+		WHERE id = $1
+	`, taskID).Scan(&taskStatus, &failureReason, &taskError); err != nil {
+		t.Fatalf("load task: %v", err)
+	}
+	if taskStatus != "failed" {
+		t.Fatalf("task status = %q, want failed", taskStatus)
+	}
+	if failureReason != "missing_required_deliverable" {
+		t.Fatalf("failure reason = %q, want missing_required_deliverable", failureReason)
+	}
+	if !strings.Contains(taskError, "all required deliverables must be submitted") {
+		t.Fatalf("task error = %q, want missing required deliverables message", taskError)
+	}
+
+	var nodeRunStatus string
+	if err := testPool.QueryRow(ctx, `
+		SELECT status FROM multica_workflow_node_run WHERE id = $1
+	`, f.nodeRunID).Scan(&nodeRunStatus); err != nil {
+		t.Fatalf("load node run: %v", err)
+	}
+	if nodeRunStatus != "failed" {
+		t.Fatalf("node run status = %q, want failed", nodeRunStatus)
 	}
 }
 

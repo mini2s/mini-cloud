@@ -155,6 +155,14 @@ UPDATE multica_workflow_node_run SET
 WHERE id = $1
 RETURNING *;
 
+-- name: ClearWorkflowNodeRunSession :exec
+UPDATE multica_workflow_node_run SET
+    runtime_id = NULL,
+    device_id = NULL,
+    session_id = NULL,
+    updated_at = now()
+WHERE id = $1;
+
 -- name: UpdateWorkflowNodeRunAgentTask :one
 UPDATE multica_workflow_node_run SET
     agent_task_id = $2,

@@ -605,3 +605,102 @@ func TestSyncDirectIssueCancelledDoesNotOverride(t *testing.T) {
 		t.Fatalf("expected no issue:updated event, got %d", len(matches))
 	}
 }
+
+// TestCreateAgentDefinedDeliverable: when the workflow node has no
+// pre-registered deliverables, an agent can define one itself. POSTing a title
+// creates a run-scoped deliverable (required=false) and returns its id, which
+// the cs-cloud CLI then submits against.
+func TestCreateAgentDefinedDeliverable(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	fx := newWorkflowSyncFixture(t, "todo", false)
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/node-runs/"+uuidToString(fx.nodeRun.ID)+"/deliverables",
+		map[string]any{"title": "军棋游戏-方案设计"})
+	req = withURLParam(req, "nodeRunId", uuidToString(fx.nodeRun.ID))
+	testHandler.CreateAgentDefinedDeliverable(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateAgentDefinedDeliverable: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp AgentDefinedDeliverableResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.ID == "" || resp.Title != "军棋游戏-方案设计" {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+	if resp.Required {
+		t.Fatalf("agent-defined deliverable must be required=false, got true")
+	}
+
+	var count int
+	if err := testPool.QueryRow(context.Background(),
+		`SELECT count(*) FROM multica_workflow_node_run_deliverable WHERE workflow_node_run_id = $1 AND title = '军棋游戏-方案设计' AND required = false`,
+		fx.nodeRun.ID).Scan(&count); err != nil {
+		t.Fatalf("count run deliverables: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 agent-defined run-deliverable, got %d", count)
+	}
+}
+
+// TestCreateAgentDefinedDeliverable_Idempotent verifies that re-submitting the
+// same title on the same node run returns the same deliverable id (L2 fix:
+// deterministic UUIDv5 instead of random). No duplicate rows.
+func TestCreateAgentDefinedDeliverable_Idempotent(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	fx := newWorkflowSyncFixture(t, "todo", false)
+	nrURL := "/api/node-runs/" + uuidToString(fx.nodeRun.ID) + "/deliverables"
+
+	// First create.
+	w1 := httptest.NewRecorder()
+	req1 := withURLParam(newRequest("POST", nrURL, map[string]any{"title": "设计文档"}), "nodeRunId", uuidToString(fx.nodeRun.ID))
+	testHandler.CreateAgentDefinedDeliverable(w1, req1)
+	if w1.Code != http.StatusCreated {
+		t.Fatalf("first create: %d %s", w1.Code, w1.Body.String())
+	}
+	var resp1 AgentDefinedDeliverableResponse
+	json.NewDecoder(w1.Body).Decode(&resp1)
+
+	// Second create with the SAME title → same id (idempotent).
+	w2 := httptest.NewRecorder()
+	req2 := withURLParam(newRequest("POST", nrURL, map[string]any{"title": "设计文档"}), "nodeRunId", uuidToString(fx.nodeRun.ID))
+	testHandler.CreateAgentDefinedDeliverable(w2, req2)
+	if w2.Code != http.StatusCreated {
+		t.Fatalf("second create: %d %s", w2.Code, w2.Body.String())
+	}
+	var resp2 AgentDefinedDeliverableResponse
+	json.NewDecoder(w2.Body).Decode(&resp2)
+
+	if resp1.ID != resp2.ID {
+		t.Fatalf("same title should map to same deliverable id (idempotent): %s vs %s", resp1.ID, resp2.ID)
+	}
+
+	var count int
+	if err := testPool.QueryRow(context.Background(),
+		`SELECT count(*) FROM multica_workflow_node_run_deliverable WHERE workflow_node_run_id = $1 AND title = '设计文档'`,
+		fx.nodeRun.ID).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 row (idempotent), got %d", count)
+	}
+
+	// Different title → different id (not over-deduplicating).
+	w3 := httptest.NewRecorder()
+	req3 := withURLParam(newRequest("POST", nrURL, map[string]any{"title": "API 文档"}), "nodeRunId", uuidToString(fx.nodeRun.ID))
+	testHandler.CreateAgentDefinedDeliverable(w3, req3)
+	if w3.Code != http.StatusCreated {
+		t.Fatalf("third create: %d %s", w3.Code, w3.Body.String())
+	}
+	var resp3 AgentDefinedDeliverableResponse
+	json.NewDecoder(w3.Body).Decode(&resp3)
+	if resp3.ID == resp1.ID {
+		t.Fatalf("different title should produce different id")
+	}
+}

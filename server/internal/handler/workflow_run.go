@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/service"
@@ -1207,6 +1210,22 @@ type SubmitDeliverableRequest struct {
 	PullRequestURL string  `json:"pull_request_url"`
 }
 
+// CreateAgentDefinedDeliverableRequest creates a run-scoped deliverable the
+// agent defined itself (no pre-registered node deliverable). The returned id is
+// then used with the standard submit endpoint — the cs-cloud CLI chains the two
+// behind one command, so the agent still perceives a single step.
+type CreateAgentDefinedDeliverableRequest struct {
+	Title string `json:"title"`
+}
+
+// AgentDefinedDeliverableResponse is the create result: the id the agent submits
+// against next.
+type AgentDefinedDeliverableResponse struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Required bool   `json:"required"`
+}
+
 type ReviewDeliverableRequest struct {
 	Status  string `json:"status"` // "approved" | "rejected"
 	Comment string `json:"review_comment"`
@@ -1296,6 +1315,68 @@ func (h *Handler) ListNodeRunDeliverableSubmissions(w http.ResponseWriter, r *ht
 	writeJSON(w, http.StatusOK, out)
 }
 
+// agentDefinedDeliverableNamespace is the fixed UUIDv5 namespace for deriving
+// deterministic source_deliverable_ids from (node_run_id, title) so that
+// re-submitting the same agent-defined deliverable is idempotent (ON CONFLICT
+// updates the existing row instead of creating a duplicate).
+var agentDefinedDeliverableNamespace = uuid.MustParse("a3f5c8e1-7b2d-4f6a-9e8c-1d3b5a7c9e0f")
+
+// CreateAgentDefinedDeliverable creates a run-scoped deliverable that the
+// agent defined itself, when the workflow node has no pre-registered
+// deliverable. Returns the new deliverable's id so the cs-cloud CLI can submit
+// against it via the standard submit endpoint right after. The CLI chains
+// create→submit behind one command, so the agent perceives a single step.
+// POST /api/node-runs/{nodeRunId}/deliverables  {title}
+func (h *Handler) CreateAgentDefinedDeliverable(w http.ResponseWriter, r *http.Request) {
+	nodeRunID := chi.URLParam(r, "nodeRunId")
+	nrUUID, ok := parseUUIDOrBadRequest(w, nodeRunID, "nodeRunId")
+	if !ok {
+		return
+	}
+	if !h.requireAgentTaskForNodeRun(w, r, nrUUID) {
+		return
+	}
+
+	var req CreateAgentDefinedDeliverableRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		writeError(w, http.StatusBadRequest, "title is required")
+		return
+	}
+
+	// Deterministic source id: uuid_v5(namespace, node_run_id + title) so
+	// re-submitting the same title on the same node run is idempotent (ON
+	// CONFLICT updates the existing row) instead of creating duplicates.
+	sourceData := make([]byte, 0, 16+len(title))
+	sourceData = append(sourceData, nrUUID.Bytes[:]...)
+	sourceData = append(sourceData, title...)
+	sourceID := uuid.NewSHA1(agentDefinedDeliverableNamespace, sourceData)
+	requirement, err := h.Queries.CreateNodeRunDeliverableRequirement(r.Context(), db.CreateNodeRunDeliverableRequirementParams{
+		WorkflowNodeRunID:   nrUUID,
+		SourceDeliverableID: pgtype.UUID{Bytes: sourceID, Valid: true},
+		Title:               title,
+		Description:         "",
+		Required:            false,
+		SortOrder:           10000,
+		Purpose:             pgtype.Text{String: "general", Valid: true},
+	})
+	if err != nil {
+		slog.Warn("failed to create agent-defined deliverable", "node_run_id", uuidToString(nrUUID), "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to create deliverable")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, AgentDefinedDeliverableResponse{
+		ID:       uuidToString(requirement.ID),
+		Title:    requirement.Title,
+		Required: requirement.Required,
+	})
+}
+
 // SubmitNodeRunDeliverable POST /api/node-runs/{nodeRunId}/deliverables/{deliverableId}/submit
 func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Request) {
 	nodeRunID := chi.URLParam(r, "nodeRunId")
@@ -1333,6 +1414,9 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
+	if !h.requireAgentTaskForNodeRun(w, r, nrUUID) {
+		return
+	}
 	submittedByType := actorType
 	submittedByID := parseUUID(actorID)
 	requirement, requirementErr := h.Queries.GetNodeRunDeliverableRequirementForSubmission(r.Context(), db.GetNodeRunDeliverableRequirementForSubmissionParams{
@@ -1396,6 +1480,29 @@ func (h *Handler) SubmitNodeRunDeliverable(w http.ResponseWriter, r *http.Reques
 	// at submit time.
 
 	writeJSON(w, http.StatusOK, workflowNodeDeliverableSubmissionToResponse(submission))
+}
+
+func (h *Handler) requireAgentTaskForNodeRun(w http.ResponseWriter, r *http.Request, nodeRunID pgtype.UUID) bool {
+	agentID := strings.TrimSpace(r.Header.Get("X-Agent-ID"))
+	if agentID == "" {
+		return true
+	}
+	taskUUID, err := util.ParseUUID(r.Header.Get("X-Task-ID"))
+	if err != nil {
+		writeError(w, http.StatusForbidden, "X-Task-ID is required")
+		return false
+	}
+	agentUUID, err := util.ParseUUID(agentID)
+	if err != nil {
+		writeError(w, http.StatusForbidden, "invalid X-Agent-ID")
+		return false
+	}
+	task, err := h.Queries.GetAgentTask(r.Context(), taskUUID)
+	if err != nil || task.AgentID != agentUUID || task.WorkflowNodeRunID != nodeRunID || task.Status != "running" {
+		writeError(w, http.StatusForbidden, "agent task is not running for this node run")
+		return false
+	}
+	return true
 }
 
 // ReviewNodeRunDeliverable POST /api/node-runs/{nodeRunId}/deliverables/{submissionId}/review
