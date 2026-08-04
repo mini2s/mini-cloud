@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { runtimeListOptions } from "@multica/core/runtimes/queries";
 import { agentListOptions, squadListOptions } from "@multica/core/workspace/queries";
+import { useActorName } from "@multica/core/workspace/hooks";
 import { workflowActiveListOptions } from "@multica/core/workflows/queries";
 import type { IssueAssigneeType, WorkflowRuntimeSelectionPolicy } from "@multica/core/types";
 import {
@@ -39,6 +40,7 @@ export function useRuntimeStartDialogs(wsId: string) {
   const { data: squads = [] } = useQuery(squadListOptions(wsId));
   const { data: workflows = [] } = useQuery(workflowActiveListOptions(wsId));
   const usableWorkflowRuntimes = useUsableWorkflowRuntimes(runtimes);
+  const { getMemberName } = useActorName();
   const [pending, setPending] = useState<PendingStart | null>(null);
 
   // maybeSelectRuntimeThen runs the start: if the assignee needs a runtime
@@ -108,6 +110,7 @@ export function useRuntimeStartDialogs(wsId: string) {
           runtimes={usableWorkflowRuntimes.runtimes}
           loading={runtimesLoading || usableWorkflowRuntimes.isLoading}
           directRun
+          getMemberName={getMemberName}
           onClose={() => setPending(null)}
           onConfirm={(value: WorkflowRuntimeStrategyValue) => {
             pending.commit({
