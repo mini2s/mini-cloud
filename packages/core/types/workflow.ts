@@ -563,6 +563,8 @@ export interface WorkflowNodeTaskSummary {
   completed_at: string | null;
   failure_reason: string;
   error: string;
+  session_id: string;
+  work_dir: string;
 }
 
 export interface WorkflowNodeDiagnostics {

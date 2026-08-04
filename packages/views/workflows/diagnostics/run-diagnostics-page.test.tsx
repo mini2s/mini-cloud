@@ -3,7 +3,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactNode } from "react";
-import { WorkflowRunDiagnosticsPage, nodeStepStates } from "./run-diagnostics-page";
+import { WorkflowRunDiagnosticsPage, nodeStepStates, sessionLogPath } from "./run-diagnostics-page";
 
 const mocks = vi.hoisted(() => ({
   data: null as unknown,
@@ -93,6 +93,10 @@ const translations = {
       deliverables: "Deliverables: {{submitted}}/{{total}} submitted, {{approved}} approved",
       worker_output: "Worker output",
       critic_output: "Critic output",
+      work_dir: "Working directory",
+      session_log: "Conversation log",
+      copy_path: "Copy path",
+      copied: "Copied",
       hint: {
         stage: {
           pending: "Waiting for upstream nodes to complete",
@@ -381,6 +385,95 @@ describe("WorkflowRunDiagnosticsPage", () => {
     expect(screen.getByText("Critic output")).toBeInTheDocument();
     expect(screen.getByText(/"verdict": "approved"/)).toBeInTheDocument();
   });
+
+  it("shows the work dir and derived session log path, each with a copy button", () => {
+    const writeText = vi.fn();
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    mocks.data = baseData(
+      [{ id: "nr-1", node_title: "Design", status: "completed" }],
+      [
+        summary({
+          display_status: "completed",
+          diagnostics: {
+            lifecycle_stage: "terminal",
+            hint: "hint.stage.terminal",
+            current_task: {
+              task_id: "task-1",
+              status: "completed",
+              phase: "worker",
+              attempt: 1,
+              max_attempts: 3,
+              dispatched_at: null,
+              started_at: null,
+              completed_at: null,
+              failure_reason: "",
+              error: "",
+              session_id: "sess-abc",
+              work_dir: "/home/dev/work space",
+            },
+          },
+        }),
+      ],
+    );
+    render(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
+    fireEvent.click(screen.getByText("Design"));
+    expect(screen.getByText("/home/dev/work space")).toBeInTheDocument();
+    expect(
+      screen.getByText("~/.costrict/projects/-home-dev-work-space/sess-abc.jsonl"),
+    ).toBeInTheDocument();
+
+    const copyButtons = screen.getAllByTitle("Copy path");
+    expect(copyButtons).toHaveLength(2);
+    fireEvent.click(copyButtons[0]!);
+    expect(writeText).toHaveBeenCalledWith("/home/dev/work space");
+    fireEvent.click(copyButtons[1]!);
+    expect(writeText).toHaveBeenCalledWith("~/.costrict/projects/-home-dev-work-space/sess-abc.jsonl");
+  });
+
+  it("omits the session log row when the task has no session id", () => {
+    mocks.data = baseData(
+      [{ id: "nr-1", node_title: "Design", status: "completed" }],
+      [
+        summary({
+          display_status: "completed",
+          diagnostics: {
+            lifecycle_stage: "terminal",
+            hint: "hint.stage.terminal",
+            current_task: {
+              task_id: "task-1",
+              status: "completed",
+              phase: "worker",
+              attempt: 1,
+              max_attempts: 3,
+              dispatched_at: null,
+              started_at: null,
+              completed_at: null,
+              failure_reason: "",
+              error: "",
+              session_id: "",
+              work_dir: "/home/dev/work",
+            },
+          },
+        }),
+      ],
+    );
+    render(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
+    fireEvent.click(screen.getByText("Design"));
+    expect(screen.getByText("/home/dev/work")).toBeInTheDocument();
+    expect(screen.queryByText(/\.jsonl/)).not.toBeInTheDocument();
+  });
+});
+
+describe("sessionLogPath", () => {
+  it("derives the Claude Code projects path from work dir and session id", () => {
+    expect(sessionLogPath("/Users/dev/repo", "abc-123")).toBe(
+      "~/.costrict/projects/-Users-dev-repo/abc-123.jsonl",
+    );
+  });
+
+  it("sanitizes every non-alphanumeric character", () => {
+    expect(sessionLogPath("/tmp/a b/c_d.e", "s")).toBe("~/.costrict/projects/-tmp-a-b-c-d-e/s.jsonl");
+  });
 });
 
 describe("nodeStepStates", () => {
@@ -395,6 +488,8 @@ describe("nodeStepStates", () => {
     completed_at: null,
     failure_reason: "",
     error: "",
+    session_id: "",
+    work_dir: "",
     ...overrides,
   });
 

@@ -132,6 +132,8 @@ type NodeTaskSummary struct {
 	CompletedAt   *string `json:"completed_at,omitempty"`
 	FailureReason string  `json:"failure_reason,omitempty"`
 	Error         string  `json:"error,omitempty"`
+	SessionID     string  `json:"session_id,omitempty"`
+	WorkDir       string  `json:"work_dir,omitempty"`
 }
 
 // NodeDiagnostics explains where a node run is in its dispatch lifecycle.
@@ -357,12 +359,14 @@ func (h *Handler) workflowRunNodeTaskSummaries(ctx context.Context, runID pgtype
 			task.started_at,
 			task.completed_at,
 			COALESCE(task.failure_reason, ''),
-			COALESCE(task.error, '')
+			COALESCE(task.error, ''),
+			COALESCE(task.session_id, ''),
+			COALESCE(task.work_dir, '')
 		FROM multica_workflow_node_run node_run
 		JOIN LATERAL (
 			SELECT t.id, t.status, t.context, t.attempt, t.max_attempts,
 				t.dispatched_at, t.started_at, t.completed_at,
-				t.failure_reason, t.error
+				t.failure_reason, t.error, t.session_id, t.work_dir
 			FROM multica_agent_task_queue t
 			WHERE t.workflow_node_run_id = node_run.id
 			ORDER BY t.created_at DESC, t.id DESC
@@ -386,6 +390,7 @@ func (h *Handler) workflowRunNodeTaskSummaries(ctx context.Context, runID pgtype
 			&task.Attempt, &task.MaxAttempts,
 			&dispatchedAt, &startedAt, &completedAt,
 			&task.FailureReason, &task.Error,
+			&task.SessionID, &task.WorkDir,
 		); err != nil {
 			return nil, err
 		}

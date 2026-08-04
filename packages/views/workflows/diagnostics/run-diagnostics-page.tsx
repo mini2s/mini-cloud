@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, ChevronDown, ChevronRight, Circle, LoaderCircle, Monitor, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Circle, Copy, LoaderCircle, Monitor, X } from "lucide-react";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { isEmbeddedInCostrict, postCostrictNavigateToSession } from "@multica/core/platform";
 import { workflowRunCanvasSummaryOptions } from "@multica/core/workflows/queries";
@@ -172,6 +172,44 @@ function outputText(value: unknown): string {
   }
 }
 
+// CoStrict/Claude Code stores session transcripts under
+// <configHome>/projects/<sanitized cwd>/<sessionId>.jsonl, where sanitize
+// replaces every non-alphanumeric character with "-". The config home can be
+// overridden by env vars on the runtime host, so this is best-effort — it
+// matches the default (~/.costrict, legacy ~/.claude) layout.
+export function sessionLogPath(workDir: string, sessionId: string): string {
+  const sanitized = workDir.replace(/[^a-zA-Z0-9]/g, "-");
+  return `~/.costrict/projects/${sanitized}/${sessionId}.jsonl`;
+}
+
+function CopyablePath({ label, path, t }: { label: string; path: string; t: Translator }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      <span className="shrink-0">{label}:</span>
+      <code className="min-w-0 flex-1 truncate rounded bg-muted/40 px-1.5 py-0.5 font-mono text-[11px]">
+        {path}
+      </code>
+      <button
+        type="button"
+        title={copied ? t(($) => $.run.diagnostics.copied) : t(($) => $.run.diagnostics.copy_path)}
+        className="shrink-0 rounded p-0.5 hover:bg-muted hover:text-foreground transition-colors"
+        onClick={() => {
+          void navigator.clipboard?.writeText(path);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }}
+      >
+        {copied ? (
+          <Check className="size-3 text-emerald-500" />
+        ) : (
+          <Copy className="size-3" />
+        )}
+      </button>
+    </div>
+  );
+}
+
 function NodeDiagnosticsRow({ nodeRun, summary, runtime, t }: NodeDiagnosticsRowProps) {
   const navigation = useNavigation();
   const wsPaths = useWorkspacePaths();
@@ -197,6 +235,8 @@ function NodeDiagnosticsRow({ nodeRun, summary, runtime, t }: NodeDiagnosticsRow
   const deliverablesTotal = summary?.required_deliverables_total ?? 0;
   const workerOutput = outputText(nodeRun.worker_output);
   const criticOutput = outputText(nodeRun.critic_output);
+  const workDir = task?.work_dir?.trim() || "";
+  const logSessionId = task?.session_id?.trim() || sessionId || "";
 
   return (
     <div className="rounded-lg border">
@@ -296,6 +336,19 @@ function NodeDiagnosticsRow({ nodeRun, summary, runtime, t }: NodeDiagnosticsRow
                 approved: summary?.required_deliverables_approved ?? 0,
               })}
             </p>
+          ) : null}
+
+          {workDir ? (
+            <div className="space-y-1">
+              <CopyablePath label={t(($) => $.run.diagnostics.work_dir)} path={workDir} t={t} />
+              {logSessionId ? (
+                <CopyablePath
+                  label={t(($) => $.run.diagnostics.session_log)}
+                  path={sessionLogPath(workDir, logSessionId)}
+                  t={t}
+                />
+              ) : null}
+            </div>
           ) : null}
 
           {workerOutput ? (
