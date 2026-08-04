@@ -1648,7 +1648,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     expect(mocks.selectNode).toHaveBeenLastCalledWith(null);
   });
 
-  it("disables node editing while the latest run is working", () => {
+  it("keeps node editing enabled while the latest run is working", () => {
     mocks.nodesData = [
       { id: "node-1", workflow_id: "wf-1", title: "A", description: "", worker_type: "agent", worker_id: null, critic_type: "human", critic_id: null, critic_api_url: null, stage_id: "stage-1", format_schema: null, position_x: 100, position_y: 0, sort_order: 0, created_at: "", updated_at: "" },
     ];
@@ -1668,7 +1668,7 @@ describe("WorkflowPanoramaPage (new)", () => {
     });
     rerender(<WorkflowPanoramaPage workflowId="wf-1" />);
 
-    expect(screen.getByTestId("node-config-panel")).toHaveAttribute("data-disabled", "true");
+    expect(screen.getByTestId("node-config-panel")).toHaveAttribute("data-disabled", "false");
   });
 
   it("prompts with an app dialog before closing a dirty node config panel", async () => {
