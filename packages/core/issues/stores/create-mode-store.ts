@@ -6,10 +6,10 @@ import { defaultStorage } from "../../platform/storage";
 import { useModalStore } from "../../modals";
 
 /**
- * Last create-issue mode the user landed on. Drives the global `c` shortcut
- * and the in-modal mode switch — pressing `c` opens whichever modal the user
- * used last, and the switch button in either modal updates this so the
- * preference sticks.
+ * Last create-issue mode the user landed on. The in-modal mode switch updates
+ * this so UI inside the dialog can preserve the current panel while switching.
+ * Generic create entry points still open manual mode by default; agent mode is
+ * an explicit in-dialog choice.
  *
  * Workspace-agnostic on purpose: the user's mental preference for "how do I
  * file an issue" doesn't change per workspace, so this lives in plain
@@ -26,7 +26,7 @@ interface CreateModeState {
 export const useCreateModeStore = create<CreateModeState>()(
   persist(
     (set) => ({
-      lastMode: "agent",
+      lastMode: "manual",
       setLastMode: (mode) => set({ lastMode: mode }),
     }),
     {
@@ -37,16 +37,13 @@ export const useCreateModeStore = create<CreateModeState>()(
 );
 
 /**
- * Open the create-issue flow in whichever mode the user landed on last.
- * Generic entry points (sidebar button, command palette, `c` shortcut) call
- * this so the persisted preference actually takes effect; entry points that
- * pre-seed manual-only fields (status, parent_issue_id) keep opening
- * "create-issue" directly because agent mode can't honour those seeds.
+ * Open the manual create-issue flow. Generic entry points (sidebar button,
+ * command palette, `c` shortcut) call this so creating an issue starts from
+ * the human-authored form, while agent mode stays available via the in-dialog
+ * switch.
  */
 export function openCreateIssueWithPreference(
   data?: Record<string, unknown> | null,
 ) {
-  const lastMode = useCreateModeStore.getState().lastMode;
-  const modal = lastMode === "manual" ? "create-issue" : "quick-create-issue";
-  useModalStore.getState().open(modal, data ?? null);
+  useModalStore.getState().open("create-issue", data ?? null);
 }
