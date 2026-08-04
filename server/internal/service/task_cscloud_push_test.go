@@ -3318,3 +3318,27 @@ func TestResolveCodeRepo_MixedProjectResourcesInferPerRepoProvider(t *testing.T)
 		t.Fatalf("repos[1] provider = %q, want gitlab", repos[1].Provider)
 	}
 }
+
+func TestAppendSubmittedDeliverablesPrompt(t *testing.T) {
+	subs := []db.MulticaWorkflowNodeDeliverableSubmission{
+		{PullRequestUrl: "https://gitea.test/owner/repo/pulls/7", PullRequestTitle: "设计文档"},
+		{PullRequestUrl: "https://gitea.test/owner/repo/pulls/8", PullRequestTitle: ""},
+	}
+	got := appendSubmittedDeliverablesPrompt("base prompt", subs)
+	for _, want := range []string{
+		"## Submitted Deliverables",
+		"https://gitea.test/owner/repo/pulls/7",
+		"https://gitea.test/owner/repo/pulls/8",
+		"设计文档",
+		"deliverable", // fallback title for empty PullRequestTitle
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("prompt missing %q:\n%s", want, got)
+		}
+	}
+
+	// No PR URLs → no-op.
+	if got := appendSubmittedDeliverablesPrompt("base", nil); got != "base" {
+		t.Fatalf("empty subs should be a no-op, got:\n%s", got)
+	}
+}
