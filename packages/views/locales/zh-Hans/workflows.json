@@ -585,7 +585,21 @@
       "work_dir": "本地工作路径",
       "session_log": "对话记录",
       "copy_path": "复制路径",
-      "copied": "已复制"
+      "copied": "已复制",
+      "split_tasks": "子任务（已完成 {{done}}/{{total}}）",
+      "split_task_issue": "查看任务",
+      "split_task_retry_at": "将于 {{time}} 重试",
+      "split_status": {
+        "draft": "草案",
+        "approved": "已批准",
+        "discarded": "已废弃",
+        "created": "已创建",
+        "running": "运行中",
+        "done": "已完成",
+        "failed": "已失败",
+        "cancelled": "已取消",
+        "skipped": "已跳过"
+      }
     }
   },
   "builtin_roles": {
