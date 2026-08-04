@@ -78,6 +78,23 @@ export function DrawerSection({
   );
 }
 
+export function IssueDescriptionCard({
+  description,
+  emptyText,
+}: {
+  description?: string | null;
+  emptyText: string;
+}) {
+  return (
+    <div
+      data-testid="node-issue-description"
+      className="whitespace-pre-wrap break-words text-[12.5px] leading-[1.6] text-foreground"
+    >
+      {description?.trim() ? description : <span className="text-muted-foreground">{emptyText}</span>}
+    </div>
+  );
+}
+
 export interface DeliverableDrawerItem {
   deliverable: WorkflowNodeDeliverable;
   submission: WorkflowNodeDeliverableSubmission | null;

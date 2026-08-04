@@ -37,7 +37,7 @@ import {
 } from "@multica/core/platform";
 import { agentListOptions, memberListOptions, squadListOptions } from "@multica/core/workspace/queries";
 import { isActiveWorkspaceMember } from "@multica/core/workspace/members";
-import { childIssuesOptions } from "@multica/core/issues/queries";
+import { childIssuesOptions, issueDetailOptions } from "@multica/core/issues/queries";
 import { useWorkspacePresenceMap, type AgentAvailability } from "@multica/core/agents";
 import type {
   WorkflowNode,
@@ -147,6 +147,7 @@ interface SplitChildClusterBounds {
 
 interface SplitChildIssueDetail {
   issueId: string;
+  issueDescription: string;
   node: WorkflowNode;
   runtimeSummary: WorkflowNodeRuntimeSummary;
   workerName: string | null;
@@ -727,6 +728,10 @@ export function ExecutionPanoramaPage({
   const { data: splitWorkflowOptions = [] } = useQuery(splitIssueWorkflowOptions(wsId, workflowId));
   const { data: childIssues = [] } = useQuery({
     ...childIssuesOptions(wsId, issueId ?? ""),
+    enabled: !!issueId,
+  });
+  const { data: currentIssue } = useQuery({
+    ...issueDetailOptions(wsId, issueId ?? ""),
     enabled: !!issueId,
   });
   // ---- Local state ----
@@ -1392,6 +1397,7 @@ export function ExecutionPanoramaPage({
 
         splitChildDetailByNodeId.set(childNodeId, {
           issueId,
+          issueDescription: linkedIssue?.description ?? "",
           node: childWorkflowNode,
           runtimeSummary: childRuntimeSummary,
           workerName: childWorkerName,
@@ -1491,6 +1497,9 @@ export function ExecutionPanoramaPage({
   const selectedRuntimeSummary = selectedNodeId
     ? runtimeSummaryMap.get(selectedNodeId) ?? selectedChildDetail?.runtimeSummary ?? null
     : null;
+  const selectedIssueDescription = selectedChildDetail?.issueDescription
+    ?? currentIssue?.description
+    ?? "";
   const selectedWorkerName =
     selectedChildDetail?.workerName ??
     (selectedNode ? resolveWorkerName(selectedNode) : null);
@@ -1617,6 +1626,8 @@ export function ExecutionPanoramaPage({
           <SplitReviewPanel
             node={selectedNode}
             nodeRun={selectedRun}
+            runtimeSummary={selectedRuntimeSummary}
+            issueDescription={selectedIssueDescription}
             previousNodeRun={selectedPreviousRun}
             wsId={wsId}
             workflowId={workflowId}
@@ -1672,6 +1683,7 @@ export function ExecutionPanoramaPage({
             node={selectedNode}
             nodeRun={selectedRun}
             previousNodeRun={selectedPreviousRun}
+            issueDescription={selectedIssueDescription}
             workerName={selectedWorkerName}
             criticName={selectedCriticName}
             onClose={() => setSelectedNodeId(null)}

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   SplitTasksResponse,
@@ -48,11 +48,28 @@ vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 vi.mock("@multica/views/i18n", () => ({
   useT: () => ({
     t: (
-      selector: (resources: { detail_panel: Record<string, string> }) => string,
+      selector: (resources: {
+        detail_panel: Record<string, string>;
+        execution: {
+          detail_panel: Record<string, string>;
+          display_status: Record<string, string>;
+        };
+      }) => string,
       values?: Record<string, string | number>,
     ) => {
-      const resources = {
-        detail_panel: new Proxy({
+      const displayStatus = new Proxy({
+        pending: "Pending",
+        todo: "Todo",
+        in_progress: "In progress",
+        reviewing: "Reviewing",
+        completed: "Completed",
+        failed: "Failed",
+        blocked: "Blocked",
+        cancelled: "Cancelled",
+      } as Record<string, string>, {
+        get: (target, property: string) => target[property] ?? property,
+      });
+      const detailPanel = new Proxy({
           split_plan_eyebrow: "Split plan",
           split_plan_close: "Close split plan",
           split_generation_label: "Generation {{generation}}",
@@ -76,9 +93,19 @@ vi.mock("@multica/views/i18n", () => ({
           split_drawer_approve: "Approve snapshot",
           split_drawer_retry_failed: "Retry",
           split_drawer_more: "More operations",
+          split_drawer_regenerate: "Regenerate plan",
+          split_drawer_cancel: "Cancel split",
+          split_drawer_view_children: "View child issues",
+          split_drawer_previous: "Previous node deliverable",
+          split_drawer_previous_empty: "No previous deliverable",
+          task_drawer_issue_description: "Task description",
+          task_drawer_issue_description_empty: "No description",
         } as Record<string, string>, {
           get: (target, property: string) => target[property] ?? property,
-        }),
+        });
+      const resources = {
+        detail_panel: detailPanel,
+        execution: { detail_panel: detailPanel, display_status: displayStatus },
       };
       return selector(resources).replace(/\{\{(\w+)\}\}/g, (_match, key) => String(values?.[key] ?? ""));
     },
@@ -86,8 +113,12 @@ vi.mock("@multica/views/i18n", () => ({
 }));
 
 vi.mock("../../../common/workflow-node-detail-panel-shell", () => ({
-  WorkflowNodeDetailPanelShell: ({ children, footer }: { children: React.ReactNode; footer?: React.ReactNode }) => (
-    <div>{children}{footer}</div>
+  WorkflowNodeDetailPanelShell: ({ children, footer, badges }: { children: React.ReactNode; footer?: React.ReactNode; badges?: React.ReactNode }) => (
+    <div>
+      <div data-testid="split-panel-badges">{badges}</div>
+      {children}
+      {footer ? <div data-testid="node-detail-panel-footer">{footer}</div> : null}
+    </div>
   ),
   NodeDetailSection: ({ title, children }: { title: string; children: React.ReactNode }) => (
     <section><h2>{title}</h2>{children}</section>
@@ -157,9 +188,32 @@ describe("SplitReviewPanel", () => {
       }],
     };
 
-    render(<SplitReviewPanel node={node} nodeRun={baseRun} wsId="ws-1" onClose={vi.fn()} />);
+    render(<SplitReviewPanel node={node} nodeRun={baseRun} issueDescription="Break the parent task into implementation units." wsId="ws-1" onClose={vi.fn()} />);
 
     expect(screen.getByRole("button", { name: "PR#42" })).toBeInTheDocument();
+    expect(screen.getByText("Break the parent task into implementation units.")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["there is no previous node", null],
+    ["the previous node has no deliverable", { id: "previous-run", node_title: "Previous work" } as WorkflowNodeRun],
+  ] as const)("hides the previous-deliverable section when %s", (_scenario, previousNodeRun) => {
+    render(
+      <SplitReviewPanel
+        node={node}
+        nodeRun={baseRun}
+        previousNodeRun={previousNodeRun}
+        wsId="ws-1"
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText("Previous node deliverable")).not.toBeInTheDocument();
+    expect(screen.queryByText("No previous deliverable")).not.toBeInTheDocument();
+    expect(screen.getByText("Task description")).toBeInTheDocument();
+    const description = screen.getByTestId("node-issue-description");
+    expect(description).toHaveTextContent("No description");
+    expect(description).not.toHaveClass("border", "bg-muted/40");
   });
 
   it("refetches deliverables when the node enters split review", () => {
@@ -196,6 +250,26 @@ describe("SplitReviewPanel", () => {
     }), expect.any(Object));
   });
 
+  it.each([
+    ["awaiting_split_review", "Reviewing", "text-violet-500"],
+    ["materializing", "In progress", "text-blue-500"],
+    ["completed", "Completed", "text-green-500"],
+  ] as const)("uses the node-card status presentation for %s", (status, label, iconClass) => {
+    render(<SplitReviewPanel node={node} nodeRun={{ ...baseRun, status }} wsId="ws-1" onClose={vi.fn()} />);
+
+    const badges = screen.getByTestId("split-panel-badges");
+    expect(badges).toHaveTextContent(label);
+    expect(within(badges).getByTestId("runtime-display-status-icon")).toHaveClass(iconClass);
+  });
+
+  it("does not render a footer when there are no available actions", () => {
+    mocks.data = response({ split_plan_generation: 0, submission_id: null });
+    render(<SplitReviewPanel node={node} nodeRun={{ ...baseRun, status: "splitting" }} wsId="ws-1" onClose={vi.fn()} />);
+
+    expect(screen.queryByTestId("node-detail-panel-footer")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "More operations" })).not.toBeInTheDocument();
+  });
+
   it("shows an exhausted row after node failure and retries only that row", () => {
     mocks.data = response({
       tasks: [{
@@ -212,12 +286,30 @@ describe("SplitReviewPanel", () => {
     });
     render(<SplitReviewPanel node={node} nodeRun={{ ...baseRun, status: "materializing" }} wsId="ws-1" onClose={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /More operations/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    const footer = screen.getByTestId("node-detail-panel-footer");
+    expect(footer).not.toHaveTextContent("In progress");
+    fireEvent.click(within(footer).getByRole("button", { name: "Retry" }));
 
     expect(mocks.retry).toHaveBeenCalledWith(expect.objectContaining({
       taskId: "task-1",
       request: { expected_split_generation: 2 },
     }), expect.any(Object));
+  });
+
+  it("shows View child issues directly in the footer", () => {
+    const onViewChildren = vi.fn();
+    render(
+      <SplitReviewPanel
+        node={node}
+        nodeRun={{ ...baseRun, status: "split_active" }}
+        wsId="ws-1"
+        onClose={vi.fn()}
+        onViewChildren={onViewChildren}
+      />,
+    );
+
+    const footer = screen.getByTestId("node-detail-panel-footer");
+    fireEvent.click(within(footer).getByRole("button", { name: "View child issues" }));
+    expect(onViewChildren).toHaveBeenCalledOnce();
   });
 });

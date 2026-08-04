@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlignLeft,
   Ban,
   Bot,
   Check,
-  CheckCircle2,
   ExternalLink,
   FileCheck2,
   FileText,
@@ -20,7 +20,6 @@ import {
   User,
   X,
 } from "lucide-react";
-import { toast } from "sonner";
 import { api } from "@multica/core/api";
 import { isEmbeddedInCostrict, postCostrictNavigateToSession } from "@multica/core/platform";
 import type {
@@ -30,8 +29,10 @@ import type {
   WorkflowNodeRun,
   WorkflowNodeRuntimeSummary,
 } from "@multica/core/types";
+import { toWorkflowRuntimeDisplayStatus } from "@multica/core/types";
 import {
   nodeRunDeliverableSubmissionsOptions,
+  useSessionPermission,
   workflowKeys,
 } from "@multica/core/workflows/queries";
 import { useT } from "@multica/views/i18n";
@@ -41,18 +42,24 @@ import {
   DrawerBadge,
   DrawerMoreOperations,
   DrawerSection,
+  IssueDescriptionCard,
   PreviousDeliverableCard,
   drawerButtonClass,
   drawerSmallButtonClass,
   formatPullRequestLabel,
   formatDeliverableTime,
   type DeliverableDrawerItem,
-  type DrawerTone,
 } from "../../../common/node-deliverable-drawer-ui";
 import { formatRuntimeDuration } from "./runtime-node-duration";
 import { resolveEnterSessionId } from "./runtime-session";
+import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
+import {
+  runtimeDisplayStatusText,
+  runtimeDisplayStatusTone,
+} from "./runtime-display-status";
 import type { HumanActionMember } from "./node-run-action-access";
 import { getHumanNodeRunActionAccess } from "./node-run-action-access";
+import { NodeRunActionPanel } from "./node-run-action-panel";
 import {
   useNodeRunDelivery,
   type NodeRunDeliveryController,
@@ -67,6 +74,7 @@ interface TaskNodeDetailPanelProps {
   onClose: () => void;
   wsId: string;
   issueId?: string;
+  issueDescription?: string | null;
   runtimeSummary?: WorkflowNodeRuntimeSummary | null;
   onOpenIssue?: () => void;
   onRetry?: () => void;
@@ -80,11 +88,21 @@ interface TaskNodeDetailPanelProps {
   mayReview?: boolean;
 }
 
-function outputSummary(nodeRun: WorkflowNodeRun | null, empty: string): string {
-  if (!nodeRun) return empty;
-  const output = nodeRun.worker_output ?? nodeRun.critic_output;
+function formatOutput(output: unknown, empty: string): string {
   if (output == null) return empty;
   return typeof output === "string" ? output : JSON.stringify(output, null, 2);
+}
+
+function outputError(nodeRun: WorkflowNodeRun | null, runtimeError?: string | null): string | null {
+  if (runtimeError?.trim()) return runtimeError;
+  if (!nodeRun) return null;
+  for (const output of [nodeRun.worker_output, nodeRun.critic_output]) {
+    if (output == null || typeof output !== "object") continue;
+    const record = output as Record<string, unknown>;
+    if (typeof record.error === "string" && record.error.trim()) return record.error;
+    if (typeof record.message === "string" && record.message.trim()) return record.message;
+  }
+  return nodeRun.failure_reason?.trim() || null;
 }
 
 interface TaskSubmissionItem {
@@ -112,6 +130,9 @@ function TaskSubmissionCard({
         </div>
       ) : items.map((item, index) => {
         const ItemIcon = item.kind === "pr" ? GitBranch : FileText;
+        const status = completed && item.submission.status === "submitted"
+          ? "approved"
+          : item.submission.status;
         return (
           <div key={item.submission.id} className={index > 0 ? "mt-3 border-t pt-3" : undefined}>
             <div className="flex min-w-0 items-center gap-[9px]">
@@ -126,11 +147,19 @@ function TaskSubmissionCard({
                       ? t(($) => $.execution.detail_panel.task_drawer_pr)
                       : t(($) => $.execution.detail_panel.task_drawer_document)}
                   </span>
-                  {completed ? (
-                    <span className="rounded-[5px] bg-muted px-1.5 py-[3px] font-mono text-[10.5px] leading-none text-emerald-600">
-                      {t(($) => $.execution.detail_panel.task_drawer_approved)}
-                    </span>
-                  ) : null}
+                  <span className={`rounded-[5px] bg-muted px-1.5 py-[3px] font-mono text-[10.5px] leading-none ${
+                    status === "rejected"
+                      ? "text-destructive"
+                      : status === "approved"
+                        ? "text-emerald-600"
+                        : "text-blue-600 dark:text-blue-400"
+                  }`}>
+                    {status === "rejected"
+                      ? t(($) => $.execution.detail_panel.task_drawer_rejected)
+                      : status === "approved"
+                        ? t(($) => $.execution.detail_panel.task_drawer_approved)
+                        : t(($) => $.execution.detail_panel.task_drawer_submitted)}
+                  </span>
                 </div>
               </div>
             </div>
@@ -155,8 +184,10 @@ function TaskSubmissionCard({
                 </span>
               )}
               <span className="text-[11px] leading-[1.45] text-muted-foreground">
-                {completed
+                {status === "approved"
                   ? t(($) => $.execution.detail_panel.task_drawer_review_passed)
+                  : status === "rejected"
+                    ? t(($) => $.execution.detail_panel.task_drawer_review_rejected)
                   : item.kind === "pr"
                     ? t(($) => $.execution.detail_panel.task_drawer_review_in_gitea)
                     : t(($) => $.execution.detail_panel.task_drawer_wait_critic)}
@@ -165,6 +196,9 @@ function TaskSubmissionCard({
                 {t(($) => $.execution.detail_panel.task_drawer_submitted_at)} {formatDeliverableTime(item.submission.submitted_at)}
               </span>
             </div>
+            {item.submission.review_comment ? (
+              <p className="mt-1.5 text-xs text-muted-foreground">{item.submission.review_comment}</p>
+            ) : null}
           </div>
         );
       })}
@@ -403,6 +437,7 @@ export function TaskNodeDetailPanel({
   onClose,
   wsId,
   issueId,
+  issueDescription,
   runtimeSummary,
   onOpenIssue,
   onRetry,
@@ -441,7 +476,7 @@ export function TaskNodeDetailPanel({
       (currentData?.deliverables ?? []).map((deliverable) => [deliverable.id, deliverable]),
     );
     return (currentData?.submissions ?? [])
-      .filter((submission) => submission.status !== "missing" && submission.status !== "rejected")
+      .filter((submission) => submission.status !== "missing")
       .map((submission) => {
         const deliverable = definitions.get(submission.deliverable_id);
         const kind = submission.pull_request_url ? "pr" as const : "doc" as const;
@@ -474,11 +509,10 @@ export function TaskNodeDetailPanel({
     workflowId,
     runId,
   });
-  const reviewState = nodeRun?.status === "awaiting_critic" || nodeRun?.status === "critic_reviewing";
-  const completed = nodeRun?.status === "critic_approved" || nodeRun?.status === "completed";
-  const todo = nodeRun?.status === "pending" || nodeRun?.status === "worker_assigned";
-  const failed = nodeRun?.status === "failed" || nodeRun?.status === "format_failed" || nodeRun?.status === "blocked";
-  const visualState = completed ? "completed" : reviewState ? "review" : todo ? "todo" : "running";
+  const displayStatus = nodeRun?.status === "failed"
+    ? "failed"
+    : runtimeSummary?.display_status ?? (nodeRun ? toWorkflowRuntimeDisplayStatus(nodeRun.status) : "pending");
+  const reviewState = displayStatus === "reviewing";
   const baseAccess = nodeRun
     ? getHumanNodeRunActionAccess({ nodeRun, userId: currentUserId ?? null, member: currentMember ?? null })
     : null;
@@ -486,28 +520,38 @@ export function TaskNodeDetailPanel({
   const canReview = isHumanReview && (mayReview ?? baseAccess?.canReview) === true;
   const canUpload = !!nodeRun
     && !!issueId
-    && nodeRun.worker_type === "human"
-    && (nodeRun.status === "worker_assigned" || nodeRun.status === "working")
+    && baseAccess?.canSubmit === true
     && (currentData?.deliverables.length ?? 0) > 0;
+  const errorMessage = outputError(nodeRun, runtimeSummary?.error_message);
+  const statusLine = displayStatus === "pending" || displayStatus === "todo"
+    ? t(($) => $.execution.detail_panel.task_drawer_line_todo)
+    : displayStatus === "in_progress"
+      ? t(($) => $.execution.detail_panel.task_drawer_line_running)
+      : displayStatus === "reviewing"
+        ? t(($) => $.execution.detail_panel.task_drawer_line_review)
+        : displayStatus === "completed"
+          ? t(($) => $.execution.detail_panel.task_drawer_line_completed)
+          : displayStatus === "failed" || displayStatus === "blocked"
+            ? errorMessage || t(($) => $.execution.detail_panel.task_drawer_line_failed)
+            : t(($) => $.execution.detail_panel.task_drawer_line_cancelled);
+  const statusMeta = {
+    tone: runtimeDisplayStatusTone(displayStatus),
+    label: runtimeDisplayStatusText(t, displayStatus),
+    line: statusLine,
+  };
 
-  const statusMeta: { tone: DrawerTone; label: string; line: string; spin: boolean } = failed
-    ? { tone: "red", label: t(($) => $.execution.detail_panel.task_drawer_status_failed), line: runtimeSummary?.error_message || t(($) => $.execution.detail_panel.task_drawer_line_failed), spin: false }
-    : visualState === "todo"
-      ? { tone: "zinc", label: t(($) => $.execution.detail_panel.task_drawer_status_todo), line: t(($) => $.execution.detail_panel.task_drawer_line_todo), spin: false }
-      : visualState === "review"
-      ? { tone: "amber", label: t(($) => $.execution.detail_panel.task_drawer_status_review), line: t(($) => $.execution.detail_panel.task_drawer_line_review), spin: false }
-      : visualState === "completed"
-        ? { tone: "emerald", label: t(($) => $.execution.detail_panel.task_drawer_status_completed), line: t(($) => $.execution.detail_panel.task_drawer_line_completed), spin: false }
-        : { tone: "blue", label: t(($) => $.execution.detail_panel.task_drawer_status_running), line: t(($) => $.execution.detail_panel.task_drawer_line_running), spin: true };
-
-  const currentSubtitle = visualState === "todo"
+  const currentSubtitle = displayStatus === "pending" || displayStatus === "todo"
     ? items.length > 0
       ? t(($) => $.execution.detail_panel.task_drawer_deliverables_todo_submitted, { count: items.length })
       : t(($) => $.execution.detail_panel.task_drawer_deliverables_todo)
-    : visualState === "review"
+    : displayStatus === "reviewing"
       ? t(($) => $.execution.detail_panel.task_drawer_deliverables_review, { count: items.length })
-      : visualState === "completed"
+      : displayStatus === "completed"
         ? t(($) => $.execution.detail_panel.task_drawer_deliverables_completed, { count: items.length })
+        : displayStatus === "failed" || displayStatus === "blocked" || displayStatus === "cancelled"
+          ? items.length > 0
+            ? t(($) => $.execution.detail_panel.task_drawer_deliverables_stopped, { count: items.length })
+            : t(($) => $.execution.detail_panel.task_drawer_deliverables_stopped_empty)
         : items.length > 0
           ? t(($) => $.execution.detail_panel.task_drawer_deliverables_running, { count: items.length })
           : t(($) => $.execution.detail_panel.task_drawer_deliverables_running_empty);
@@ -543,13 +587,38 @@ export function TaskNodeDetailPanel({
     ? Math.max(0, Math.round(((nodeRun.completed_at ? Date.parse(nodeRun.completed_at) : Date.now()) - Date.parse(nodeRun.started_at)) / 1000))
     : null;
   const sessionId = resolveEnterSessionId(nodeRun, runtimeSummary);
+  const { data: sessionPermission } = useSessionPermission(sessionId);
+  const canOpenSession = !!sessionId
+    && sessionPermission?.can_observe === true
+    && isEmbeddedInCostrict();
   const openSession = () => {
-    if (!sessionId || !isEmbeddedInCostrict()) return;
+    if (!sessionId || !canOpenSession) return;
     postCostrictNavigateToSession({ sessionId, newTab: true });
   };
-  const unavailableCancel = () => toast.info(t(($) => $.execution.detail_panel.task_drawer_cancel_unavailable));
-
-  const footer = canReview ? (
+  const actionAccess = baseAccess
+    ? {
+        ...baseAccess,
+        canReview: false,
+        canSubmit: baseAccess.canSubmit && (currentData?.deliverables.length ?? 0) === 0,
+      }
+    : null;
+  const hasRuntimeControls = nodeRun?.runtime_id != null && (
+    nodeRun.status === "working" ||
+    (nodeRun.status === "blocked" && nodeRun.completed_at == null)
+  );
+  const hasPrimaryNodeActions = !!nodeRun && !!actionAccess && (
+    actionAccess.canSubmit || actionAccess.canSkip || hasRuntimeControls
+  );
+  const nodeActionPanel = nodeRun && actionAccess ? (
+    <NodeRunActionPanel
+      nodeRun={nodeRun}
+      access={actionAccess}
+      wsId={wsId}
+      workflowId={workflowId}
+      runId={runId ?? undefined}
+    />
+  ) : null;
+  const footerPrimary = canReview ? (
     <div>
       <textarea
         value={reviewComment}
@@ -585,29 +654,41 @@ export function TaskNodeDetailPanel({
     </div>
   ) : canUpload ? (
     <TaskDeliveryFooter delivery={delivery} t={t} tw={tw} />
-  ) : visualState === "todo" ? null : visualState === "completed" ? (
-    <div className="flex items-center justify-between gap-2.5">
-      <div className="flex items-center gap-2 text-[12.5px] text-emerald-600">
-        <CheckCircle2 className="size-3.5" />
-        {t(($) => $.execution.detail_panel.task_drawer_footer_completed, { count: items.length })}
-      </div>
-      <button type="button" className={`${drawerSmallButtonClass} border-border bg-background hover:bg-muted`} onClick={onRetry}>
-        <RefreshCcw className="size-3" />
-        {t(($) => $.execution.detail_panel.task_drawer_rerun)}
-      </button>
+  ) : hasPrimaryNodeActions ? (
+    nodeActionPanel
+  ) : null;
+  const footerSupplementaryActions = (canUpload || canReview)
+    && (actionAccess?.canSkip || hasRuntimeControls)
+    ? nodeActionPanel
+    : null;
+  const hasFooterKeyActions = canOpenSession || !!onOpenIssue || !!onRetry;
+  const footer = footerPrimary || footerSupplementaryActions || hasFooterKeyActions ? (
+    <div className="space-y-3">
+      {footerPrimary}
+      {footerSupplementaryActions}
+      {hasFooterKeyActions ? (
+        <div className={`flex flex-wrap justify-end gap-2 ${footerPrimary || footerSupplementaryActions ? "border-t border-border/60 pt-3" : ""}`}>
+          {canOpenSession ? (
+            <button type="button" className={`${drawerSmallButtonClass} border-border bg-background hover:bg-muted`} onClick={openSession}>
+              {t(($) => $.execution.detail_panel.open_session)}
+            </button>
+          ) : null}
+          {onOpenIssue ? (
+            <button type="button" className={`${drawerSmallButtonClass} border-border bg-background hover:bg-muted`} onClick={onOpenIssue}>
+              <ExternalLink className="size-3" />
+              {isChildIssue ? t(($) => $.execution.detail_panel.open_child_issue) : t(($) => $.execution.detail_panel.view_full_issue)}
+            </button>
+          ) : null}
+          {onRetry ? (
+            <button type="button" className={`${drawerSmallButtonClass} border-border bg-background hover:bg-muted`} onClick={onRetry}>
+              <RefreshCcw className="size-3" />
+              {t(($) => $.execution.detail_panel.task_drawer_retry)}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
-  ) : (
-    <div className="flex items-center justify-between gap-2.5">
-      <div className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
-        <Loader2 className="size-3.5 animate-spin" />
-        {t(($) => $.execution.detail_panel.task_drawer_footer_running)}
-      </div>
-      <button type="button" className={`${drawerSmallButtonClass} border-border bg-background hover:bg-muted`} onClick={unavailableCancel}>
-        <Ban className="size-3" />
-        {t(($) => $.execution.detail_panel.task_drawer_cancel)}
-      </button>
-    </div>
-  );
+  ) : undefined;
 
   return (
     <WorkflowNodeDetailPanelShell
@@ -620,7 +701,7 @@ export function TaskNodeDetailPanel({
       badges={(
         <>
           <DrawerBadge tone={statusMeta.tone}>
-            {statusMeta.spin ? <Loader2 className="size-[11px] animate-spin" /> : null}
+            <RuntimeDisplayStatusIcon status={displayStatus} className="size-[11px]" />
             {statusMeta.label}
           </DrawerBadge>
           <span className="text-[11px] leading-[1.6] text-muted-foreground">{statusMeta.line}</span>
@@ -639,16 +720,25 @@ export function TaskNodeDetailPanel({
       contentClassName="py-3.5"
     >
       <div className="space-y-3.5">
-        <DrawerSection icon={<Inbox className="size-[13px]" />} title={t(($) => $.execution.detail_panel.task_drawer_previous)}>
-          <PreviousDeliverableCard
-            nodeTitle={previousNodeRun?.node_title}
-            item={previousItem}
-            emptyText={t(($) => $.execution.detail_panel.task_drawer_previous_empty)}
-            pullRequestLabel={t(($) => $.execution.detail_panel.task_drawer_pull_request)}
-            mergedLabel={t(($) => $.execution.detail_panel.task_drawer_merged)}
-            hint={t(($) => $.execution.detail_panel.task_drawer_previous_hint)}
+        <DrawerSection icon={<AlignLeft className="size-[13px]" />} title={t(($) => $.execution.detail_panel.task_drawer_issue_description)}>
+          <IssueDescriptionCard
+            description={issueDescription}
+            emptyText={t(($) => $.execution.detail_panel.task_drawer_issue_description_empty)}
           />
         </DrawerSection>
+
+        {previousNodeRun && previousItem ? (
+          <DrawerSection icon={<Inbox className="size-[13px]" />} title={t(($) => $.execution.detail_panel.task_drawer_previous)}>
+            <PreviousDeliverableCard
+              nodeTitle={previousNodeRun.node_title}
+              item={previousItem}
+              emptyText={t(($) => $.execution.detail_panel.task_drawer_previous_empty)}
+              pullRequestLabel={t(($) => $.execution.detail_panel.task_drawer_pull_request)}
+              mergedLabel={t(($) => $.execution.detail_panel.task_drawer_merged)}
+              hint={t(($) => $.execution.detail_panel.task_drawer_previous_hint)}
+            />
+          </DrawerSection>
+        ) : null}
 
         <DrawerSection
           icon={<FileText className="size-[13px]" />}
@@ -659,7 +749,7 @@ export function TaskNodeDetailPanel({
         >
           <TaskSubmissionCard
             items={items}
-            completed={visualState === "completed"}
+            completed={displayStatus === "completed"}
             actions={canUpload ? (
               <TaskDeliveryActions
                 delivery={delivery}
@@ -682,40 +772,55 @@ export function TaskNodeDetailPanel({
                 {parentSplitTitle ? <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.parent_split)}</dt><dd>{parentSplitTitle}</dd></div> : null}
                 {childAssigneeName ? <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.child_assignee)}</dt><dd>{childAssigneeName}</dd></div> : null}
                 <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.started_at)}</dt><dd>{nodeRun?.started_at ? new Date(nodeRun.started_at).toLocaleString() : "—"}</dd></div>
+                {nodeRun?.completed_at ? <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.completed_at)}</dt><dd>{new Date(nodeRun.completed_at).toLocaleString()}</dd></div> : null}
                 <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.duration)}</dt><dd>{duration == null ? "—" : formatRuntimeDuration(duration)}</dd></div>
                 <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.retry_count)}</dt><dd>{nodeRun?.retry_count ?? 0}</dd></div>
               </dl>
             </div>
+            {errorMessage ? (
+              <div>
+                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-destructive">
+                  {t(($) => $.execution.detail_panel.error)}
+                </div>
+                <p className="rounded-lg bg-destructive/5 px-2.5 py-2 text-xs text-destructive">{errorMessage}</p>
+              </div>
+            ) : null}
             <div>
               <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
                 {t(($) => $.execution.detail_panel.task_drawer_output_summary)}
               </div>
-              <pre className="m-0 max-h-24 overflow-auto whitespace-pre-wrap rounded-lg bg-muted px-2.5 py-2 font-mono text-[11.5px]">
-                {outputSummary(nodeRun, t(($) => $.execution.detail_panel.no_output))}
-              </pre>
+              <div className="space-y-2">
+                {nodeRun?.worker_output != null ? (
+                  <div>
+                    <div className="mb-1 text-[11px] font-medium text-muted-foreground">{t(($) => $.execution.detail_panel.worker_output)}</div>
+                    <pre className="m-0 max-h-24 overflow-auto whitespace-pre-wrap rounded-lg bg-muted px-2.5 py-2 font-mono text-[11.5px]">
+                      {formatOutput(nodeRun.worker_output, t(($) => $.execution.detail_panel.no_output))}
+                    </pre>
+                  </div>
+                ) : null}
+                {nodeRun?.critic_output != null ? (
+                  <div>
+                    <div className="mb-1 text-[11px] font-medium text-muted-foreground">{t(($) => $.execution.detail_panel.critic_output)}</div>
+                    <pre className="m-0 max-h-24 overflow-auto whitespace-pre-wrap rounded-lg bg-muted px-2.5 py-2 font-mono text-[11.5px]">
+                      {formatOutput(nodeRun.critic_output, t(($) => $.execution.detail_panel.no_output))}
+                    </pre>
+                  </div>
+                ) : null}
+                {nodeRun?.worker_output == null && nodeRun?.critic_output == null ? (
+                  <p className="rounded-lg bg-muted px-2.5 py-2 text-xs text-muted-foreground">
+                    {t(($) => $.execution.detail_panel.no_output)}
+                  </p>
+                ) : null}
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {sessionId && isEmbeddedInCostrict() ? (
-                <button type="button" className={`${drawerSmallButtonClass} border-border bg-background hover:bg-muted`} onClick={openSession}>
-                  {t(($) => $.execution.detail_panel.open_session)}
-                </button>
-              ) : null}
-              {onOpenIssue ? (
-                <button type="button" className={`${drawerSmallButtonClass} border-border bg-background hover:bg-muted`} onClick={onOpenIssue}>
-                  <ExternalLink className="size-3" />
-                  {isChildIssue ? t(($) => $.execution.detail_panel.open_child_issue) : t(($) => $.execution.detail_panel.view_full_issue)}
-                </button>
-              ) : null}
-              <button type="button" className={`${drawerSmallButtonClass} border-border bg-background hover:bg-muted`} onClick={onRetry} disabled={!onRetry}>
-                <RefreshCcw className="size-3" />
-                {t(($) => $.execution.detail_panel.task_drawer_retry)}
-              </button>
-              <button type="button" className={`${drawerSmallButtonClass} border-destructive/30 bg-background text-destructive hover:bg-destructive/5`} onClick={unavailableCancel}>
-                <Ban className="size-3" />
-                {t(($) => $.execution.detail_panel.task_drawer_cancel)}
-              </button>
-            </div>
-            <p className="text-xs text-muted-foreground">{t(($) => $.execution.detail_panel.task_drawer_action_note)}</p>
+            {nodeRun?.critic_comment ? (
+              <div>
+                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+                  {t(($) => $.execution.detail_panel.critic_comment)}
+                </div>
+                <p className="rounded-lg bg-muted px-2.5 py-2 text-xs text-muted-foreground">{nodeRun.critic_comment}</p>
+              </div>
+            ) : null}
           </div>
         </DrawerMoreOperations>
       </div>

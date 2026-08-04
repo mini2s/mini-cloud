@@ -18,6 +18,7 @@ import { isNodeRunAssigneeEditable } from "@multica/core/workflows/node-run-stat
 import { isEmbeddedInCostrict } from "@multica/core/platform";
 import { cn } from "@multica/ui/lib/utils";
 import { RuntimeDisplayStatusIcon } from "./node-run-status-icon";
+import { runtimeDisplayStatusText } from "./runtime-display-status";
 import { Check, ChevronDown, ChevronRight, CircleAlert, Clock3, FileText, GitFork, GitMerge, MessageSquare } from "lucide-react";
 import { useT } from "@multica/views/i18n";
 import { Button } from "@multica/ui/components/ui/button";
@@ -105,40 +106,6 @@ function gatewayLabel(t: IssueTranslator, kind: "fork" | "join" | null): string 
 }
 
 type IssueTranslator = ReturnType<typeof useT<"issues">>["t"];
-
-function runtimeDisplayStatusText(
-  t: IssueTranslator,
-  status: ReturnType<typeof toWorkflowRuntimeDisplayStatus>,
-  gatewayKind: "fork" | "join" | null,
-): string {
-  if (gatewayKind === "fork" && status === "completed") {
-    return t(($) => $.execution.display_status.dispatched);
-  }
-  if (gatewayKind === "join" && status === "completed") {
-    return t(($) => $.execution.display_status.joined);
-  }
-  if (gatewayKind === "join" && (status === "pending" || status === "todo")) {
-    return t(($) => $.execution.display_status.waiting_upstream);
-  }
-  switch (status) {
-    case "pending":
-      return t(($) => $.execution.display_status.pending);
-    case "todo":
-      return t(($) => $.execution.display_status.todo);
-    case "in_progress":
-      return t(($) => $.execution.display_status.in_progress);
-    case "reviewing":
-      return t(($) => $.execution.display_status.reviewing);
-    case "completed":
-      return t(($) => $.execution.display_status.completed);
-    case "failed":
-      return t(($) => $.execution.display_status.failed);
-    case "blocked":
-      return t(($) => $.execution.display_status.blocked);
-    case "cancelled":
-      return t(($) => $.execution.display_status.cancelled);
-  }
-}
 
 function splitChildCountLabel(t: IssueTranslator, count: number): string {
   return t(($) => $.execution.card.split_child_count, { count });
