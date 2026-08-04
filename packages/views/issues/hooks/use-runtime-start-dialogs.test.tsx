@@ -18,6 +18,17 @@ vi.mock("@multica/core/workspace/queries", () => ({
 vi.mock("@multica/core/workflows/queries", () => ({
 	workflowActiveListOptions: () => ({ queryKey: ["workflows"], queryFn: () => workflows }),
 }));
+
+// The run-now dialog must resolve runtime owner names via useActorName so the
+// owner line renders in the popup. Mock it to a deterministic resolver the
+// dialog mock below invokes.
+const { getMemberNameMock } = vi.hoisted(() => ({
+	getMemberNameMock: (id: string) => (id === "user-1" ? "Alice" : "Unknown"),
+}));
+vi.mock("@multica/core/workspace/hooks", () => ({
+	useActorName: () => ({ getMemberName: getMemberNameMock }),
+}));
+
 vi.mock("../../workflows/components/use-usable-workflow-runtimes", () => ({
 	useUsableWorkflowRuntimes: () => ({ runtimes, isLoading: false }),
 }));
@@ -30,16 +41,21 @@ vi.mock("../../workflows/components/workflow-runtime-strategy-dialog", () => ({
 	WorkflowRuntimeStrategyDialog: ({
 		workflowTitle,
 		initialValue,
+		getMemberName,
 	}: {
 		workflowTitle: string;
 		initialValue: { policy: string; runtimeId: string | null };
+		getMemberName?: (userId: string) => string;
 	}) => (
 		<div
 			data-testid="workflow-runtime-strategy-dialog"
 			data-workflowtitle={workflowTitle}
 			data-policy={initialValue?.policy}
 			data-runtimeid={initialValue?.runtimeId ?? ""}
-		/>
+			data-has-getmembername={typeof getMemberName === "function" ? "true" : "false"}
+		>
+			{getMemberName ? getMemberName("user-1") : "no-getmembername"}
+		</div>
 	),
 }));
 
@@ -101,5 +117,26 @@ describe("useRuntimeStartDialogs", () => {
 		view.unmount();
 
 		expect(committed).toHaveBeenCalledTimes(1); // member still the only commit
+	});
+
+	it("passes getMemberName to the dialog so runtime owner names render", () => {
+		// Regression: the run-now popup (create-issue 立即运行) must resolve and
+		// surface each runtime's owner. The dialog only renders the owner line
+		// when a getMemberName resolver is provided, so the hook must wire it.
+		const { result } = renderHook(() => useRuntimeStartDialogs("ws-1"));
+		act(() => {
+			result.current.maybeSelectRuntimeThen(
+				"workflow",
+				"wf1",
+				{ status: "in_progress" },
+				vi.fn(),
+			);
+		});
+
+		const view = render(result.current.dialogs);
+		const dialog = view.getByTestId("workflow-runtime-strategy-dialog");
+		expect(dialog).toHaveAttribute("data-has-getmembername", "true");
+		expect(dialog).toHaveTextContent("Alice");
+		view.unmount();
 	});
 });
