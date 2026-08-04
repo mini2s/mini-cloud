@@ -581,7 +581,11 @@
       "node_completed_at": "节点结束 {{time}}",
       "deliverables": "交付物：已提交 {{submitted}}/{{total}}，已通过 {{approved}}",
       "worker_output": "Worker 产出",
-      "critic_output": "Critic 产出"
+      "critic_output": "Critic 产出",
+      "work_dir": "本地工作路径",
+      "session_log": "对话记录",
+      "copy_path": "复制路径",
+      "copied": "已复制"
     }
   },
   "builtin_roles": {

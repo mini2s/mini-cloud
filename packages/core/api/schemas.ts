@@ -1198,6 +1198,8 @@ const WorkflowNodeTaskSummarySchema = z.object({
   completed_at: z.string().nullable().default(null),
   failure_reason: z.string().default(""),
   error: z.string().default(""),
+  session_id: z.string().default(""),
+  work_dir: z.string().default(""),
 }).loose();
 
 const WorkflowNodeDiagnosticsSchema = z.object({

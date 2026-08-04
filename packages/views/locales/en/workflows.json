@@ -581,7 +581,11 @@
       "node_completed_at": "Node finished {{time}}",
       "deliverables": "Deliverables: {{submitted}}/{{total}} submitted, {{approved}} approved",
       "worker_output": "Worker output",
-      "critic_output": "Critic output"
+      "critic_output": "Critic output",
+      "work_dir": "Working directory",
+      "session_log": "Conversation log",
+      "copy_path": "Copy path",
+      "copied": "Copied"
     }
   },
   "builtin_roles": {

@@ -126,12 +126,14 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 	if err := testPool.QueryRow(ctx, `
 		INSERT INTO multica_agent_task_queue (
 			agent_id, runtime_id, status, priority, workflow_node_run_id,
-			error, failure_reason, context, started_at, completed_at
+			error, failure_reason, context, started_at, completed_at,
+			session_id, work_dir
 		)
 		VALUES (
 			$1, $2, 'failed', 2, $3,
 			'stale critic error', 'agent_error', '{"phase":"critic"}'::jsonb,
-			now() - interval '4 minutes', now() - interval '3 minutes'
+			now() - interval '4 minutes', now() - interval '3 minutes',
+			'sess-failed-1', '/tmp/work/failed'
 		)
 		RETURNING id
 	`, agentID, testRuntimeID, failedRunID).Scan(&staleCriticTaskID); err != nil {
@@ -258,6 +260,8 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 			CompletedAt   *string `json:"completed_at"`
 			FailureReason string  `json:"failure_reason"`
 			Error         string  `json:"error"`
+			SessionID     string  `json:"session_id"`
+			WorkDir       string  `json:"work_dir"`
 		} `json:"current_task"`
 		Hint string `json:"hint"`
 	}
@@ -415,6 +419,9 @@ func TestGetWorkflowRunCanvasSummaryAggregatesRuntimeState(t *testing.T) {
 	}
 	if failedDiag.CurrentTask.Phase == "" {
 		t.Fatalf("expected phase parsed from task context, got %+v", failedDiag.CurrentTask)
+	}
+	if failedDiag.CurrentTask.SessionID != "sess-failed-1" || failedDiag.CurrentTask.WorkDir != "/tmp/work/failed" {
+		t.Fatalf("expected session pinned on current task, got %+v", failedDiag.CurrentTask)
 	}
 	if failedDiag.Hint != "hint.failure.agent_error" {
 		t.Fatalf("expected failure hint key, got %s", failedDiag.Hint)

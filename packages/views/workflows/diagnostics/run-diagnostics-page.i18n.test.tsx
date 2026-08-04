@@ -126,4 +126,27 @@ describe("WorkflowRunDiagnosticsPage with real i18n", () => {
     renderWithI18n(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
     expect(screen.getByText("Attempt 2/3")).toBeInTheDocument();
   });
+
+  it("renders the work dir and session log rows with translated labels", () => {
+    const data = dataWithFailedNode("hint.stage.terminal");
+    (data.node_runtime_summaries[0]!.diagnostics as { current_task: unknown }).current_task = {
+      task_id: "task-1",
+      status: "failed",
+      phase: "worker",
+      attempt: 1,
+      max_attempts: 3,
+      dispatched_at: null,
+      started_at: null,
+      completed_at: null,
+      failure_reason: "timeout",
+      error: "Max turns reached",
+      session_id: "sess-1",
+      work_dir: "/home/dev/work",
+    };
+    mocks.data = data;
+    renderWithI18n(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
+    expect(screen.getByText("/home/dev/work")).toBeInTheDocument();
+    expect(screen.getByText("~/.costrict/projects/-home-dev-work/sess-1.jsonl")).toBeInTheDocument();
+    expect(screen.getAllByTitle("Copy path")).toHaveLength(2);
+  });
 });
