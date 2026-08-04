@@ -539,6 +539,11 @@ func (s *WorkflowService) failWorkflowFromNode(
 	}
 	if s.TaskSvc != nil {
 		s.TaskSvc.BroadcastCancelledTasks(ctx, cancelled)
+		// Kill the device-side sessions of cancelled sibling tasks; the run
+		// has failed, so no agent should keep working on it.
+		for _, t := range cancelled {
+			s.TaskSvc.pushAbortToDevice(t)
+		}
 	}
 	s.publishWorkflowEvent(EventWorkflowNodeRunFailed, util.UUIDToString(failedRun.WorkspaceID), map[string]any{
 		"run_id":      util.UUIDToString(failedRun.ID),
