@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -52,6 +53,47 @@ func codeRepoProvider(rawURL string) string {
 		return "github"
 	}
 	return "gitlab"
+}
+
+// sshSCPRe matches the scp-like SSH syntax `git@host:path` that Git hosting
+// platforms ship as the default "Clone with SSH" URL.
+var sshSCPRe = regexp.MustCompile(`^git@([^:]+):(.+)$`)
+
+// normalizeCodeRepoURL rewrites an SSH or git:// code-repo URL into the HTTPS
+// form every downstream stage assumes. Both multica's codeRepoBaseURL and
+// cs-cloud's repoAuthURLTemplate parse with net/url and reject URLs whose
+// scheme is empty, so an SSH URL (`git@host:path`, `ssh://...`, `git://...`)
+// would otherwise fail dispatch with "missing GitLab base URL" and produce an
+// empty clone command for the agent. Normalizing once at the collection
+// boundary keeps every downstream stage HTTPS-only.
+//
+// The SSH service port (ssh://git@host:22/...) is dropped: it belongs to the
+// SSH listener, not HTTPS, and cannot be inferred. http(s) URLs are returned
+// untouched; unrecognised input is returned as-is so the existing validation
+// surfaces a clear error instead of a silent, wrong rewrite.
+func normalizeCodeRepoURL(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return ""
+	}
+	if strings.HasPrefix(rawURL, "http://") || strings.HasPrefix(rawURL, "https://") {
+		return rawURL
+	}
+	// scp-like: git@host:path -> https://host/path
+	if m := sshSCPRe.FindStringSubmatch(rawURL); m != nil {
+		return "https://" + m[1] + "/" + m[2]
+	}
+	// ssh:// and git://: keep host (drop the SSH/git-only port) + path.
+	if strings.HasPrefix(rawURL, "ssh://") || strings.HasPrefix(rawURL, "git://") {
+		if u, err := url.Parse(rawURL); err == nil && u.Hostname() != "" {
+			path := u.EscapedPath()
+			if u.RawQuery != "" {
+				path += "?" + u.RawQuery
+			}
+			return "https://" + u.Hostname() + path
+		}
+	}
+	return rawURL
 }
 
 // codeRepoTokens holds the workspace PATs for each code-repo platform.
@@ -529,9 +571,10 @@ func (s *TaskService) resolveCodeRepoAndProject(ctx context.Context, task db.Mul
 						URL string `json:"url"`
 					}
 					if json.Unmarshal(row.ResourceRef, &ref) == nil && strings.TrimSpace(ref.URL) != "" {
+						normalized := normalizeCodeRepoURL(ref.URL)
 						repos = append(repos, csCloudRepoSpec{
-							URL:      strings.TrimSpace(ref.URL),
-							Provider: codeRepoProvider(ref.URL),
+							URL:      normalized,
+							Provider: codeRepoProvider(normalized),
 							Role:     "code",
 						})
 					}
@@ -559,9 +602,10 @@ func (s *TaskService) resolveCodeRepoAndProject(ctx context.Context, task db.Mul
 			if json.Unmarshal(ws.Repos, &wsRepos) == nil {
 				for _, r := range wsRepos {
 					if u := strings.TrimSpace(r.URL); u != "" {
+						normalized := normalizeCodeRepoURL(u)
 						repos = append(repos, csCloudRepoSpec{
-							URL:      u,
-							Provider: codeRepoProvider(u),
+							URL:      normalized,
+							Provider: codeRepoProvider(normalized),
 							Role:     "code",
 						})
 					}

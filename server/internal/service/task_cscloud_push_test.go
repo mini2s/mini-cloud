@@ -3273,6 +3273,70 @@ func TestCodeRepoProvider(t *testing.T) {
 	}
 }
 
+func TestNormalizeCodeRepoURL(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"scp gitlab", "git@gitlab.com:group/repo.git", "https://gitlab.com/group/repo.git"},
+		{"scp gitlab nested group", "git@gitlab.com:sub/group/repo.git", "https://gitlab.com/sub/group/repo.git"},
+		{"scp github", "git@github.com:org/repo.git", "https://github.com/org/repo.git"},
+		{"scp self-hosted", "git@gitlab.example.com:grp/repo.git", "https://gitlab.example.com/grp/repo.git"},
+		{"ssh scheme default port", "ssh://git@gitlab.com/grp/repo.git", "https://gitlab.com/grp/repo.git"},
+		{"ssh scheme explicit ssh port dropped", "ssh://git@gitlab.com:22/grp/repo.git", "https://gitlab.com/grp/repo.git"},
+		{"ssh scheme custom user", "ssh://deploy@gitlab.com/grp/repo.git", "https://gitlab.com/grp/repo.git"},
+		{"git scheme", "git://gitlab.com/grp/repo.git", "https://gitlab.com/grp/repo.git"},
+		{"https unchanged", "https://gitlab.com/grp/repo.git", "https://gitlab.com/grp/repo.git"},
+		{"http with port unchanged", "http://host.docker.internal:8929/grp/repo.git", "http://host.docker.internal:8929/grp/repo.git"},
+		{"empty", "", ""},
+		{"whitespace trimmed scp", "  git@gitlab.com:g/r.git  ", "https://gitlab.com/g/r.git"},
+		{"unrecognised bare host left as-is", "github.com/org/r", "github.com/org/r"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := normalizeCodeRepoURL(tc.in); got != tc.want {
+				t.Errorf("normalizeCodeRepoURL(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveCodeRepo_NormalizesSSHRepoURL(t *testing.T) {
+	wsRepos, _ := json.Marshal([]struct{ URL string }{
+		{URL: "git@gitlab.com:group/repo.git"},
+	})
+	wsSettings, _ := json.Marshal(struct {
+		GitlabAccessToken string `json:"gitlab_access_token"`
+	}{GitlabAccessToken: "tok"})
+	mdb := &resolveTestDB{
+		workspace: &db.MulticaWorkspace{
+			ID:       testUUID(1),
+			Repos:    wsRepos,
+			Settings: wsSettings,
+		},
+		issue: &db.MulticaIssue{ID: testUUID(5), WorkspaceID: testUUID(1)},
+	}
+	svc := &TaskService{Queries: db.New(mdb)}
+	task := db.MulticaAgentTaskQueue{IssueID: testUUID(5)}
+
+	repos, _, _ := svc.resolveCodeRepoAndProject(context.Background(), task, testUUID(1))
+
+	if len(repos) != 1 {
+		t.Fatalf("repos count = %d, want 1", len(repos))
+	}
+	want := "https://gitlab.com/group/repo.git"
+	if repos[0].URL != want {
+		t.Fatalf("repos[0].URL = %q, want %q (SSH must be normalized to HTTPS before dispatch)", repos[0].URL, want)
+	}
+	// The original bug: an SSH URL made codeRepoBaseURL return "" which failed
+	// dispatch with "missing GitLab base URL". After normalization the base
+	// must resolve.
+	if base := codeRepoBaseURL(repos[0].URL); base != "https://gitlab.com" {
+		t.Fatalf("codeRepoBaseURL(normalized URL) = %q, want https://gitlab.com", base)
+	}
+}
+
 func TestResolveCodeRepo_GithubCodeRepoInfersGithubProvider(t *testing.T) {
 	wsRepos, _ := json.Marshal([]struct{ URL string }{
 		{URL: "https://github.com/org/backend.git"},
