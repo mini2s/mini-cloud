@@ -8,14 +8,20 @@ import { WorkflowRunDiagnosticsPage, nodeStepStates, sessionLogPath } from "./ru
 const mocks = vi.hoisted(() => ({
   data: null as unknown,
   runtimes: [] as unknown[],
+  splitTasks: null as unknown,
+  splitQueries: [] as Array<{ enabled?: boolean }>,
   embedded: false,
   sessionPosts: [] as Array<{ sessionId: string; newTab: boolean }>,
   pushed: [] as string[],
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: (opts: { queryKey: unknown[] }) => {
+  useQuery: (opts: { queryKey: unknown[]; enabled?: boolean }) => {
     if (opts.queryKey?.[0] === "runtimes") return { data: mocks.runtimes, isLoading: false };
+    if (opts.queryKey?.includes("split-tasks")) {
+      mocks.splitQueries.push({ enabled: opts.enabled });
+      return { data: mocks.splitTasks, isLoading: false };
+    }
     return { data: mocks.data, isLoading: false };
   },
 }));
@@ -34,6 +40,9 @@ vi.mock("@multica/core/platform", () => ({
 
 vi.mock("@multica/core/workflows/queries", () => ({
   workflowRunCanvasSummaryOptions: () => ({ queryKey: ["canvas-summary"] }),
+  splitTasksOptions: (wsId: string, nodeRunId: string) => ({
+    queryKey: ["workflows", wsId, "node-runs", nodeRunId, "split-tasks"],
+  }),
 }));
 
 vi.mock("@multica/core/runtimes/queries", () => ({
@@ -44,6 +53,9 @@ vi.mock("@multica/core/paths", () => ({
   useWorkspacePaths: () => ({
     workflowRunDetail: (workflowId: string, runId: string) => `/ws/workflows/${workflowId}/runs/${runId}`,
     runtimeDetail: (id: string) => `/ws/runtimes/${id}`,
+    issueDetail: (id: string) => `/ws/issues/${id}`,
+    workflowRunDiagnostics: (workflowId: string, runId: string) =>
+      `/ws/workflows/${workflowId}/runs/${runId}/diagnostics`,
   }),
 }));
 
@@ -67,6 +79,7 @@ const translations = {
     status: { running: "Running", completed: "Completed", failed: "Failed", cancelled: "Cancelled" },
     diagnostics: {
       title: "Run diagnostics",
+      entry: "Diagnostics",
       stage: {
         pending: "Pending dispatch",
         dispatching: "Dispatching",
@@ -97,6 +110,15 @@ const translations = {
       session_log: "Conversation log",
       copy_path: "Copy path",
       copied: "Copied",
+      split_tasks: "Subtasks ({{done}}/{{total}} done)",
+      split_task_issue: "View issue",
+      split_task_retry_at: "Retry at {{time}}",
+      split_status: {
+        created: "Created",
+        running: "Running",
+        done: "Done",
+        failed: "Failed",
+      },
       hint: {
         stage: {
           pending: "Waiting for upstream nodes to complete",
@@ -158,6 +180,8 @@ describe("WorkflowRunDiagnosticsPage", () => {
   beforeEach(() => {
     mocks.data = null;
     mocks.runtimes = [];
+    mocks.splitTasks = null;
+    mocks.splitQueries = [];
     mocks.embedded = false;
     mocks.sessionPosts = [];
     mocks.pushed = [];
@@ -461,6 +485,106 @@ describe("WorkflowRunDiagnosticsPage", () => {
     fireEvent.click(screen.getByText("Design"));
     expect(screen.getByText("/home/dev/work")).toBeInTheDocument();
     expect(screen.queryByText(/\.jsonl/)).not.toBeInTheDocument();
+  });
+
+  it("lists split children with statuses, links and errors when the node has split tasks", () => {
+    mocks.splitTasks = {
+      tasks: [
+        {
+          id: "st-1",
+          node_run_id: "nr-1",
+          title: "Build the API",
+          description: "",
+          workflow_id: "wf-child",
+          assignee_type: null,
+          assignee_id: null,
+          depends_on: [],
+          sort_order: 0,
+          status: "done",
+          issue_id: "issue-1",
+          run_id: "run-child",
+          last_error: null,
+          created_at: "",
+          updated_at: "",
+          materialize_retry_count: 0,
+          materialize_next_attempt_at: null,
+        },
+        {
+          id: "st-2",
+          node_run_id: "nr-1",
+          title: "Build the UI",
+          description: "",
+          workflow_id: null,
+          assignee_type: null,
+          assignee_id: null,
+          depends_on: [],
+          sort_order: 1,
+          status: "failed",
+          issue_id: null,
+          run_id: null,
+          last_error: { code: "dispatch_failed", message: "No runtime available", child_issue_id: null, workflow_run_id: null, node_run_id: null, occurred_at: "" },
+          created_at: "",
+          updated_at: "",
+          materialize_retry_count: 2,
+          materialize_next_attempt_at: "2026-08-04T10:00:00Z",
+        },
+      ],
+    };
+    mocks.data = baseData(
+      [{ id: "nr-1", node_title: "Implement", status: "working" }],
+      [
+        summary({
+          split_progress: { total: 2, created: 0, running: 0, done: 1, failed: 1, cancelled: 0, skipped: 0 },
+          diagnostics: { lifecycle_stage: "running", current_task: null, hint: "hint.stage.running" },
+        }),
+      ],
+    );
+    render(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
+    fireEvent.click(screen.getByText("Implement"));
+
+    expect(screen.getByText("Subtasks ({{done}}/{{total}} done)")).toBeInTheDocument();
+    expect(screen.getByText("Build the API")).toBeInTheDocument();
+    expect(screen.getByText("Build the UI")).toBeInTheDocument();
+    expect(screen.getByText("Done")).toBeInTheDocument();
+    expect(screen.getByText("Failed")).toBeInTheDocument();
+    expect(screen.getByText("No runtime available")).toBeInTheDocument();
+    expect(screen.getByText("Retry at {{time}}")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "View issue" }));
+    expect(mocks.pushed).toContain("/ws/issues/issue-1");
+    fireEvent.click(screen.getByRole("button", { name: "Diagnostics" }));
+    expect(mocks.pushed).toContain("/ws/workflows/wf-child/runs/run-child/diagnostics");
+  });
+
+  it("fetches split children lazily — only once the row is expanded", () => {
+    mocks.data = baseData(
+      [{ id: "nr-1", node_title: "Implement", status: "working" }],
+      [
+        summary({
+          split_progress: { total: 1, created: 0, running: 1, done: 0, failed: 0, cancelled: 0, skipped: 0 },
+          diagnostics: { lifecycle_stage: "running", current_task: null, hint: "hint.stage.running" },
+        }),
+      ],
+    );
+    render(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
+    // Collapsed: the split query must be disabled.
+    expect(mocks.splitQueries.at(-1)?.enabled).toBe(false);
+    expect(screen.queryByText("Subtasks ({{done}}/{{total}} done)")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Implement"));
+    expect(mocks.splitQueries.at(-1)?.enabled).toBe(true);
+    expect(screen.getByText("Subtasks ({{done}}/{{total}} done)")).toBeInTheDocument();
+  });
+
+  it("shows no subtask section for nodes without split progress", () => {
+    mocks.data = baseData(
+      [{ id: "nr-1", node_title: "Design", status: "working" }],
+      [summary({ diagnostics: { lifecycle_stage: "running", current_task: null, hint: "hint.stage.running" } })],
+    );
+    render(<WorkflowRunDiagnosticsPage workflowId="wf-1" runId="run-1" />);
+    fireEvent.click(screen.getByText("Design"));
+    expect(screen.queryByText("Subtasks ({{done}}/{{total}} done)")).not.toBeInTheDocument();
+    expect(mocks.splitQueries.at(-1)?.enabled).toBe(false);
   });
 });
 

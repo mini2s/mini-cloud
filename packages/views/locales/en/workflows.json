@@ -585,7 +585,21 @@
       "work_dir": "Working directory",
       "session_log": "Conversation log",
       "copy_path": "Copy path",
-      "copied": "Copied"
+      "copied": "Copied",
+      "split_tasks": "Subtasks ({{done}}/{{total}} done)",
+      "split_task_issue": "View issue",
+      "split_task_retry_at": "Retry at {{time}}",
+      "split_status": {
+        "draft": "Draft",
+        "approved": "Approved",
+        "discarded": "Discarded",
+        "created": "Created",
+        "running": "Running",
+        "done": "Done",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "skipped": "Skipped"
+      }
     }
   },
   "builtin_roles": {

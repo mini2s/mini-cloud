@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Check, ChevronDown, ChevronRight, Circle, Copy, LoaderCircle, Monitor, X } from "lucide-react";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { isEmbeddedInCostrict, postCostrictNavigateToSession } from "@multica/core/platform";
-import { workflowRunCanvasSummaryOptions } from "@multica/core/workflows/queries";
+import { workflowRunCanvasSummaryOptions, splitTasksOptions } from "@multica/core/workflows/queries";
 import { runtimeListOptions } from "@multica/core/runtimes/queries";
 import type {
   RuntimeDevice,
@@ -63,6 +63,14 @@ function stageLabel(t: Translator, stage: string): string {
   );
 }
 
+function splitStatusLabel(t: Translator, status: string): string {
+  return unkey(
+    t(($) => ($.run.diagnostics.split_status as Record<string, string>)[status] ?? status),
+    "run.diagnostics.split_status.",
+    status,
+  );
+}
+
 // The backend sends i18n keys ("hint.failure.timeout", "hint.stage.running").
 // Translate by indexing the hint tables inside the selector — the i18next
 // selector proxy only supports direct property access, so walking the
@@ -98,6 +106,19 @@ function formatTime(value: string | null | undefined): string | null {
 }
 
 type StepState = "done" | "active" | "failed" | "todo";
+
+function splitStepState(status: string): StepState {
+  switch (status) {
+    case "done":
+      return "done";
+    case "running":
+      return "active";
+    case "failed":
+      return "failed";
+    default:
+      return "todo";
+  }
+}
 
 function StepIcon({ state }: { state: StepState }) {
   switch (state) {
@@ -157,6 +178,7 @@ interface NodeDiagnosticsRowProps {
   nodeRun: WorkflowNodeRun;
   summary: WorkflowNodeRuntimeSummary | null;
   runtime: RuntimeDevice | null;
+  wsId: string;
   t: Translator;
 }
 
@@ -210,7 +232,7 @@ function CopyablePath({ label, path, t }: { label: string; path: string; t: Tran
   );
 }
 
-function NodeDiagnosticsRow({ nodeRun, summary, runtime, t }: NodeDiagnosticsRowProps) {
+function NodeDiagnosticsRow({ nodeRun, summary, runtime, wsId, t }: NodeDiagnosticsRowProps) {
   const navigation = useNavigation();
   const wsPaths = useWorkspacePaths();
   const diagnostics = summary?.diagnostics ?? null;
@@ -219,6 +241,15 @@ function NodeDiagnosticsRow({ nodeRun, summary, runtime, t }: NodeDiagnosticsRow
   const steps = nodeStepStates(diagnostics);
   const task = diagnostics?.current_task ?? null;
   const errorMessage = summary?.error_message?.trim() || task?.error?.trim() || "";
+  // Split children live in a separate table, so they only load when the row
+  // is expanded. split_progress (already in the summary) is the signal that
+  // this node has children at all.
+  const hasSplit = summary?.split_progress != null;
+  const { data: splitData } = useQuery({
+    ...splitTasksOptions(wsId, nodeRun.id),
+    enabled: open && hasSplit,
+  });
+  const splitTasks = [...(splitData?.tasks ?? [])].sort((a, b) => a.sort_order - b.sort_order);
 
   const stepLabels = [
     t(($) => $.run.diagnostics.step_dispatch),
@@ -338,6 +369,58 @@ function NodeDiagnosticsRow({ nodeRun, summary, runtime, t }: NodeDiagnosticsRow
             </p>
           ) : null}
 
+          {hasSplit ? (
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground">
+                {t(($) => $.run.diagnostics.split_tasks, {
+                  done: summary?.split_progress?.done ?? 0,
+                  total: summary?.split_progress?.total ?? 0,
+                })}
+              </p>
+              {splitTasks.map((child) => (
+                <div key={child.id} className="space-y-0.5">
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <StepIcon state={splitStepState(child.status)} />
+                    <span className="min-w-0 flex-1 truncate text-foreground/90">{child.title}</span>
+                    <Badge variant="outline" className="shrink-0 text-[10px]">
+                      {splitStatusLabel(t, child.status)}
+                    </Badge>
+                    {child.issue_id ? (
+                      <button
+                        type="button"
+                        className="shrink-0 text-primary hover:underline"
+                        onClick={() => navigation.push(wsPaths.issueDetail(child.issue_id!))}
+                      >
+                        {t(($) => $.run.diagnostics.split_task_issue)}
+                      </button>
+                    ) : null}
+                    {child.workflow_id && child.run_id ? (
+                      <button
+                        type="button"
+                        className="shrink-0 text-primary hover:underline"
+                        onClick={() =>
+                          navigation.push(wsPaths.workflowRunDiagnostics(child.workflow_id!, child.run_id!))
+                        }
+                      >
+                        {t(($) => $.run.diagnostics.entry)}
+                      </button>
+                    ) : null}
+                  </div>
+                  {child.last_error?.message ? (
+                    <p className="pl-5 text-[11px] text-destructive">{child.last_error.message}</p>
+                  ) : null}
+                  {formatTime(child.materialize_next_attempt_at) ? (
+                    <p className="pl-5 text-[11px] text-muted-foreground">
+                      {t(($) => $.run.diagnostics.split_task_retry_at, {
+                        time: formatTime(child.materialize_next_attempt_at),
+                      })}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
           {workDir ? (
             <div className="space-y-1">
               <CopyablePath label={t(($) => $.run.diagnostics.work_dir)} path={workDir} t={t} />
@@ -451,6 +534,7 @@ export function WorkflowRunDiagnosticsPage({ workflowId, runId }: RunDiagnostics
                 nodeRun={nodeRun}
                 summary={summary}
                 runtime={runtimeId ? (runtimeById.get(runtimeId) ?? null) : null}
+                wsId={wsId}
                 t={t}
               />
             );
