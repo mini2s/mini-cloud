@@ -384,6 +384,7 @@ export function WorkflowRunPage({ workflowId, runId }: WorkflowRunPageProps) {
             issueId={issueId}
             fillAvailableHeight
             showRoleAssignmentEntry={false}
+            showDiagnosticsEntry={false}
           />
         </div>
         {resolutions.length > 0 ? (

@@ -147,6 +147,7 @@ describe("WorkflowRunPage", () => {
       issueId: "issue-1",
       fillAvailableHeight: true,
       showRoleAssignmentEntry: false,
+      showDiagnosticsEntry: false,
     });
     expect(screen.queryByTestId("legacy-dag-canvas")).not.toBeInTheDocument();
     expect(screen.queryByTestId("legacy-node-run-card")).not.toBeInTheDocument();
