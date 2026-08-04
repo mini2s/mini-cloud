@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   WorkflowNode,
@@ -150,7 +151,8 @@ vi.mock("@multica/views/i18n", () => ({
         task_drawer_submit_failed: "Failed to submit deliverables",
         task_drawer_submit_hint: "Each submission adds one item",
         task_drawer_submit_form_hint: "Choose a deliverable",
-        task_drawer_more: "More operations",
+        task_drawer_more: "More information",
+        task_drawer_runtime_info: "Runtime information",
         task_drawer_review_placeholder: "Review comment",
         task_drawer_rerun: "Run again",
         task_drawer_cancel: "Cancel execution",
@@ -245,7 +247,8 @@ describe("TaskNodeDetailPanel", () => {
     expect(formatPullRequestLabel(url, "Pull request")).toBe(expected);
   });
 
-  it("renders the canonical 620px running task drawer", () => {
+  it("renders the canonical 620px running task drawer", async () => {
+    const user = userEvent.setup();
     render(<TaskNodeDetailPanel node={node} nodeRun={run} previousNodeRun={previousRun} issueDescription="Implement the notification endpoint." workerName="worker-claude" criticName="critic-gpt" onClose={vi.fn()} wsId="ws-1" />);
 
     expect(screen.getByTestId("workflow-node-detail-panel-shell")).toHaveClass("w-[620px]");
@@ -262,7 +265,10 @@ describe("TaskNodeDetailPanel", () => {
     expect(screen.queryByRole("button", { name: "Cancel execution" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("node-detail-panel-footer")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "More operations" }));
+    const moreInformation = screen.getByRole("button", { name: "More information" });
+    expect(screen.getByTestId("node-detail-panel-badge-actions")).toContainElement(moreInformation);
+    await user.hover(moreInformation);
+    expect(await screen.findByText("Runtime information")).toBeInTheDocument();
 
     expect(screen.queryByRole("button", { name: "Cancel execution" })).not.toBeInTheDocument();
   });
@@ -553,6 +559,38 @@ describe("TaskNodeDetailPanel", () => {
     expect(screen.getByRole("button", { name: "Runtime controls" })).toBeInTheDocument();
   });
 
+  it("keeps node controls and Open session in one footer action row", () => {
+    mocks.embedded = true;
+    mocks.sessionPermission = { can_observe: true };
+    currentData = { deliverables: [], submissions: [] };
+
+    render(
+      <TaskNodeDetailPanel
+        node={{ ...node, worker_type: "human" }}
+        nodeRun={{
+          ...run,
+          status: "blocked",
+          worker_type: "human",
+          worker_id: "user-1",
+          runtime_id: "runtime-1",
+          session_id: "session-1",
+        }}
+        workerName="human-worker"
+        criticName="critic-gpt"
+        onClose={vi.fn()}
+        wsId="ws-1"
+        currentUserId="user-1"
+        currentMember={{ role: "member", status: "active" }}
+      />,
+    );
+
+    const actionRow = screen.getByTestId("node-run-action-toolbar");
+    expect(actionRow).toHaveClass("flex", "flex-nowrap");
+    expect(actionRow).toContainElement(screen.getByRole("button", { name: "Skip node" }));
+    expect(actionRow).toContainElement(screen.getByRole("button", { name: "Runtime controls" }));
+    expect(actionRow).toContainElement(screen.getByRole("button", { name: "Open session" }));
+  });
+
   it("only exposes Open session when the user can observe it", () => {
     mocks.embedded = true;
     const sessionRun = { ...run, session_id: "session-1" };
@@ -572,7 +610,8 @@ describe("TaskNodeDetailPanel", () => {
     expect(mocks.navigateToSession).toHaveBeenCalledWith({ sessionId: "session-1", newTab: true });
   });
 
-  it("shows Retry directly in the footer instead of More operations", () => {
+  it("shows Retry directly in the footer instead of More information", async () => {
+    const user = userEvent.setup();
     const onRetry = vi.fn();
     render(
       <TaskNodeDetailPanel
@@ -590,11 +629,12 @@ describe("TaskNodeDetailPanel", () => {
     fireEvent.click(within(footer).getByRole("button", { name: "Retry" }));
     expect(onRetry).toHaveBeenCalledOnce();
 
-    fireEvent.click(screen.getByRole("button", { name: "More operations" }));
+    await user.hover(screen.getByRole("button", { name: "More information" }));
     expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
   });
 
-  it("keeps rejected submissions and complete runtime diagnostics visible", () => {
+  it("keeps rejected submissions and complete runtime diagnostics visible", async () => {
+    const user = userEvent.setup();
     currentData = {
       ...makeCurrentData(),
       submissions: [{
@@ -623,7 +663,8 @@ describe("TaskNodeDetailPanel", () => {
 
     expect(screen.getByText("Rejected")).toBeInTheDocument();
     expect(screen.getByText("Needs a regression test")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "More operations" }));
+    await user.hover(screen.getByRole("button", { name: "More information" }));
+    await screen.findByText("Worker output");
     expect(screen.getByText("Worker output")).toBeInTheDocument();
     expect(screen.getByText("Critic output")).toBeInTheDocument();
     expect(screen.getByText("Critic comment")).toBeInTheDocument();

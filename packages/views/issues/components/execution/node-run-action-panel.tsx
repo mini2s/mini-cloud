@@ -30,6 +30,8 @@ interface NodeRunActionPanelProps {
   runId?: string;
   reviewEditor?: ReactNode;
   reviewActions?: ReactNode;
+  additionalActions?: ReactNode;
+  singleRow?: boolean;
 }
 
 export function NodeRunActionPanel({
@@ -40,6 +42,8 @@ export function NodeRunActionPanel({
   runId,
   reviewEditor,
   reviewActions,
+  additionalActions,
+  singleRow = false,
 }: NodeRunActionPanelProps) {
   const { t } = useT("issues");
   const [workerSummary, setWorkerSummary] = useState("");
@@ -71,7 +75,13 @@ export function NodeRunActionPanel({
     (nodeRun.status === "blocked" && nodeRun.completed_at == null)
   );
 
-  if (!hasHumanActions && !hasRuntimeControls && reviewEditor == null) return null;
+  const hasToolbarActions = hasHumanActions || hasRuntimeControls || additionalActions != null;
+
+  if (!hasToolbarActions && reviewEditor == null) return null;
+
+  const actionButtonClass = singleRow
+    ? "h-7 min-w-20 shrink-0 text-xs"
+    : "w-full min-w-0";
 
   return (
     <div className="space-y-3">
@@ -92,18 +102,20 @@ export function NodeRunActionPanel({
         </div>
       ) : null}
 
-      {hasHumanActions || hasRuntimeControls ? (
+      {hasToolbarActions ? (
         <div
           data-testid="node-run-action-toolbar"
-          className={`grid min-h-8 grid-cols-[repeat(2,minmax(0,7rem))] gap-3 border-t border-border/60 pt-3 ${
-            reviewActions != null ? "justify-end" : "justify-start"
-          }`}
+          className={singleRow
+            ? "flex min-h-8 flex-nowrap items-center justify-end gap-2 overflow-x-auto"
+            : `grid min-h-8 grid-cols-[repeat(2,minmax(0,7rem))] gap-3 border-t border-border/60 pt-3 ${
+                reviewActions != null ? "justify-end" : "justify-start"
+              }`}
         >
           {reviewActions}
           {access.canSubmit ? (
             <Button
-              size="default"
-              className="w-full min-w-0"
+              size={singleRow ? "sm" : "default"}
+              className={actionButtonClass}
               onClick={handleSubmit}
               disabled={submitMutation.isPending}
             >
@@ -119,9 +131,9 @@ export function NodeRunActionPanel({
               <AlertDialogTrigger
                 render={(
                   <Button
-                    size="default"
+                    size={singleRow ? "sm" : "default"}
                     variant="outline"
-                    className="w-full min-w-0"
+                    className={actionButtonClass}
                     disabled={skipMutation.isPending}
                   >
                     <SkipForward data-icon="inline-start" />
@@ -154,10 +166,11 @@ export function NodeRunActionPanel({
             workflowId={workflowId}
             runId={runId}
             wsId={wsId}
-            size="default"
+            size={singleRow ? "sm" : "default"}
             showOpenSession={false}
-            layout="grid-items"
+            layout={singleRow ? "row-items" : "grid-items"}
           />
+          {additionalActions}
         </div>
       ) : null}
 

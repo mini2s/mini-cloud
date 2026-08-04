@@ -701,7 +701,7 @@
       "task_drawer_submit_failed": "提交交付物失败",
       "task_drawer_submit_hint": "每次提交新增一项；文档与 PR 均提交后进入评审",
       "task_drawer_submit_form_hint": "选择交付物并提交文件或 PR 链接",
-      "task_drawer_more": "更多操作",
+      "task_drawer_more": "更多信息",
       "task_drawer_runtime_info": "运行信息",
       "task_drawer_output_summary": "执行输出摘要",
       "worker_output": "Worker 输出",

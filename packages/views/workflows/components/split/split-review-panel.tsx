@@ -12,12 +12,14 @@ import { ApiError } from "@multica/core/api";
 import {
   nodeRunDeliverableSubmissionsOptions,
   splitTasksOptions,
+  useSessionPermission,
   useApproveSplitTasks,
   useCancelSplitNode,
   useGenerateSplitTasks,
   useRejectSplitTasks,
   useRetrySplitTask,
 } from "@multica/core/workflows/queries";
+import { isEmbeddedInCostrict, postCostrictNavigateToSession } from "@multica/core/platform";
 import {
   AlignLeft,
   AlertTriangle,
@@ -35,7 +37,7 @@ import { WorkflowNodeDetailPanelShell } from "../../../common/workflow-node-deta
 import {
   CurrentDeliverablesCard,
   DrawerBadge,
-  DrawerMoreOperations,
+  DrawerMoreInformation,
   DrawerSection,
   IssueDescriptionCard,
   PreviousDeliverableCard,
@@ -49,6 +51,7 @@ import {
   runtimeDisplayStatusText,
   runtimeDisplayStatusTone,
 } from "../../../issues/components/execution/runtime-display-status";
+import { resolveEnterSessionId } from "../../../issues/components/execution/runtime-session";
 
 interface SplitReviewPanelProps {
   node: WorkflowNode;
@@ -117,6 +120,15 @@ export function SplitReviewPanel({
   const materializing = status === "materializing";
   const blocked = status === "blocked";
   const active = status === "split_active";
+  const sessionId = resolveEnterSessionId(nodeRun, runtimeSummary);
+  const { data: sessionPermission } = useSessionPermission(sessionId);
+  const canOpenSession = !!sessionId
+    && sessionPermission?.can_observe === true
+    && isEmbeddedInCostrict();
+  const openSession = () => {
+    if (!sessionId || !canOpenSession) return;
+    postCostrictNavigateToSession({ sessionId, newTab: true });
+  };
 
   // Status can arrive through node-run polling even if the corresponding
   // lifecycle WebSocket event was missed. Refetch on the review transition so
@@ -243,16 +255,24 @@ export function SplitReviewPanel({
   ) : null;
   const canRetryFailed = (materializing || blocked) && (progress?.exhausted ?? 0) > 0;
   const canManagePlan = !!nodeRunId && generation > 0;
-  const hasFooterActions = canRetryFailed || canManagePlan || (active && !!onViewChildren);
+  const hasFooterActions = canOpenSession || canRetryFailed || canManagePlan || (active && !!onViewChildren);
   const footer = reviewFooter || hasFooterActions ? (
     <div className="space-y-3">
       {reviewFooter}
       {hasFooterActions ? (
-        <div className={`flex flex-wrap justify-end gap-2 ${reviewFooter ? "border-t border-border/60 pt-3" : ""}`}>
+        <div
+          data-testid="split-node-action-toolbar"
+          className={`flex flex-nowrap items-center justify-end gap-2 overflow-x-auto ${reviewFooter ? "border-t border-border/60 pt-3" : ""}`}
+        >
+          {canOpenSession ? (
+            <button type="button" className={`${drawerSmallButtonClass} shrink-0 border-border bg-background hover:bg-muted`} onClick={openSession}>
+              {ti(($) => $.execution.detail_panel.open_session)}
+            </button>
+          ) : null}
           {canRetryFailed ? (
             <button
               type="button"
-              className={`${drawerSmallButtonClass} border-border bg-background hover:bg-muted`}
+              className={`${drawerSmallButtonClass} shrink-0 border-border bg-background hover:bg-muted`}
               disabled={busy}
               onClick={() => data?.tasks.filter((task) => !task.issue_id && task.status === "failed").forEach((task) => {
                 retry.mutate({ ...mutationContext, taskId: task.id, request: { expected_split_generation: generation } }, { onError: handleError });
@@ -264,24 +284,49 @@ export function SplitReviewPanel({
           ) : null}
           {canManagePlan ? (
             <>
-              <button type="button" className={`${drawerSmallButtonClass} border-border bg-background hover:bg-muted`} disabled={busy} onClick={regenerate}>
+              <button type="button" className={`${drawerSmallButtonClass} shrink-0 border-border bg-background hover:bg-muted`} disabled={busy} onClick={regenerate}>
                 <GitBranch className="size-3" />
                 {t(($) => $.detail_panel.split_drawer_regenerate)}
               </button>
-              <button type="button" className={`${drawerSmallButtonClass} border-destructive/30 bg-background text-destructive hover:bg-destructive/5`} disabled={busy} onClick={cancelSplit}>
+              <button type="button" className={`${drawerSmallButtonClass} shrink-0 border-destructive/30 bg-background text-destructive hover:bg-destructive/5`} disabled={busy} onClick={cancelSplit}>
                 <Ban className="size-3" />
                 {t(($) => $.detail_panel.split_drawer_cancel)}
               </button>
             </>
           ) : null}
           {active && onViewChildren ? (
-            <button type="button" className={`${drawerSmallButtonClass} border-border bg-background hover:bg-muted`} onClick={onViewChildren}>
+            <button type="button" className={`${drawerSmallButtonClass} shrink-0 border-border bg-background hover:bg-muted`} onClick={onViewChildren}>
               {t(($) => $.detail_panel.split_drawer_view_children)}
             </button>
           ) : null}
         </div>
       ) : null}
     </div>
+  ) : undefined;
+  const moreInformation = validation.length > 0 ? (
+    <DrawerMoreInformation
+      title={t(($) => $.detail_panel.split_drawer_more)}
+      badge={<DrawerBadge tone="red">{validation.length}</DrawerBadge>}
+    >
+      <div>
+        <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+          <AlertTriangle className="size-3 text-destructive" />
+          {t(($) => $.detail_panel.split_drawer_validation_count, { count: validation.length })}
+        </div>
+        <ul className="space-y-1 rounded-lg border border-destructive/25 bg-destructive/5 px-[11px] py-[9px] font-mono text-[11.5px] leading-[1.5] text-destructive">
+          {validation.map((detail, index) => (
+            <li key={`${detail.line ?? 0}-${detail.field ?? "document"}-${index}`}>
+              {t(($) => $.detail_panel.split_validation_detail, {
+                line: detail.line ?? 0,
+                field: detail.field ?? "document",
+                message: detail.message ?? t(($) => $.detail_panel.split_invalid_value),
+              })}
+            </li>
+          ))}
+        </ul>
+        <p className="mt-1.5 text-xs text-muted-foreground">{t(($) => $.detail_panel.split_drawer_validation_hint)}</p>
+      </div>
+    </DrawerMoreInformation>
   ) : undefined;
 
   return (
@@ -301,6 +346,7 @@ export function SplitReviewPanel({
           {statusMeta.line ? <span className="text-[11px] text-muted-foreground">{statusMeta.line}</span> : null}
         </>
       )}
+      badgeActions={moreInformation}
       footer={footer}
       contentClassName="py-3.5"
     >
@@ -349,32 +395,6 @@ export function SplitReviewPanel({
           />
         </DrawerSection>
 
-        {validation.length > 0 ? (
-          <DrawerMoreOperations
-            title={t(($) => $.detail_panel.split_drawer_more)}
-            defaultOpen
-            badge={<DrawerBadge tone="red">{validation.length}</DrawerBadge>}
-          >
-            <div className="mb-2.5">
-              <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-                <AlertTriangle className="size-3 text-destructive" />
-                {t(($) => $.detail_panel.split_drawer_validation_count, { count: validation.length })}
-              </div>
-              <ul className="space-y-1 rounded-lg border border-destructive/25 bg-destructive/5 px-[11px] py-[9px] font-mono text-[11.5px] leading-[1.5] text-destructive">
-                {validation.map((detail, index) => (
-                  <li key={`${detail.line ?? 0}-${detail.field ?? "document"}-${index}`}>
-                    {t(($) => $.detail_panel.split_validation_detail, {
-                      line: detail.line ?? 0,
-                      field: detail.field ?? "document",
-                      message: detail.message ?? t(($) => $.detail_panel.split_invalid_value),
-                    })}
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-1.5 text-xs text-muted-foreground">{t(($) => $.detail_panel.split_drawer_validation_hint)}</p>
-            </div>
-          </DrawerMoreOperations>
-        ) : null}
       </div>
     </WorkflowNodeDetailPanelShell>
   );

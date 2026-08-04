@@ -40,7 +40,7 @@ import { NativeSelect, NativeSelectOption } from "@multica/ui/components/ui/nati
 import { WorkflowNodeDetailPanelShell } from "../../../common/workflow-node-detail-panel-shell";
 import {
   DrawerBadge,
-  DrawerMoreOperations,
+  DrawerMoreInformation,
   DrawerSection,
   IssueDescriptionCard,
   PreviousDeliverableCard,
@@ -606,12 +606,34 @@ export function TaskNodeDetailPanel({
         canSubmit: baseAccess.canSubmit && (currentData?.deliverables.length ?? 0) === 0,
       }
     : null;
+  const footerKeyActions = (
+    <>
+      {canOpenSession ? (
+        <button type="button" className={`${drawerSmallButtonClass} shrink-0 border-border bg-background hover:bg-muted`} onClick={openSession}>
+          {t(($) => $.execution.detail_panel.open_session)}
+        </button>
+      ) : null}
+      {onOpenIssue ? (
+        <button type="button" className={`${drawerSmallButtonClass} shrink-0 border-border bg-background hover:bg-muted`} onClick={onOpenIssue}>
+          <ExternalLink className="size-3" />
+          {isChildIssue ? t(($) => $.execution.detail_panel.open_child_issue) : t(($) => $.execution.detail_panel.view_full_issue)}
+        </button>
+      ) : null}
+      {onRetry ? (
+        <button type="button" className={`${drawerSmallButtonClass} shrink-0 border-border bg-background hover:bg-muted`} onClick={onRetry}>
+          <RefreshCcw className="size-3" />
+          {t(($) => $.execution.detail_panel.task_drawer_retry)}
+        </button>
+      ) : null}
+    </>
+  );
+  const hasFooterKeyActions = canOpenSession || !!onOpenIssue || !!onRetry;
   const hasRuntimeControls = nodeRun?.runtime_id != null && (
     nodeRun.status === "working" ||
     (nodeRun.status === "blocked" && nodeRun.completed_at == null)
   );
   const hasPrimaryNodeActions = !!nodeRun && !!actionAccess && (
-    actionAccess.canSubmit || actionAccess.canSkip || hasRuntimeControls
+    actionAccess.canSubmit || actionAccess.canSkip || hasRuntimeControls || hasFooterKeyActions
   );
   const nodeActionPanel = nodeRun && actionAccess ? (
     <NodeRunActionPanel
@@ -620,6 +642,8 @@ export function TaskNodeDetailPanel({
       wsId={wsId}
       workflowId={workflowId}
       runId={runId ?? undefined}
+      additionalActions={hasFooterKeyActions ? footerKeyActions : undefined}
+      singleRow
     />
   ) : null;
   const footerPrimary = canReview ? (
@@ -662,37 +686,84 @@ export function TaskNodeDetailPanel({
     nodeActionPanel
   ) : null;
   const footerSupplementaryActions = (canUpload || canReview)
-    && (actionAccess?.canSkip || hasRuntimeControls)
+    && (actionAccess?.canSkip || hasRuntimeControls || hasFooterKeyActions)
     ? nodeActionPanel
     : null;
-  const hasFooterKeyActions = canOpenSession || !!onOpenIssue || !!onRetry;
-  const footer = footerPrimary || footerSupplementaryActions || hasFooterKeyActions ? (
+  const keyActionsNeedStandaloneRow = hasFooterKeyActions && !nodeActionPanel;
+  const footer = footerPrimary || footerSupplementaryActions || keyActionsNeedStandaloneRow ? (
     <div className="space-y-3">
       {footerPrimary}
       {footerSupplementaryActions}
-      {hasFooterKeyActions ? (
-        <div className={`flex flex-wrap justify-end gap-2 ${footerPrimary || footerSupplementaryActions ? "border-t border-border/60 pt-3" : ""}`}>
-          {canOpenSession ? (
-            <button type="button" className={`${drawerSmallButtonClass} border-border bg-background hover:bg-muted`} onClick={openSession}>
-              {t(($) => $.execution.detail_panel.open_session)}
-            </button>
-          ) : null}
-          {onOpenIssue ? (
-            <button type="button" className={`${drawerSmallButtonClass} border-border bg-background hover:bg-muted`} onClick={onOpenIssue}>
-              <ExternalLink className="size-3" />
-              {isChildIssue ? t(($) => $.execution.detail_panel.open_child_issue) : t(($) => $.execution.detail_panel.view_full_issue)}
-            </button>
-          ) : null}
-          {onRetry ? (
-            <button type="button" className={`${drawerSmallButtonClass} border-border bg-background hover:bg-muted`} onClick={onRetry}>
-              <RefreshCcw className="size-3" />
-              {t(($) => $.execution.detail_panel.task_drawer_retry)}
-            </button>
-          ) : null}
+      {keyActionsNeedStandaloneRow ? (
+        <div className="flex flex-nowrap items-center justify-end gap-2 overflow-x-auto">
+          {footerKeyActions}
         </div>
       ) : null}
     </div>
   ) : undefined;
+  const moreInformation = (
+    <DrawerMoreInformation title={t(($) => $.execution.detail_panel.task_drawer_more)}>
+      <div className="space-y-3.5">
+        <div>
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+            {t(($) => $.execution.detail_panel.task_drawer_runtime_info)}
+          </div>
+          <dl className="grid gap-1 text-xs">
+            {parentSplitTitle ? <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.parent_split)}</dt><dd>{parentSplitTitle}</dd></div> : null}
+            {childAssigneeName ? <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.child_assignee)}</dt><dd>{childAssigneeName}</dd></div> : null}
+            <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.started_at)}</dt><dd>{nodeRun?.started_at ? new Date(nodeRun.started_at).toLocaleString() : "—"}</dd></div>
+            {nodeRun?.completed_at ? <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.completed_at)}</dt><dd>{new Date(nodeRun.completed_at).toLocaleString()}</dd></div> : null}
+            <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.duration)}</dt><dd>{duration == null ? "—" : formatRuntimeDuration(duration)}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.retry_count)}</dt><dd>{nodeRun?.retry_count ?? 0}</dd></div>
+          </dl>
+        </div>
+        {errorMessage ? (
+          <div>
+            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-destructive">
+              {t(($) => $.execution.detail_panel.error)}
+            </div>
+            <p className="rounded-lg bg-destructive/5 px-2.5 py-2 text-xs text-destructive">{errorMessage}</p>
+          </div>
+        ) : null}
+        <div>
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+            {t(($) => $.execution.detail_panel.task_drawer_output_summary)}
+          </div>
+          <div className="space-y-2">
+            {nodeRun?.worker_output != null ? (
+              <div>
+                <div className="mb-1 text-[11px] font-medium text-muted-foreground">{t(($) => $.execution.detail_panel.worker_output)}</div>
+                <pre className="m-0 max-h-24 overflow-auto whitespace-pre-wrap rounded-lg bg-muted px-2.5 py-2 font-mono text-[11.5px]">
+                  {formatOutput(nodeRun.worker_output, t(($) => $.execution.detail_panel.no_output))}
+                </pre>
+              </div>
+            ) : null}
+            {nodeRun?.critic_output != null ? (
+              <div>
+                <div className="mb-1 text-[11px] font-medium text-muted-foreground">{t(($) => $.execution.detail_panel.critic_output)}</div>
+                <pre className="m-0 max-h-24 overflow-auto whitespace-pre-wrap rounded-lg bg-muted px-2.5 py-2 font-mono text-[11.5px]">
+                  {formatOutput(nodeRun.critic_output, t(($) => $.execution.detail_panel.no_output))}
+                </pre>
+              </div>
+            ) : null}
+            {nodeRun?.worker_output == null && nodeRun?.critic_output == null ? (
+              <p className="rounded-lg bg-muted px-2.5 py-2 text-xs text-muted-foreground">
+                {t(($) => $.execution.detail_panel.no_output)}
+              </p>
+            ) : null}
+          </div>
+        </div>
+        {nodeRun?.critic_comment ? (
+          <div>
+            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+              {t(($) => $.execution.detail_panel.critic_comment)}
+            </div>
+            <p className="rounded-lg bg-muted px-2.5 py-2 text-xs text-muted-foreground">{nodeRun.critic_comment}</p>
+          </div>
+        ) : null}
+      </div>
+    </DrawerMoreInformation>
+  );
 
   return (
     <WorkflowNodeDetailPanelShell
@@ -711,6 +782,7 @@ export function TaskNodeDetailPanel({
           <span className="text-[11px] leading-[1.6] text-muted-foreground">{statusMeta.line}</span>
         </>
       )}
+      badgeActions={moreInformation}
       headerExtra={(
         <div className="mt-2 flex items-center gap-1.5 text-[11px] leading-[1.6] text-muted-foreground">
           <User className="size-3" />
@@ -766,67 +838,6 @@ export function TaskNodeDetailPanel({
           />
         </DrawerSection>
 
-        <DrawerMoreOperations title={t(($) => $.execution.detail_panel.task_drawer_more)}>
-          <div className="space-y-3.5">
-            <div>
-              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-                {t(($) => $.execution.detail_panel.task_drawer_runtime_info)}
-              </div>
-              <dl className="grid gap-1 text-xs">
-                {parentSplitTitle ? <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.parent_split)}</dt><dd>{parentSplitTitle}</dd></div> : null}
-                {childAssigneeName ? <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.child_assignee)}</dt><dd>{childAssigneeName}</dd></div> : null}
-                <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.started_at)}</dt><dd>{nodeRun?.started_at ? new Date(nodeRun.started_at).toLocaleString() : "—"}</dd></div>
-                {nodeRun?.completed_at ? <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.completed_at)}</dt><dd>{new Date(nodeRun.completed_at).toLocaleString()}</dd></div> : null}
-                <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.duration)}</dt><dd>{duration == null ? "—" : formatRuntimeDuration(duration)}</dd></div>
-                <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t(($) => $.execution.detail_panel.retry_count)}</dt><dd>{nodeRun?.retry_count ?? 0}</dd></div>
-              </dl>
-            </div>
-            {errorMessage ? (
-              <div>
-                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-destructive">
-                  {t(($) => $.execution.detail_panel.error)}
-                </div>
-                <p className="rounded-lg bg-destructive/5 px-2.5 py-2 text-xs text-destructive">{errorMessage}</p>
-              </div>
-            ) : null}
-            <div>
-              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-                {t(($) => $.execution.detail_panel.task_drawer_output_summary)}
-              </div>
-              <div className="space-y-2">
-                {nodeRun?.worker_output != null ? (
-                  <div>
-                    <div className="mb-1 text-[11px] font-medium text-muted-foreground">{t(($) => $.execution.detail_panel.worker_output)}</div>
-                    <pre className="m-0 max-h-24 overflow-auto whitespace-pre-wrap rounded-lg bg-muted px-2.5 py-2 font-mono text-[11.5px]">
-                      {formatOutput(nodeRun.worker_output, t(($) => $.execution.detail_panel.no_output))}
-                    </pre>
-                  </div>
-                ) : null}
-                {nodeRun?.critic_output != null ? (
-                  <div>
-                    <div className="mb-1 text-[11px] font-medium text-muted-foreground">{t(($) => $.execution.detail_panel.critic_output)}</div>
-                    <pre className="m-0 max-h-24 overflow-auto whitespace-pre-wrap rounded-lg bg-muted px-2.5 py-2 font-mono text-[11.5px]">
-                      {formatOutput(nodeRun.critic_output, t(($) => $.execution.detail_panel.no_output))}
-                    </pre>
-                  </div>
-                ) : null}
-                {nodeRun?.worker_output == null && nodeRun?.critic_output == null ? (
-                  <p className="rounded-lg bg-muted px-2.5 py-2 text-xs text-muted-foreground">
-                    {t(($) => $.execution.detail_panel.no_output)}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-            {nodeRun?.critic_comment ? (
-              <div>
-                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-                  {t(($) => $.execution.detail_panel.critic_comment)}
-                </div>
-                <p className="rounded-lg bg-muted px-2.5 py-2 text-xs text-muted-foreground">{nodeRun.critic_comment}</p>
-              </div>
-            ) : null}
-          </div>
-        </DrawerMoreOperations>
       </div>
     </WorkflowNodeDetailPanelShell>
   );

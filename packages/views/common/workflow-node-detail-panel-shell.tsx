@@ -26,6 +26,7 @@ interface WorkflowNodeDetailPanelShellProps {
   title: ReactNode;
   eyebrow?: ReactNode;
   badges?: ReactNode;
+  badgeActions?: ReactNode;
   statusIcon?: ReactNode;
   headerExtra?: ReactNode;
   closeLabel: string;
@@ -43,6 +44,7 @@ export function WorkflowNodeDetailPanelShell({
   title,
   eyebrow,
   badges,
+  badgeActions,
   statusIcon,
   headerExtra,
   closeLabel,
@@ -87,7 +89,19 @@ export function WorkflowNodeDetailPanelShell({
             <X className="size-4" />
           </button>
         </div>
-        {badges ? <div className="flex flex-wrap items-center gap-1.5">{badges}</div> : null}
+        {badges || badgeActions ? (
+          <div
+            data-testid="node-detail-panel-status-row"
+            className="flex items-start justify-between gap-3"
+          >
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">{badges}</div>
+            {badgeActions ? (
+              <div data-testid="node-detail-panel-badge-actions" className="shrink-0">
+                {badgeActions}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         {headerExtra}
       </div>
 

@@ -232,7 +232,7 @@
     "split_drawer_submitted_at": "提交于",
     "split_drawer_children_active": "子任务已全部创建并进入执行",
     "split_drawer_materializing_note": "正在逐条创建子任务 · {{retry}} 个等待自动重试（{{next}}）· {{exhausted}} 个失败项可重试",
-    "split_drawer_more": "更多操作",
+    "split_drawer_more": "更多信息",
     "split_drawer_validation_count": "task.md 校验 · {{count}} 处错误",
     "split_drawer_validation_hint": "approve 时刻服务端校验失败（422）。请在 Gitea 修复后重新通过快照。",
     "split_drawer_retry_failed": "重试失败项",

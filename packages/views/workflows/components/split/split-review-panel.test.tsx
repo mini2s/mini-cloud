@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "@multica/core/api";
 import type {
   SplitTasksResponse,
   WorkflowNode,
@@ -19,6 +21,9 @@ const mocks = vi.hoisted(() => ({
   retry: vi.fn(),
   cancel: vi.fn(),
   refetchDeliverables: vi.fn(),
+  navigateToSession: vi.fn(),
+  sessionPermission: { can_observe: false },
+  embedded: false,
   deliverableData: {
     deliverables: [] as WorkflowNodeDeliverable[],
     submissions: [] as WorkflowNodeDeliverableSubmission[],
@@ -41,6 +46,12 @@ vi.mock("@multica/core/workflows/queries", () => ({
   useGenerateSplitTasks: () => ({ mutate: mocks.generate, isPending: false }),
   useRetrySplitTask: () => ({ mutate: mocks.retry, isPending: false }),
   useCancelSplitNode: () => ({ mutate: mocks.cancel, isPending: false }),
+  useSessionPermission: () => ({ data: mocks.sessionPermission }),
+}));
+
+vi.mock("@multica/core/platform", () => ({
+  isEmbeddedInCostrict: () => mocks.embedded,
+  postCostrictNavigateToSession: mocks.navigateToSession,
 }));
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
@@ -92,14 +103,18 @@ vi.mock("@multica/views/i18n", () => ({
           split_retry: "Retry",
           split_drawer_approve: "Approve snapshot",
           split_drawer_retry_failed: "Retry",
-          split_drawer_more: "More operations",
+          split_drawer_more: "More information",
           split_drawer_regenerate: "Regenerate plan",
           split_drawer_cancel: "Cancel split",
           split_drawer_view_children: "View child issues",
           split_drawer_previous: "Previous node deliverable",
           split_drawer_previous_empty: "No previous deliverable",
+          split_drawer_validation_count: "Validation issues: {{count}}",
+          split_validation_detail: "Line {{line}} · {{field}}: {{message}}",
+          split_drawer_validation_hint: "Fix the validation issues and try again.",
           task_drawer_issue_description: "Task description",
           task_drawer_issue_description_empty: "No description",
+          open_session: "Open session",
         } as Record<string, string>, {
           get: (target, property: string) => target[property] ?? property,
         });
@@ -113,9 +128,10 @@ vi.mock("@multica/views/i18n", () => ({
 }));
 
 vi.mock("../../../common/workflow-node-detail-panel-shell", () => ({
-  WorkflowNodeDetailPanelShell: ({ children, footer, badges }: { children: React.ReactNode; footer?: React.ReactNode; badges?: React.ReactNode }) => (
+  WorkflowNodeDetailPanelShell: ({ children, footer, badges, badgeActions }: { children: React.ReactNode; footer?: React.ReactNode; badges?: React.ReactNode; badgeActions?: React.ReactNode }) => (
     <div>
       <div data-testid="split-panel-badges">{badges}</div>
+      <div data-testid="split-panel-badge-actions">{badgeActions}</div>
       {children}
       {footer ? <div data-testid="node-detail-panel-footer">{footer}</div> : null}
     </div>
@@ -156,6 +172,8 @@ describe("SplitReviewPanel", () => {
     vi.clearAllMocks();
     mocks.data = response();
     mocks.deliverableData = { deliverables: [], submissions: [] };
+    mocks.sessionPermission = { can_observe: false };
+    mocks.embedded = false;
   });
 
   it("shows the task-plan pull request number", () => {
@@ -229,7 +247,6 @@ describe("SplitReviewPanel", () => {
       />,
     );
     mocks.refetchDeliverables.mockClear();
-
     rerender(
       <SplitReviewPanel
         node={node}
@@ -270,7 +287,24 @@ describe("SplitReviewPanel", () => {
     render(<SplitReviewPanel node={node} nodeRun={{ ...baseRun, status: "splitting" }} wsId="ws-1" onClose={vi.fn()} />);
 
     expect(screen.queryByTestId("node-detail-panel-footer")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "More operations" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "More information" })).not.toBeInTheDocument();
+  });
+
+  it("shows validation details from a lightweight header hover card", async () => {
+    const user = userEvent.setup();
+    mocks.generate.mockImplementationOnce((_variables: unknown, options: { onError: (error: unknown) => void }) => {
+      options.onError(new ApiError("Invalid split plan", 422, "Unprocessable Entity", {
+        details: [{ line: 4, field: "assignee_id", message: "Choose an assignee" }],
+      }));
+    });
+
+    render(<SplitReviewPanel node={node} nodeRun={baseRun} wsId="ws-1" onClose={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "Regenerate plan" }));
+
+    const moreInformation = await screen.findByRole("button", { name: /More information/ });
+    expect(screen.getByTestId("split-panel-badge-actions")).toContainElement(moreInformation);
+    await user.hover(moreInformation);
+    expect(await screen.findByText(/Choose an assignee/)).toBeInTheDocument();
   });
 
   it.each(["materializing", "blocked"] as const)("retries an exhausted materialization row while %s", (status) => {
@@ -314,5 +348,27 @@ describe("SplitReviewPanel", () => {
     const footer = screen.getByTestId("node-detail-panel-footer");
     fireEvent.click(within(footer).getByRole("button", { name: "View child issues" }));
     expect(onViewChildren).toHaveBeenCalledOnce();
+  });
+
+  it("keeps split actions and Open session in one footer action row", () => {
+    mocks.embedded = true;
+    mocks.sessionPermission = { can_observe: true };
+
+    render(
+      <SplitReviewPanel
+        node={node}
+        nodeRun={{ ...baseRun, session_id: "session-1" }}
+        wsId="ws-1"
+        onClose={vi.fn()}
+      />,
+    );
+
+    const actionRow = screen.getByTestId("split-node-action-toolbar");
+    expect(actionRow).toHaveClass("flex", "flex-nowrap");
+    expect(actionRow).toContainElement(screen.getByRole("button", { name: "Open session" }));
+    expect(actionRow).toContainElement(screen.getByRole("button", { name: "Regenerate plan" }));
+    expect(actionRow).toContainElement(screen.getByRole("button", { name: "Cancel split" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open session" }));
+    expect(mocks.navigateToSession).toHaveBeenCalledWith({ sessionId: "session-1", newTab: true });
   });
 });

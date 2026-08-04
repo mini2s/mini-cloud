@@ -16,6 +16,7 @@ function HoverCardTrigger({ ...props }: PreviewCardPrimitive.Trigger.Props) {
 
 function HoverCardContent({
   className,
+  positionerClassName,
   side = "bottom",
   sideOffset = 4,
   align = "center",
@@ -29,7 +30,9 @@ function HoverCardContent({
   Pick<
     PreviewCardPrimitive.Positioner.Props,
     "align" | "alignOffset" | "side" | "sideOffset"
-  >) {
+  > & {
+    positionerClassName?: string
+  }) {
   // Stop interaction events from bubbling out of the popup. Base UI portals
   // the popup to <body> so the DOM is detached, but React's synthetic event
   // system still bubbles through the React component tree — without this,
@@ -55,7 +58,7 @@ function HoverCardContent({
         alignOffset={alignOffset}
         side={side}
         sideOffset={sideOffset}
-        className="isolate z-50"
+        className={cn("isolate z-50", positionerClassName)}
       >
         <PreviewCardPrimitive.Popup
           data-slot="hover-card-content"

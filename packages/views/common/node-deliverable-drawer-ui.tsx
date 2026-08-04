@@ -1,18 +1,22 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import {
-  ChevronDown,
   ExternalLink,
   FileText,
+  Info,
   Loader2,
-  SlidersHorizontal,
 } from "lucide-react";
 import type {
   WorkflowNodeDeliverable,
   WorkflowNodeDeliverableSubmission,
 } from "@multica/core/types";
 import { cn } from "@multica/ui/lib/utils";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@multica/ui/components/ui/hover-card";
 
 export const drawerButtonClass =
   "inline-flex h-[34px] items-center justify-center gap-1.5 rounded-lg border px-[13px] text-[13px] font-medium whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-50";
@@ -374,32 +378,36 @@ export function CurrentDeliverablesCard({
   );
 }
 
-export function DrawerMoreOperations({
+export function DrawerMoreInformation({
   badge,
-  defaultOpen = false,
   title,
   children,
 }: {
   badge?: ReactNode;
-  defaultOpen?: boolean;
   title: string;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
   return (
-    <section className="rounded-[10px] border bg-background px-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-      <button
-        type="button"
-        className="flex w-full items-center gap-2 border-0 bg-transparent px-0.5 py-[11px] text-left text-[12.5px] font-medium leading-[19px] text-muted-foreground hover:text-foreground"
-        onClick={() => setOpen((value) => !value)}
-        aria-expanded={open}
+    <HoverCard>
+      <HoverCardTrigger
+        render={<button type="button" />}
+        delay={150}
+        closeDelay={120}
+        className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <SlidersHorizontal className="size-[13px]" />
+        <Info className="size-3" />
         <span>{title}</span>
         {badge}
-        <ChevronDown className={cn("ml-auto size-3.5 transition-transform", open && "rotate-180")} />
-      </button>
-      {open ? <div className="px-0.5 pb-3">{children}</div> : null}
-    </section>
+      </HoverCardTrigger>
+      <HoverCardContent
+        align="end"
+        side="bottom"
+        sideOffset={8}
+        positionerClassName="z-[70]"
+        className="max-h-[min(32rem,calc(100vh-6rem))] w-[min(24rem,calc(100vw-2rem))] overflow-y-auto p-3.5"
+      >
+        {children}
+      </HoverCardContent>
+    </HoverCard>
   );
 }

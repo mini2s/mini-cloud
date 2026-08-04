@@ -25,7 +25,7 @@ interface NodeRunControlActionsProps {
   runId?: string;
   wsId: string;
   size?: "sm" | "default";
-  layout?: "inline" | "grid-items";
+  layout?: "inline" | "grid-items" | "row-items";
   /**
    * When true, the buttons are always rendered regardless of the current
    * node-run status or the user's permission. Clicking a button that cannot
@@ -88,10 +88,14 @@ export function NodeRunControlActions({
     ? size === "sm"
       ? "h-7 w-full min-w-0 text-xs"
       : "h-8 w-full min-w-0 text-sm"
+    : layout === "row-items"
+      ? size === "sm"
+        ? "h-7 min-w-20 shrink-0 text-xs"
+        : "h-8 min-w-24 shrink-0 text-sm"
     : size === "sm"
       ? "h-7 min-w-20 text-xs"
       : "h-8 min-w-24 text-sm";
-  const containerClass = layout === "grid-items"
+  const containerClass = layout === "grid-items" || layout === "row-items"
     ? "contents"
     : "flex flex-wrap items-center justify-start gap-3";
   const iconClass = "h-3.5 w-3.5";

@@ -232,7 +232,7 @@
     "split_drawer_submitted_at": "Submitted",
     "split_drawer_children_active": "All child issues were created and started",
     "split_drawer_materializing_note": "Creating child issues · {{retry}} waiting for automatic retry ({{next}}) · {{exhausted}} failed items can be retried",
-    "split_drawer_more": "More operations",
+    "split_drawer_more": "More information",
     "split_drawer_validation_count": "task.md validation · {{count}} errors",
     "split_drawer_validation_hint": "Server validation failed during approval (422). Fix task.md in Gitea, then approve the snapshot again.",
     "split_drawer_retry_failed": "Retry failed items",

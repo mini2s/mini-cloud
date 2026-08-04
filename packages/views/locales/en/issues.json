@@ -712,7 +712,7 @@
       "task_drawer_submit_failed": "Failed to submit deliverables",
       "task_drawer_submit_hint": "Each submission adds one item; review starts after documents and PRs are submitted",
       "task_drawer_submit_form_hint": "Choose a deliverable and submit a file or PR link",
-      "task_drawer_more": "More operations",
+      "task_drawer_more": "More information",
       "task_drawer_runtime_info": "Run information",
       "task_drawer_output_summary": "Execution output summary",
       "worker_output": "Worker output",

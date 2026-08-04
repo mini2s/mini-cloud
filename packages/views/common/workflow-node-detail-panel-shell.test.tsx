@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { GitBranch } from "lucide-react";
+import { DrawerMoreInformation } from "./node-deliverable-drawer-ui";
 import {
   NodeDetailSection,
   WorkflowNodeDetailPanelShell,
@@ -75,6 +77,54 @@ describe("NodeDetailSection", () => {
 });
 
 describe("WorkflowNodeDetailPanelShell", () => {
+  it("renders header information above the overlay panel after pointer focus", async () => {
+    const user = userEvent.setup();
+    render(
+      <WorkflowNodeDetailPanelShell
+        mode="run"
+        title="Node details"
+        closeLabel="Close"
+        onClose={vi.fn()}
+        badgeActions={(
+          <DrawerMoreInformation title="More information">
+            <div>Runtime information</div>
+          </DrawerMoreInformation>
+        )}
+      >
+        <div>Body</div>
+      </WorkflowNodeDetailPanelShell>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "More information" });
+    await user.click(trigger);
+    const content = (await screen.findByText("Runtime information"))
+      .closest("[data-slot='hover-card-content']");
+
+    expect(trigger).toHaveAttribute("data-popup-open");
+    expect(content?.parentElement).toHaveClass("z-[70]");
+  });
+
+  it("places lightweight header actions to the right of the status badges", () => {
+    render(
+      <WorkflowNodeDetailPanelShell
+        mode="run"
+        title="Node details"
+        closeLabel="Close"
+        onClose={vi.fn()}
+        badges={<span>In progress</span>}
+        badgeActions={<button type="button">More information</button>}
+      >
+        <div>Body</div>
+      </WorkflowNodeDetailPanelShell>,
+    );
+
+    const statusRow = screen.getByTestId("node-detail-panel-status-row");
+    expect(statusRow).toHaveClass("justify-between");
+    expect(within(statusRow).getByText("In progress")).toBeInTheDocument();
+    expect(screen.getByTestId("node-detail-panel-badge-actions"))
+      .toContainElement(screen.getByRole("button", { name: "More information" }));
+  });
+
   it("renders an optional footer outside the scrolling content", () => {
     render(
       <WorkflowNodeDetailPanelShell
